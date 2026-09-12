@@ -10,13 +10,11 @@ namespace CustomerService.Controllers
     public class CustomersController : ControllerBase
     {
         private readonly ICustomerService _customerService;
-        private readonly IMessageProducer _messageProducer;
         private readonly ILogger<CustomersController> _logger;
 
-        public CustomersController(ICustomerService customerService, IMessageProducer messageProducer, ILogger<CustomersController> logger)
+        public CustomersController(ICustomerService customerService, ILogger<CustomersController> logger)
         {
             _customerService = customerService;
-            _messageProducer = messageProducer;
             _logger = logger;
         }
 
@@ -48,34 +46,9 @@ namespace CustomerService.Controllers
         {
             try
             {
+                // CustomerCreatedEvent is published inside CreateCustomerAsync
+                // (CustomerService) on the customer_events exchange.
                 var createdCustomer = await _customerService.CreateCustomerAsync(createCustomerRequest);
-
-                /*
-                // Safely create and publish the event - DISABLED FOR NOW TO PREVENT TIMEOUTS
-                try
-                {
-                    // Create a deterministic GUID from the integer customer ID to satisfy the event model
-                    byte[] idBytes = new byte[16];
-                    BitConverter.GetBytes(createdCustomer.Id).CopyTo(idBytes, 0);
-                    var customerGuid = new Guid(idBytes);
-
-                    var customerCreatedEvent = new CustomerCreatedEvent
-                    {
-                        CustomerId = customerGuid, // Use the generated GUID
-                        Name = createdCustomer.Name,
-                        Email = createdCustomer.Email,
-                        Timestamp = DateTime.UtcNow
-                    };
-
-                    _messageProducer.PublishMessage(customerCreatedEvent, "customer.created");
-                    _logger.LogInformation("CustomerCreatedEvent published for customer: {CustomerName}", createdCustomer.Name);
-                }
-                catch (Exception ex)
-                {
-                    // Log the failure to publish the event, but don't let it crash the whole operation
-                    _logger.LogWarning(ex, "Failed to publish CustomerCreatedEvent for customer: {CustomerName}", createCustomerRequest.Name);
-                }
-                */
 
                 return Ok(createdCustomer);
             }

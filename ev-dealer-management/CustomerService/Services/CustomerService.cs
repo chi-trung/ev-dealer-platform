@@ -1,5 +1,6 @@
 using CustomerService.Data;
 using CustomerService.DTOs;
+using CustomerService.Events;
 using CustomerService.Models;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration; // Needed for IConfiguration if we inject it
@@ -117,7 +118,13 @@ public class CustomerService : ICustomerService
         _context.Customers.Add(customer);
         await _context.SaveChangesAsync();
 
-        _messageProducer.PublishMessage(customer, "customer.created");
+        _messageProducer.PublishMessage(new CustomerCreatedEvent
+        {
+            CustomerId = customer.Id,
+            Name = customer.Name,
+            Email = customer.Email,
+            Timestamp = DateTime.UtcNow
+        }, EventNames.CustomerCreated);
 
         // Return the created customer as a DTO
         return new CustomerDto
@@ -160,7 +167,16 @@ public class CustomerService : ICustomerService
 
         await _context.SaveChangesAsync();
 
-        _messageProducer.PublishMessage(customer, "customer.updated");
+        _messageProducer.PublishMessage(new CustomerUpdatedEvent
+        {
+            CustomerId = customer.Id,
+            Name = customer.Name,
+            Email = customer.Email,
+            Phone = customer.Phone,
+            Address = customer.Address,
+            Status = customer.Status,
+            Timestamp = DateTime.UtcNow
+        }, EventNames.CustomerUpdated);
 
         // Return the updated customer as a DTO
         return new CustomerDto
@@ -187,7 +203,11 @@ public class CustomerService : ICustomerService
         // For now, we'll just delete the customer. Consider soft delete if needed.
         _context.Customers.Remove(customer);
         await _context.SaveChangesAsync();
-        _messageProducer.PublishMessage(new { CustomerId = id, EventType = "Deleted" }, "customer.deleted");
+        _messageProducer.PublishMessage(new CustomerDeletedEvent
+        {
+            CustomerId = id,
+            Timestamp = DateTime.UtcNow
+        }, EventNames.CustomerDeleted);
         return true;
     }
 
@@ -472,9 +492,9 @@ public class CustomerService : ICustomerService
             var purchase = new Purchase
             {
                 CustomerId = existingCustomer.Id,
-                Vehicle = $"{reservationEvent.VehicleModel} (Reservation #{reservationEvent.ReservationId})",
-                Amount = reservationEvent.TotalPrice,
-                PurchaseDate = reservationEvent.CreatedAt
+                Vehicle = $"{reservationEvent.VehicleName} (x{reservationEvent.Quantity})",
+                Amount = reservationEvent.VehiclePrice * reservationEvent.Quantity,
+                PurchaseDate = reservationEvent.ReservedAt
             };
             
             existingCustomer.Purchases.Add(purchase);
@@ -510,22 +530,40 @@ public class CustomerService : ICustomerService
                 Phone = reservationEvent.CustomerPhone,
                 DealerId = reservationEvent.DealerId,
                 Status = "active",
-                JoinDate = reservationEvent.CreatedAt,
-                UpdatedAt = reservationEvent.CreatedAt
+                JoinDate = reservationEvent.ReservedAt,
+                UpdatedAt = reservationEvent.ReservedAt
             };
 
             // Thêm purchase record đầu tiên
             var purchase = new Purchase
             {
-                Vehicle = $"{reservationEvent.VehicleModel} (Reservation #{reservationEvent.ReservationId})",
-                Amount = reservationEvent.TotalPrice,
-                PurchaseDate = reservationEvent.CreatedAt
+                Vehicle = $"{reservationEvent.VehicleName} (x{reservationEvent.Quantity})",
+                Amount = reservationEvent.VehiclePrice * reservationEvent.Quantity,
+                PurchaseDate = reservationEvent.ReservedAt
             };
-            
+
             newCustomer.Purchases.Add(purchase);
-            
+
             _context.Customers.Add(newCustomer);
-            await _context.SaveChangesAsync();
+            try
+            {
+                await _context.SaveChangesAsync();
+            }
+            catch (DbUpdateException)
+            {
+                // Email has a unique index: a concurrent reservation for the same
+                // new customer can win the insert race. Retry once through the
+                // update path instead of failing (which would nack-requeue the event).
+                _context.ChangeTracker.Clear();
+                var racedCustomer = await _context.Customers
+                    .FirstOrDefaultAsync(c => c.Email == reservationEvent.CustomerEmail);
+                if (racedCustomer == null)
+                {
+                    throw; // not a conflict we can recover from
+                }
+
+                return await CreateOrUpdateCustomerFromReservationAsync(reservationEvent);
+            }
 
             return new CustomerDto
             {

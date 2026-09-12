@@ -481,6 +481,8 @@ public class VehicleService : IVehicleService
         {
             VehicleId = vehicleId,
             VehicleName = vehicle.Model,
+            VehiclePrice = vehicle.Price,
+            DealerId = vehicle.DealerId,
             CustomerName = request.CustomerName,
             CustomerEmail = request.CustomerEmail,
             CustomerPhone = request.CustomerPhone,

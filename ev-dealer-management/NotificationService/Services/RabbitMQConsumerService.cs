@@ -10,6 +10,10 @@ namespace NotificationService.Services
 {
     public class RabbitMQConsumerService : IMessageConsumer, IDisposable
     {
+        // Topic exchange published by VehicleService (vehicle.*) and
+        // CustomerService (testdrive.*). See docs/EVENTS.md.
+        private const string VehicleExchange = "vehicle_events";
+
         private readonly IConfiguration _configuration;
         private readonly IServiceProvider _serviceProvider;
         private IConnection? _connection;
@@ -38,20 +42,25 @@ namespace NotificationService.Services
 
                 _connection = factory.CreateConnection();
 
-                // Channel for SaleCompleted events
+                // Channel for SaleCompleted events (default exchange, published by SalesService)
                 _saleChannel = _connection.CreateModel();
                 var saleQueue = _configuration["RabbitMQ:Queues:SaleCompleted"] ?? "sales.completed";
                 _saleChannel.QueueDeclare(queue: saleQueue, durable: true, exclusive: false, autoDelete: false, arguments: null);
 
-                // Channel for VehicleReserved events
+                // Channel for VehicleReserved events - must bind to the vehicle_events topic
+                // exchange, otherwise the queue receives nothing.
                 _reservationChannel = _connection.CreateModel();
                 var reservationQueue = _configuration["RabbitMQ:Queues:VehicleReserved"] ?? "vehicle.reserved";
+                _reservationChannel.ExchangeDeclare(exchange: VehicleExchange, type: ExchangeType.Topic, durable: true, autoDelete: false, arguments: null);
                 _reservationChannel.QueueDeclare(queue: reservationQueue, durable: true, exclusive: false, autoDelete: false, arguments: null);
+                _reservationChannel.QueueBind(queue: reservationQueue, exchange: VehicleExchange, routingKey: "vehicle.reserved");
 
-                // Channel for TestDriveScheduled events
+                // Channel for TestDriveScheduled events - also on the shared topic exchange.
                 _testDriveChannel = _connection.CreateModel();
                 var testDriveQueue = _configuration["RabbitMQ:Queues:TestDriveScheduled"] ?? "testdrive.scheduled";
+                _testDriveChannel.ExchangeDeclare(exchange: VehicleExchange, type: ExchangeType.Topic, durable: true, autoDelete: false, arguments: null);
                 _testDriveChannel.QueueDeclare(queue: testDriveQueue, durable: true, exclusive: false, autoDelete: false, arguments: null);
+                _testDriveChannel.QueueBind(queue: testDriveQueue, exchange: VehicleExchange, routingKey: "testdrive.scheduled");
 
                 Log.Information("RabbitMQ consumer connection and channels initialized successfully.");
             }

@@ -12,63 +12,94 @@ namespace CustomerService.Consumers
 {
     public class VehicleReservedEventConsumer : BackgroundService
     {
+        // Same topic exchange VehicleService publishes vehicle.reserved to (docs/EVENTS.md).
+        private const string VehicleExchange = "vehicle_events";
+
         private readonly IServiceScopeFactory _scopeFactory;
         private readonly ILogger<VehicleReservedEventConsumer> _logger;
+        private readonly IConfiguration _configuration;
         private IConnection? _connection;
         private IModel? _channel;
 
         public VehicleReservedEventConsumer(
             IServiceScopeFactory scopeFactory,
-            ILogger<VehicleReservedEventConsumer> logger)
+            ILogger<VehicleReservedEventConsumer> logger,
+            IConfiguration configuration)
         {
             _scopeFactory = scopeFactory;
             _logger = logger;
+            _configuration = configuration;
         }
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
             try
             {
-                // Setup RabbitMQ connection
-                var factory = new ConnectionFactory() 
-                { 
-                    HostName = "localhost",
-                    UserName = "guest",
-                    Password = "guest"
+                // Setup RabbitMQ connection from configuration, like every other service.
+                var factory = new ConnectionFactory()
+                {
+                    HostName = _configuration["RabbitMQ:HostName"] ?? "localhost",
+                    Port = int.Parse(_configuration["RabbitMQ:Port"] ?? "5672"),
+                    UserName = _configuration["RabbitMQ:UserName"] ?? "guest",
+                    Password = _configuration["RabbitMQ:Password"] ?? "guest"
                 };
 
                 _connection = factory.CreateConnection();
                 _channel = _connection.CreateModel();
 
-                // Declare exchange and queue
-                _channel.ExchangeDeclare(exchange: "vehicle_events", type: "topic", durable: true);
+                // Declare exchange and queue, then bind this service's own queue
+                // to the shared topic exchange.
+                _channel.ExchangeDeclare(exchange: VehicleExchange, type: ExchangeType.Topic, durable: true);
                 _channel.QueueDeclare(queue: "customer_vehicle_reserved", durable: true, exclusive: false, autoDelete: false);
-                _channel.QueueBind(queue: "customer_vehicle_reserved", exchange: "vehicle_events", routingKey: "vehicle.reserved");
+                _channel.QueueBind(queue: "customer_vehicle_reserved", exchange: VehicleExchange, routingKey: "vehicle.reserved");
+
+                // Prefetch 1: process one delivery at a time. The handler does a
+                // check-then-insert on Customers.Email (unique index); concurrent
+                // deliveries of the same email would race and lose.
+                _channel.BasicQos(prefetchSize: 0, prefetchCount: 1, global: false);
 
                 // Setup consumer
                 var consumer = new EventingBasicConsumer(_channel);
                 consumer.Received += async (sender, ea) =>
                 {
+                    var body = ea.Body.ToArray();
+                    var message = Encoding.UTF8.GetString(body);
+
+                    VehicleReservedEvent? reservationEvent;
                     try
                     {
-                        var body = ea.Body.ToArray();
-                        var message = Encoding.UTF8.GetString(body);
-                        
+                        reservationEvent = JsonSerializer.Deserialize<VehicleReservedEvent>(message);
+                    }
+                    catch (JsonException ex)
+                    {
+                        // Unparseable payload (empty body, truncated, foreign message):
+                        // ack and discard. Nack+requeue would poison-loop this message
+                        // forever - see docs/EVENTS.md "Known gaps" for the planned DLX.
+                        _logger.LogWarning(ex, "Received a malformed VehicleReservedEvent payload; acking and discarding. Body: {Message}", message);
+                        _channel.BasicAck(deliveryTag: ea.DeliveryTag, multiple: false);
+                        return;
+                    }
+
+                    if (reservationEvent == null)
+                    {
+                        _logger.LogWarning("Received a null VehicleReservedEvent payload; acking and discarding.");
+                        _channel.BasicAck(deliveryTag: ea.DeliveryTag, multiple: false);
+                        return;
+                    }
+
+                    try
+                    {
                         _logger.LogInformation("Received VehicleReservedEvent: {Message}", message);
 
-                        var reservationEvent = JsonSerializer.Deserialize<VehicleReservedEvent>(message);
-                        if (reservationEvent != null)
-                        {
-                            using var scope = _scopeFactory.CreateScope();
-                            var customerService = scope.ServiceProvider.GetRequiredService<ICustomerService>();
-                            
-                            var customer = await customerService.CreateOrUpdateCustomerFromReservationAsync(reservationEvent);
-                            _logger.LogInformation("Customer created/updated: {CustomerName} (ID: {CustomerId})", 
-                                customer.Name, customer.Id);
+                        using var scope = _scopeFactory.CreateScope();
+                        var customerService = scope.ServiceProvider.GetRequiredService<ICustomerService>();
 
-                            // Acknowledge message
-                            _channel.BasicAck(deliveryTag: ea.DeliveryTag, multiple: false);
-                        }
+                        var customer = await customerService.CreateOrUpdateCustomerFromReservationAsync(reservationEvent);
+                        _logger.LogInformation("Customer created/updated: {CustomerName} (ID: {CustomerId})",
+                            customer.Name, customer.Id);
+
+                        // Acknowledge message
+                        _channel.BasicAck(deliveryTag: ea.DeliveryTag, multiple: false);
                     }
                     catch (Exception ex)
                     {

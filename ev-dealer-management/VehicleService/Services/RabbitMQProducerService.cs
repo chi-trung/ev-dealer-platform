@@ -1,6 +1,7 @@
 using RabbitMQ.Client;
 using System.Text;
 using System.Text.Json;
+using VehicleService.Events;
 
 namespace VehicleService.Services
 {
@@ -10,6 +11,9 @@ namespace VehicleService.Services
         private readonly ILogger<RabbitMQProducerService> _logger;
         private IConnection? _connection;
         private IModel? _channel;
+        // IModel is not thread-safe: serialize publishes (and reconnects) from
+        // concurrent HTTP requests onto the single channel.
+        private readonly object _publishLock = new object();
 
         public RabbitMQProducerService(IConfiguration configuration, ILogger<RabbitMQProducerService> logger)
         {
@@ -33,6 +37,16 @@ namespace VehicleService.Services
                 _connection = factory.CreateConnection();
                 _channel = _connection.CreateModel();
 
+                // Declare the shared topic exchange (idempotent). All vehicle.* events
+                // go through it so multiple consumers can fan out from one publish.
+                _channel.ExchangeDeclare(
+                    exchange: EventNames.VehicleExchange,
+                    type: ExchangeType.Topic,
+                    durable: true,
+                    autoDelete: false,
+                    arguments: null
+                );
+
                 _logger.LogInformation("RabbitMQ producer connection and channel initialized successfully.");
             }
             catch (Exception ex)
@@ -43,59 +57,56 @@ namespace VehicleService.Services
 
         public void PublishMessage<T>(T message, string routingKey = "")
         {
-            if (_channel == null || !_channel.IsOpen)
+            lock (_publishLock)
             {
-                _logger.LogWarning("RabbitMQ channel is not open. Attempting to re-initialize for publishing.");
-                InitializeRabbitMQ();
                 if (_channel == null || !_channel.IsOpen)
                 {
-                    _logger.LogError("Failed to publish message: RabbitMQ channel is still not open.");
-                    return;
-                }
-            }
-
-            try
-            {
-                var messageString = JsonSerializer.Serialize(message);
-                var body = Encoding.UTF8.GetBytes(messageString);
-
-                // Determine queue name based on routing key or message type
-                var queueName = routingKey;
-                if (string.IsNullOrEmpty(queueName))
-                {
-                    queueName = typeof(T).Name switch
+                    _logger.LogWarning("RabbitMQ channel is not open. Attempting to re-initialize for publishing.");
+                    InitializeRabbitMQ();
+                    if (_channel == null || !_channel.IsOpen)
                     {
-                        "VehicleCreatedEvent" => "vehicle.created",
-                        "VehicleUpdatedEvent" => "vehicle.updated", 
-                        "VehicleDeletedEvent" => "vehicle.deleted",
-                        "VehicleReservedEvent" => "vehicle.reserved",
-                        _ => "vehicle.events"
-                    };
+                        _logger.LogError("Failed to publish message: RabbitMQ channel is still not open.");
+                        return;
+                    }
                 }
 
-                // Declare queue if not exists (idempotent)
-                _channel.QueueDeclare(
-                    queue: queueName,
-                    durable: true,
-                    exclusive: false,
-                    autoDelete: false,
-                    arguments: null
-                );
+                try
+                {
+                    var messageString = JsonSerializer.Serialize(message);
+                    var body = Encoding.UTF8.GetBytes(messageString);
 
-                // Publish directly to queue (empty exchange = default exchange)
-                _channel.BasicPublish(
-                    exchange: "",
-                    routingKey: queueName,
-                    basicProperties: null,
-                    body: body
-                );
+                    // Determine routing key based on message type when not given explicitly.
+                    var key = routingKey;
+                    if (string.IsNullOrEmpty(key))
+                    {
+                        key = typeof(T).Name switch
+                        {
+                            "VehicleCreatedEvent" => EventNames.VehicleCreated,
+                            "VehicleUpdatedEvent" => EventNames.VehicleUpdated,
+                            "VehicleDeletedEvent" => EventNames.VehicleDeleted,
+                            "VehicleReservedEvent" => EventNames.VehicleReserved,
+                            _ => "vehicle.events"
+                        };
+                    }
 
-                _logger.LogInformation("Published message of type {MessageType} to queue '{QueueName}'", 
-                    typeof(T).Name, queueName);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error publishing message of type {MessageType}", typeof(T).Name);
+                    // Persistent so reserved/created events survive a broker restart.
+                    var properties = _channel.CreateBasicProperties();
+                    properties.Persistent = true;
+
+                    _channel.BasicPublish(
+                        exchange: EventNames.VehicleExchange,
+                        routingKey: key,
+                        basicProperties: properties,
+                        body: body
+                    );
+
+                    _logger.LogInformation("Published message of type {MessageType} to exchange '{Exchange}' with routing key '{RoutingKey}'",
+                        typeof(T).Name, EventNames.VehicleExchange, key);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error publishing message of type {MessageType}", typeof(T).Name);
+                }
             }
         }
 

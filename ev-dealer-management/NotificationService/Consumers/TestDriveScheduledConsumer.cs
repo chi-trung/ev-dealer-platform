@@ -27,6 +27,11 @@ public class TestDriveScheduledConsumer
 
             Log.Information("Processing TestDriveScheduledEvent for Customer: {CustomerName}", testDriveEvent.CustomerName);
 
+            // VehicleModel may be empty when CustomerService can't resolve the name.
+            var vehicleLabel = string.IsNullOrWhiteSpace(testDriveEvent.VehicleModel)
+                ? $"#{testDriveEvent.VehicleId}"
+                : testDriveEvent.VehicleModel;
+
             // Check if device token is available
             if (string.IsNullOrWhiteSpace(testDriveEvent.DeviceToken))
             {
@@ -36,11 +41,11 @@ public class TestDriveScheduledConsumer
 
             // Send push notification
             var title = "📅 Test Drive đã được đặt!";
-            var body = $"Lịch test drive xe {testDriveEvent.VehicleModel} vào ngày {testDriveEvent.ScheduledDate:dd/MM/yyyy HH:mm}. Vui lòng đến đúng giờ!";
+            var body = $"Lịch test drive xe {vehicleLabel} vào ngày {testDriveEvent.ScheduledDate:dd/MM/yyyy HH:mm}. Vui lòng đến đúng giờ!";
             var data = new Dictionary<string, string>
             {
                 { "type", "testdrive" },
-                { "vehicleModel", testDriveEvent.VehicleModel },
+                { "vehicleModel", vehicleLabel },
                 { "scheduledDate", testDriveEvent.ScheduledDate.ToString("yyyy-MM-dd HH:mm:ss") }
             };
 
