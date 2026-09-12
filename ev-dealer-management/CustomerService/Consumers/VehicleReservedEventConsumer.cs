@@ -53,6 +53,11 @@ namespace CustomerService.Consumers
                 _channel.QueueDeclare(queue: "customer_vehicle_reserved", durable: true, exclusive: false, autoDelete: false);
                 _channel.QueueBind(queue: "customer_vehicle_reserved", exchange: VehicleExchange, routingKey: "vehicle.reserved");
 
+                // Prefetch 1: process one delivery at a time. The handler does a
+                // check-then-insert on Customers.Email (unique index); concurrent
+                // deliveries of the same email would race and lose.
+                _channel.BasicQos(prefetchSize: 0, prefetchCount: 1, global: false);
+
                 // Setup consumer
                 var consumer = new EventingBasicConsumer(_channel);
                 consumer.Received += async (sender, ea) =>

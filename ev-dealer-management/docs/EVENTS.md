@@ -1,8 +1,12 @@
 # Event Topology (RabbitMQ)
 
 Canonical event bus for the EV Dealer microservices. Every publish is **persistent**
-(`Persistent = true`) and every consumer **acks manually** (`autoAck: false`, ack on
-success, nack+requeue on failure).
+(`Persistent = true`) and every consumer **acks manually** (`autoAck: false`).
+Acknowledgement policy per consumer: CustomerService's `VehicleReservedEventConsumer`
+acks on success, acks-and-discards malformed payloads, and nack+requeues on processing
+errors (with `BasicQos` prefetch 1 so same-email deliveries can't race the unique
+index). NotificationService's consumers ack after invoking their handler, but the
+handlers currently swallow their own errors — see "Known gaps" #3.
 
 Broker connection settings live under the `RabbitMQ` config section of each service:
 `HostName` / `Port` / `UserName` / `Password` (env override: `RabbitMQ__HostName` etc.).
@@ -51,7 +55,7 @@ exchange; the routing key **is** the queue name (from `RabbitMQ:Queues:*` config
 
 | Routing key = queue | Producer (payload) | Consumer |
 |---|---|---|
-| `sales.completed` | SalesService OrdersController — `SaleCompletedEvent` (OrderId, CustomerName, Email, Phone, VehicleModel, TotalPrice, DealerId, CompletedAt, DeviceToken) | NotificationService `sales.completed` → push (skipped without DeviceToken) |
+| `sales.completed` | SalesService OrdersController — `SaleCompletedEvent` (OrderId, CustomerEmail, CustomerName, VehicleModel, TotalPrice, CompletedAt, DeviceToken?) | NotificationService `sales.completed` → push (skipped without DeviceToken) |
 | `order.created` | SalesService OrdersController — `OrderCreatedEvent` | **unrouted** — NotificationService has `OrderCreatedConsumer` but it is not wired to a queue |
 | `payment.received` | SalesService PaymentsController | no consumer |
 | `order.status.changed` | SalesService OrdersController | no consumer |
@@ -84,8 +88,11 @@ Fan-out works as intended for `vehicle.reserved`: one publish, two queues
    registered or bound to a queue; their events pile up unconsumed. (W4)
 2. **`contract.created` has no producer** — the DTO exists in SalesService but no
    code publishes it.
-3. **No dead-letter queues** — a handler that always throws (poison message) is
-   nack-requeued forever. W4 adds DLX + retry limits.
+3. **No dead-letter queues and no retry limits** — malformed payloads are now
+   ack-discarded, but a message that fails *processing* in CustomerService is
+   nack-requeued forever, and NotificationService handlers catch their own errors
+   (e.g. a failed FCM send) and still ack — so those events are silently lost.
+   W4 adds DLX + retry limits and moves error handling out of the handlers.
 4. **`customer.*` consumers not wired** — events are published but nothing binds
    `customer_events`. NotificationService should acknowledge new customers. (W4)
 5. **docker-compose ships only user/vehicle/sales + rabbitmq** — CustomerService and

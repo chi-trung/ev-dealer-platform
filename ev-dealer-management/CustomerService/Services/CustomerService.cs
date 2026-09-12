@@ -541,11 +541,29 @@ public class CustomerService : ICustomerService
                 Amount = reservationEvent.VehiclePrice * reservationEvent.Quantity,
                 PurchaseDate = reservationEvent.ReservedAt
             };
-            
+
             newCustomer.Purchases.Add(purchase);
-            
+
             _context.Customers.Add(newCustomer);
-            await _context.SaveChangesAsync();
+            try
+            {
+                await _context.SaveChangesAsync();
+            }
+            catch (DbUpdateException)
+            {
+                // Email has a unique index: a concurrent reservation for the same
+                // new customer can win the insert race. Retry once through the
+                // update path instead of failing (which would nack-requeue the event).
+                _context.ChangeTracker.Clear();
+                var racedCustomer = await _context.Customers
+                    .FirstOrDefaultAsync(c => c.Email == reservationEvent.CustomerEmail);
+                if (racedCustomer == null)
+                {
+                    throw; // not a conflict we can recover from
+                }
+
+                return await CreateOrUpdateCustomerFromReservationAsync(reservationEvent);
+            }
 
             return new CustomerDto
             {
