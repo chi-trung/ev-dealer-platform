@@ -29,11 +29,34 @@ jobs:
         working-directory: ev-dealer-frontend
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
           cache: 'npm'
           cache-dependency-path: ev-dealer-frontend/package-lock.json
+      - name: Verify LFS assets are real files
+        # *.glb is tracked by Git LFS. Without smudge, checkout leaves a
+        # ~130-byte text pointer, which vite copies verbatim into dist and
+        # the landing page's GLTFLoader then fails to parse at runtime.
+        # Fail loudly here instead of shipping a green-but-broken build.
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          found=0
+          for f in public/*.glb; do
+            found=1
+            size=$(stat --format=%s "$f")
+            echo "$f: $size bytes"
+            if [ "$size" -lt 1000 ]; then
+              echo "::error::$f is a Git LFS pointer, not the real asset ($size bytes)."
+              exit 1
+            fi
+          done
+          if [ "$found" -eq 0 ]; then
+            echo "::warning::no .glb files found under public/ - asset may have moved."
+          fi
       - name: Install dependencies
         run: npm ci
       - name: Build
