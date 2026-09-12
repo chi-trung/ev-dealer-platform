@@ -1,6 +1,7 @@
 using AutoMapper;
 using CustomerService.Data;
 using CustomerService.DTOs;
+using CustomerService.Events;
 using CustomerService.Models;
 using Microsoft.EntityFrameworkCore;
 
@@ -10,11 +11,13 @@ namespace CustomerService.Services
     {
         private readonly CustomerDbContext _context;
         private readonly IMapper _mapper;
+        private readonly IMessageProducer _messageProducer;
 
-        public TestDriveService(CustomerDbContext context, IMapper mapper)
+        public TestDriveService(CustomerDbContext context, IMapper mapper, IMessageProducer messageProducer)
         {
             _context = context;
             _mapper = mapper;
+            _messageProducer = messageProducer;
         }
 
         public async Task<IEnumerable<TestDriveDto>> GetAllTestDrivesAsync()
@@ -37,6 +40,22 @@ namespace CustomerService.Services
             var customer = await _context.Customers.FindAsync(testDrive.CustomerId);
             var testDriveDto = _mapper.Map<TestDriveDto>(testDrive);
             testDriveDto.CustomerName = customer?.Name;
+
+            // Notify (NotificationService consumes testdrive.scheduled on the
+            // vehicle_events exchange). Vehicle model is not resolvable locally;
+            // see docs/EVENTS.md for the cross-service lookup follow-up.
+            _messageProducer.PublishMessage(new TestDriveScheduledEvent
+            {
+                TestDriveId = testDrive.Id,
+                CustomerId = testDrive.CustomerId,
+                VehicleId = testDrive.VehicleId,
+                DealerId = testDrive.DealerId,
+                CustomerEmail = customer?.Email ?? string.Empty,
+                CustomerName = customer?.Name ?? string.Empty,
+                VehicleModel = string.Empty,
+                ScheduledDate = testDrive.AppointmentDate,
+                DeviceToken = null
+            }, EventNames.TestDriveScheduled);
 
             return testDriveDto;
         }

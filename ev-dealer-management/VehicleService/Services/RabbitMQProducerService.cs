@@ -1,6 +1,7 @@
 using RabbitMQ.Client;
 using System.Text;
 using System.Text.Json;
+using VehicleService.Events;
 
 namespace VehicleService.Services
 {
@@ -33,6 +34,16 @@ namespace VehicleService.Services
                 _connection = factory.CreateConnection();
                 _channel = _connection.CreateModel();
 
+                // Declare the shared topic exchange (idempotent). All vehicle.* events
+                // go through it so multiple consumers can fan out from one publish.
+                _channel.ExchangeDeclare(
+                    exchange: EventNames.VehicleExchange,
+                    type: ExchangeType.Topic,
+                    durable: true,
+                    autoDelete: false,
+                    arguments: null
+                );
+
                 _logger.LogInformation("RabbitMQ producer connection and channel initialized successfully.");
             }
             catch (Exception ex)
@@ -59,39 +70,33 @@ namespace VehicleService.Services
                 var messageString = JsonSerializer.Serialize(message);
                 var body = Encoding.UTF8.GetBytes(messageString);
 
-                // Determine queue name based on routing key or message type
-                var queueName = routingKey;
-                if (string.IsNullOrEmpty(queueName))
+                // Determine routing key based on message type when not given explicitly.
+                var key = routingKey;
+                if (string.IsNullOrEmpty(key))
                 {
-                    queueName = typeof(T).Name switch
+                    key = typeof(T).Name switch
                     {
-                        "VehicleCreatedEvent" => "vehicle.created",
-                        "VehicleUpdatedEvent" => "vehicle.updated", 
-                        "VehicleDeletedEvent" => "vehicle.deleted",
-                        "VehicleReservedEvent" => "vehicle.reserved",
+                        "VehicleCreatedEvent" => EventNames.VehicleCreated,
+                        "VehicleUpdatedEvent" => EventNames.VehicleUpdated,
+                        "VehicleDeletedEvent" => EventNames.VehicleDeleted,
+                        "VehicleReservedEvent" => EventNames.VehicleReserved,
                         _ => "vehicle.events"
                     };
                 }
 
-                // Declare queue if not exists (idempotent)
-                _channel.QueueDeclare(
-                    queue: queueName,
-                    durable: true,
-                    exclusive: false,
-                    autoDelete: false,
-                    arguments: null
-                );
+                // Persistent so reserved/created events survive a broker restart.
+                var properties = _channel.CreateBasicProperties();
+                properties.Persistent = true;
 
-                // Publish directly to queue (empty exchange = default exchange)
                 _channel.BasicPublish(
-                    exchange: "",
-                    routingKey: queueName,
-                    basicProperties: null,
+                    exchange: EventNames.VehicleExchange,
+                    routingKey: key,
+                    basicProperties: properties,
                     body: body
                 );
 
-                _logger.LogInformation("Published message of type {MessageType} to queue '{QueueName}'", 
-                    typeof(T).Name, queueName);
+                _logger.LogInformation("Published message of type {MessageType} to exchange '{Exchange}' with routing key '{RoutingKey}'",
+                    typeof(T).Name, EventNames.VehicleExchange, key);
             }
             catch (Exception ex)
             {

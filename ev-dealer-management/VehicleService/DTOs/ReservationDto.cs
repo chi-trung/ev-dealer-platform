@@ -29,6 +29,8 @@ namespace VehicleService.DTOs
     {
         public int VehicleId { get; set; }
         public string VehicleName { get; set; } = string.Empty;
+        public decimal VehiclePrice { get; set; }
+        public int DealerId { get; set; }
         public string CustomerName { get; set; } = string.Empty;
         public string CustomerEmail { get; set; } = string.Empty;
         public string CustomerPhone { get; set; } = string.Empty;
