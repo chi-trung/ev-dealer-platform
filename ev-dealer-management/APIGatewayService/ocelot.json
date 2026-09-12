@@ -3,44 +3,70 @@
     {
       "DownstreamPathTemplate": "/api/auth/{everything}",
       "DownstreamScheme": "http",
-      "DownstreamHostAndPorts": [
-        {
-          "Host": "localhost",
-          "Port": 7001
-        }
-      ],
+      "DownstreamHostAndPorts": [ { "Host": "localhost", "Port": 7001 } ],
       "UpstreamPathTemplate": "/api/auth/{everything}",
-      "UpstreamHttpMethod": [ "GET", "POST", "PUT", "DELETE" ],
-      "AuthenticationOptions": {
-        "AuthenticationProviderKey": null,
-        "AllowedScopes": []
-      }
+      "UpstreamHttpMethod": [ "GET", "POST", "PUT", "DELETE" ]
     },
     {
       "DownstreamPathTemplate": "/api/users/{everything}",
       "DownstreamScheme": "http",
-      "DownstreamHostAndPorts": [
-        {
-          "Host": "localhost",
-          "Port": 7001
-        }
-      ],
+      "DownstreamHostAndPorts": [ { "Host": "localhost", "Port": 7001 } ],
       "UpstreamPathTemplate": "/api/users/{everything}",
-      "UpstreamHttpMethod": [ "GET", "POST", "PUT", "DELETE" ],
-      "AuthenticationOptions": {
-        "AuthenticationProviderKey": null,
-        "AllowedScopes": []
-      }
+      "UpstreamHttpMethod": [ "GET", "POST", "PUT", "DELETE" ]
+    },
+    {
+      "DownstreamPathTemplate": "/api/admin/users/{everything}",
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [ { "Host": "localhost", "Port": 7001 } ],
+      "UpstreamPathTemplate": "/api/admin/users/{everything}",
+      "UpstreamHttpMethod": [ "GET", "POST", "PUT", "DELETE" ]
+    },
+    {
+      "DownstreamPathTemplate": "/api/admin/users",
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [ { "Host": "localhost", "Port": 7001 } ],
+      "UpstreamPathTemplate": "/api/admin/users",
+      "UpstreamHttpMethod": [ "GET", "POST", "PUT", "DELETE" ]
+    },
+    {
+      "DownstreamPathTemplate": "/api/vehicles/{everything}",
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [ { "Host": "localhost", "Port": 5068 } ],
+      "UpstreamPathTemplate": "/api/vehicles/{everything}",
+      "UpstreamHttpMethod": [ "GET", "POST", "PUT", "DELETE" ]
+    },
+    {
+      "DownstreamPathTemplate": "/api/dealers/{everything}",
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [ { "Host": "localhost", "Port": 5068 } ],
+      "UpstreamPathTemplate": "/api/dealers/{everything}",
+      "UpstreamHttpMethod": [ "GET", "POST", "PUT", "DELETE" ]
+    },
+    {
+      "DownstreamPathTemplate": "/api/vehicletypes/{everything}",
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [ { "Host": "localhost", "Port": 5068 } ],
+      "UpstreamPathTemplate": "/api/vehicletypes/{everything}",
+      "UpstreamHttpMethod": [ "GET", "POST", "PUT", "DELETE" ]
+    },
+    {
+      "DownstreamPathTemplate": "/api/export/{everything}",
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [ { "Host": "localhost", "Port": 5068 } ],
+      "UpstreamPathTemplate": "/api/export/{everything}",
+      "UpstreamHttpMethod": [ "GET", "POST" ]
+    },
+    {
+      "DownstreamPathTemplate": "/images/{everything}",
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [ { "Host": "localhost", "Port": 5068 } ],
+      "UpstreamPathTemplate": "/images/{everything}",
+      "UpstreamHttpMethod": [ "GET" ]
     },
     {
       "DownstreamPathTemplate": "/api/customers/{everything}",
       "DownstreamScheme": "http",
-      "DownstreamHostAndPorts": [
-        {
-          "Host": "localhost",
-          "Port": 5039
-        }
-      ],
+      "DownstreamHostAndPorts": [ { "Host": "localhost", "Port": 5039 } ],
       "UpstreamPathTemplate": "/api/customers/{everything}",
       "UpstreamHttpMethod": [ "GET", "POST", "PUT", "DELETE" ],
       "DownstreamHttpVersion": "1.1"
@@ -48,65 +74,192 @@
     {
       "DownstreamPathTemplate": "/api/TestDrives/{everything}",
       "DownstreamScheme": "http",
-      "DownstreamHostAndPorts": [
-        {
-          "Host": "localhost",
-          "Port": 5039
-        }
-      ],
+      "DownstreamHostAndPorts": [ { "Host": "localhost", "Port": 5039 } ],
       "UpstreamPathTemplate": "/api/TestDrives/{everything}",
       "UpstreamHttpMethod": [ "GET", "POST", "PUT", "DELETE" ],
       "DownstreamHttpVersion": "1.1"
     },
     {
-      "DownstreamPathTemplate": "/api/vehicles/{everything}",
+      "DownstreamPathTemplate": "/api/Complaints/{everything}",
       "DownstreamScheme": "http",
-      "DownstreamHostAndPorts": [
-        {
-          "Host": "localhost",
-          "Port": 5068
-        }
-      ],
-      "UpstreamPathTemplate": "/api/vehicles/{everything}",
+      "DownstreamHostAndPorts": [ { "Host": "localhost", "Port": 5039 } ],
+      "UpstreamPathTemplate": "/api/Complaints/{everything}",
       "UpstreamHttpMethod": [ "GET", "POST", "PUT", "DELETE" ],
       "DownstreamHttpVersion": "1.1"
     },
     {
-      "DownstreamPathTemplate": "/api/dealers/{everything}",
+      "DownstreamPathTemplate": "/api/Complaints/{everything}",
       "DownstreamScheme": "http",
-      "DownstreamHostAndPorts": [
-        {
-          "Host": "localhost",
-          "Port": 5068
-        }
-      ],
-      "UpstreamPathTemplate": "/api/dealers/{everything}",
+      "DownstreamHostAndPorts": [ { "Host": "localhost", "Port": 5039 } ],
+      "UpstreamPathTemplate": "/api/CustomerService/Complaints/{everything}",
       "UpstreamHttpMethod": [ "GET", "POST", "PUT", "DELETE" ],
       "DownstreamHttpVersion": "1.1"
     },
     {
-      "DownstreamPathTemplate": "/api/vehicletypes/{everything}",
+      "DownstreamPathTemplate": "/api/Orders/{everything}",
       "DownstreamScheme": "http",
-      "DownstreamHostAndPorts": [
-        {
-          "Host": "localhost",
-          "Port": 5068
-        }
-      ],
-      "UpstreamPathTemplate": "/api/vehicletypes/{everything}",
+      "DownstreamHostAndPorts": [ { "Host": "localhost", "Port": 5003 } ],
+      "UpstreamPathTemplate": "/api/Orders/{everything}",
       "UpstreamHttpMethod": [ "GET", "POST", "PUT", "DELETE" ],
       "DownstreamHttpVersion": "1.1"
     },
     {
-      "DownstreamPathTemplate": "/images/{everything}",
+      "DownstreamPathTemplate": "/api/Orders",
       "DownstreamScheme": "http",
-      "DownstreamHostAndPorts": [
-        {
-          "Host": "localhost",
-          "Port": 5068
-        }
-      ],
-      "UpstreamPathTemplate": "/images/{everything}",
+      "DownstreamHostAndPorts": [ { "Host": "localhost", "Port": 5003 } ],
+      "UpstreamPathTemplate": "/api/Orders",
+      "UpstreamHttpMethod": [ "GET", "POST", "PUT", "DELETE" ],
+      "DownstreamHttpVersion": "1.1"
+    },
+    {
+      "DownstreamPathTemplate": "/api/Contracts/{everything}",
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [ { "Host": "localhost", "Port": 5003 } ],
+      "UpstreamPathTemplate": "/api/Contracts/{everything}",
+      "UpstreamHttpMethod": [ "GET", "POST", "PUT", "DELETE" ],
+      "DownstreamHttpVersion": "1.1"
+    },
+    {
+      "DownstreamPathTemplate": "/api/Contracts",
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [ { "Host": "localhost", "Port": 5003 } ],
+      "UpstreamPathTemplate": "/api/Contracts",
+      "UpstreamHttpMethod": [ "GET", "POST", "PUT", "DELETE" ],
+      "DownstreamHttpVersion": "1.1"
+    },
+    {
+      "DownstreamPathTemplate": "/api/Quotes/{everything}",
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [ { "Host": "localhost", "Port": 5003 } ],
+      "UpstreamPathTemplate": "/api/Quotes/{everything}",
+      "UpstreamHttpMethod": [ "GET", "POST", "PUT", "DELETE" ],
+      "DownstreamHttpVersion": "1.1"
+    },
+    {
+      "DownstreamPathTemplate": "/api/Quotes",
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [ { "Host": "localhost", "Port": 5003 } ],
+      "UpstreamPathTemplate": "/api/Quotes",
+      "UpstreamHttpMethod": [ "GET", "POST", "PUT", "DELETE" ],
+      "DownstreamHttpVersion": "1.1"
+    },
+    {
+      "DownstreamPathTemplate": "/api/Payments/{everything}",
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [ { "Host": "localhost", "Port": 5003 } ],
+      "UpstreamPathTemplate": "/api/Payments/{everything}",
+      "UpstreamHttpMethod": [ "GET", "POST", "PUT", "DELETE" ],
+      "DownstreamHttpVersion": "1.1"
+    },
+    {
+      "DownstreamPathTemplate": "/api/Promotions/{everything}",
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [ { "Host": "localhost", "Port": 5003 } ],
+      "UpstreamPathTemplate": "/api/Promotions/{everything}",
+      "UpstreamHttpMethod": [ "GET", "POST", "PUT", "DELETE" ],
+      "DownstreamHttpVersion": "1.1"
+    },
+    {
+      "DownstreamPathTemplate": "/api/Deliveries/{everything}",
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [ { "Host": "localhost", "Port": 5003 } ],
+      "UpstreamPathTemplate": "/api/Deliveries/{everything}",
+      "UpstreamHttpMethod": [ "GET", "POST", "PUT", "DELETE" ],
+      "DownstreamHttpVersion": "1.1"
+    },
+    {
+      "DownstreamPathTemplate": "/api/ProcessedReservations/{everything}",
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [ { "Host": "localhost", "Port": 5003 } ],
+      "UpstreamPathTemplate": "/api/ProcessedReservations/{everything}",
+      "UpstreamHttpMethod": [ "GET", "POST", "PUT", "DELETE" ],
+      "DownstreamHttpVersion": "1.1"
+    },
+    {
+      "DownstreamPathTemplate": "/api/Sales/{everything}",
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [ { "Host": "localhost", "Port": 5003 } ],
+      "UpstreamPathTemplate": "/api/Sales/{everything}",
+      "UpstreamHttpMethod": [ "GET", "POST", "PUT", "DELETE" ],
+      "DownstreamHttpVersion": "1.1"
+    },
+    {
+      "DownstreamPathTemplate": "/api/Sales",
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [ { "Host": "localhost", "Port": 5003 } ],
+      "UpstreamPathTemplate": "/api/Sales",
+      "UpstreamHttpMethod": [ "GET", "POST", "PUT", "DELETE" ],
+      "DownstreamHttpVersion": "1.1"
+    },
+    {
+      "DownstreamPathTemplate": "/api/reports/{everything}",
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [ { "Host": "localhost", "Port": 5208 } ],
+      "UpstreamPathTemplate": "/api/reports/{everything}",
+      "UpstreamHttpMethod": [ "GET", "POST" ],
+      "DownstreamHttpVersion": "1.1"
+    },
+    {
+      "DownstreamPathTemplate": "/api/Notification/{everything}",
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [ { "Host": "localhost", "Port": 5051 } ],
+      "UpstreamPathTemplate": "/api/Notification/{everything}",
+      "UpstreamHttpMethod": [ "GET", "POST", "PUT", "DELETE" ],
+      "DownstreamHttpVersion": "1.1"
+    },
+    {
+      "DownstreamPathTemplate": "/api/Notification/{everything}",
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [ { "Host": "localhost", "Port": 5051 } ],
+      "UpstreamPathTemplate": "/api/notifications/{everything}",
+      "UpstreamHttpMethod": [ "GET", "POST", "PUT", "DELETE" ],
+      "DownstreamHttpVersion": "1.1"
+    },
+    {
+      "DownstreamPathTemplate": "/health",
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [ { "Host": "localhost", "Port": 7001 } ],
+      "UpstreamPathTemplate": "/api/health/user",
+      "UpstreamHttpMethod": [ "GET" ],
+      "DownstreamHttpVersion": "1.1"
+    },
+    {
+      "DownstreamPathTemplate": "/health",
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [ { "Host": "localhost", "Port": 5068 } ],
+      "UpstreamPathTemplate": "/api/health/vehicle",
+      "UpstreamHttpMethod": [ "GET" ],
+      "DownstreamHttpVersion": "1.1"
+    },
+    {
+      "DownstreamPathTemplate": "/health",
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [ { "Host": "localhost", "Port": 5003 } ],
+      "UpstreamPathTemplate": "/api/health/sales",
+      "UpstreamHttpMethod": [ "GET" ],
+      "DownstreamHttpVersion": "1.1"
+    },
+    {
+      "DownstreamPathTemplate": "/health",
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [ { "Host": "localhost", "Port": 5039 } ],
+      "UpstreamPathTemplate": "/api/health/customer",
+      "UpstreamHttpMethod": [ "GET" ],
+      "DownstreamHttpVersion": "1.1"
+    },
+    {
+      "DownstreamPathTemplate": "/health",
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [ { "Host": "localhost", "Port": 5208 } ],
+      "UpstreamPathTemplate": "/api/health/reporting",
+      "UpstreamHttpMethod": [ "GET" ],
+      "DownstreamHttpVersion": "1.1"
+    },
+    {
+      "DownstreamPathTemplate": "/health",
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [ { "Host": "localhost", "Port": 5051 } ],
+      "UpstreamPathTemplate": "/api/health/notification",
       "UpstreamHttpMethod": [ "GET" ],
       "DownstreamHttpVersion": "1.1"
     }

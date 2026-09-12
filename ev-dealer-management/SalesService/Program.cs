@@ -41,6 +41,7 @@ builder.Services.AddControllers().AddJsonOptions(options =>
 
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
+builder.Services.AddHealthChecks();
 
 // Configure DbContext
 builder.Services.AddDbContext<SalesDbContext>(options =>
@@ -89,5 +90,8 @@ app.UseHttpsRedirection();
 app.UseCors("AllowFrontend");
 
 app.MapControllers();
+
+// Liveness probe for the API gateway aggregate /health (docs/GATEWAY.md).
+app.MapHealthChecks("/health");
 
 app.Run();
