@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  backend:
+    name: Build .NET services
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ev-dealer-management
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Build solution
+        run: dotnet build DealerSystem.sln -clp:ErrorsOnly
+
+  frontend:
+    name: Build React frontend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ev-dealer-frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: ev-dealer-frontend/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Build
+        run: npm run build
