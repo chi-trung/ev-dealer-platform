@@ -57,22 +57,34 @@ namespace CustomerService.Consumers
                 var consumer = new EventingBasicConsumer(_channel);
                 consumer.Received += async (sender, ea) =>
                 {
+                    var body = ea.Body.ToArray();
+                    var message = Encoding.UTF8.GetString(body);
+
+                    VehicleReservedEvent? reservationEvent;
                     try
                     {
-                        var body = ea.Body.ToArray();
-                        var message = Encoding.UTF8.GetString(body);
+                        reservationEvent = JsonSerializer.Deserialize<VehicleReservedEvent>(message);
+                    }
+                    catch (JsonException ex)
+                    {
+                        // Unparseable payload (empty body, truncated, foreign message):
+                        // ack and discard. Nack+requeue would poison-loop this message
+                        // forever - see docs/EVENTS.md "Known gaps" for the planned DLX.
+                        _logger.LogWarning(ex, "Received a malformed VehicleReservedEvent payload; acking and discarding. Body: {Message}", message);
+                        _channel.BasicAck(deliveryTag: ea.DeliveryTag, multiple: false);
+                        return;
+                    }
 
+                    if (reservationEvent == null)
+                    {
+                        _logger.LogWarning("Received a null VehicleReservedEvent payload; acking and discarding.");
+                        _channel.BasicAck(deliveryTag: ea.DeliveryTag, multiple: false);
+                        return;
+                    }
+
+                    try
+                    {
                         _logger.LogInformation("Received VehicleReservedEvent: {Message}", message);
-
-                        var reservationEvent = JsonSerializer.Deserialize<VehicleReservedEvent>(message);
-                        if (reservationEvent == null)
-                        {
-                            // Unparseable/empty payload: ack and move on. Nack+requeue would
-                            // put this message in a poison loop and block the queue.
-                            _logger.LogWarning("Received an empty VehicleReservedEvent payload; acking and discarding.");
-                            _channel.BasicAck(deliveryTag: ea.DeliveryTag, multiple: false);
-                            return;
-                        }
 
                         using var scope = _scopeFactory.CreateScope();
                         var customerService = scope.ServiceProvider.GetRequiredService<ICustomerService>();

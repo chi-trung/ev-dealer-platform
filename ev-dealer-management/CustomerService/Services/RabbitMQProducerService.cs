@@ -16,6 +16,9 @@ namespace CustomerService.Services
         private readonly ILogger<RabbitMQProducerService> _logger;
         private IConnection? _connection;
         private IModel? _channel;
+        // IModel is not thread-safe: serialize publishes (and reconnects) from
+        // concurrent HTTP requests onto the single channel.
+        private readonly object _publishLock = new object();
 
         public RabbitMQProducerService(IConfiguration configuration, ILogger<RabbitMQProducerService> logger)
         {
@@ -53,43 +56,46 @@ namespace CustomerService.Services
 
         public void PublishMessage<T>(T message, string routingKey = "")
         {
-            if (_channel == null || !_channel.IsOpen)
+            lock (_publishLock)
             {
-                _logger.LogWarning("RabbitMQ channel is not open. Attempting to re-initialize for publishing.");
-                InitializeRabbitMQ();
                 if (_channel == null || !_channel.IsOpen)
                 {
-                    _logger.LogError("Failed to publish message: RabbitMQ channel is still not open.");
-                    return;
+                    _logger.LogWarning("RabbitMQ channel is not open. Attempting to re-initialize for publishing.");
+                    InitializeRabbitMQ();
+                    if (_channel == null || !_channel.IsOpen)
+                    {
+                        _logger.LogError("Failed to publish message: RabbitMQ channel is still not open.");
+                        return;
+                    }
                 }
-            }
 
-            try
-            {
-                var exchange = routingKey.StartsWith("testdrive.", StringComparison.Ordinal)
-                    ? EventNames.VehicleExchange
-                    : EventNames.CustomerExchange;
+                try
+                {
+                    var exchange = routingKey.StartsWith("testdrive.", StringComparison.Ordinal)
+                        ? EventNames.VehicleExchange
+                        : EventNames.CustomerExchange;
 
-                var json = JsonSerializer.Serialize(message);
-                var body = Encoding.UTF8.GetBytes(json);
+                    var json = JsonSerializer.Serialize(message);
+                    var body = Encoding.UTF8.GetBytes(json);
 
-                var properties = _channel.CreateBasicProperties();
-                properties.Persistent = true;
+                    var properties = _channel.CreateBasicProperties();
+                    properties.Persistent = true;
 
-                _channel.BasicPublish(
-                    exchange: exchange,
-                    routingKey: routingKey,
-                    basicProperties: properties,
-                    body: body
-                );
+                    _channel.BasicPublish(
+                        exchange: exchange,
+                        routingKey: routingKey,
+                        basicProperties: properties,
+                        body: body
+                    );
 
-                _logger.LogInformation("Published {MessageType} to '{Exchange}'/'{RoutingKey}'",
-                    typeof(T).Name, exchange, routingKey);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error publishing message of type {MessageType} with routing key '{RoutingKey}'",
-                    typeof(T).Name, routingKey);
+                    _logger.LogInformation("Published {MessageType} to '{Exchange}'/'{RoutingKey}'",
+                        typeof(T).Name, exchange, routingKey);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error publishing message of type {MessageType} with routing key '{RoutingKey}'",
+                        typeof(T).Name, routingKey);
+                }
             }
         }
 

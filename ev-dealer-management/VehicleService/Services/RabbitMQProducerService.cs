@@ -11,6 +11,9 @@ namespace VehicleService.Services
         private readonly ILogger<RabbitMQProducerService> _logger;
         private IConnection? _connection;
         private IModel? _channel;
+        // IModel is not thread-safe: serialize publishes (and reconnects) from
+        // concurrent HTTP requests onto the single channel.
+        private readonly object _publishLock = new object();
 
         public RabbitMQProducerService(IConfiguration configuration, ILogger<RabbitMQProducerService> logger)
         {
@@ -54,53 +57,56 @@ namespace VehicleService.Services
 
         public void PublishMessage<T>(T message, string routingKey = "")
         {
-            if (_channel == null || !_channel.IsOpen)
+            lock (_publishLock)
             {
-                _logger.LogWarning("RabbitMQ channel is not open. Attempting to re-initialize for publishing.");
-                InitializeRabbitMQ();
                 if (_channel == null || !_channel.IsOpen)
                 {
-                    _logger.LogError("Failed to publish message: RabbitMQ channel is still not open.");
-                    return;
-                }
-            }
-
-            try
-            {
-                var messageString = JsonSerializer.Serialize(message);
-                var body = Encoding.UTF8.GetBytes(messageString);
-
-                // Determine routing key based on message type when not given explicitly.
-                var key = routingKey;
-                if (string.IsNullOrEmpty(key))
-                {
-                    key = typeof(T).Name switch
+                    _logger.LogWarning("RabbitMQ channel is not open. Attempting to re-initialize for publishing.");
+                    InitializeRabbitMQ();
+                    if (_channel == null || !_channel.IsOpen)
                     {
-                        "VehicleCreatedEvent" => EventNames.VehicleCreated,
-                        "VehicleUpdatedEvent" => EventNames.VehicleUpdated,
-                        "VehicleDeletedEvent" => EventNames.VehicleDeleted,
-                        "VehicleReservedEvent" => EventNames.VehicleReserved,
-                        _ => "vehicle.events"
-                    };
+                        _logger.LogError("Failed to publish message: RabbitMQ channel is still not open.");
+                        return;
+                    }
                 }
 
-                // Persistent so reserved/created events survive a broker restart.
-                var properties = _channel.CreateBasicProperties();
-                properties.Persistent = true;
+                try
+                {
+                    var messageString = JsonSerializer.Serialize(message);
+                    var body = Encoding.UTF8.GetBytes(messageString);
 
-                _channel.BasicPublish(
-                    exchange: EventNames.VehicleExchange,
-                    routingKey: key,
-                    basicProperties: properties,
-                    body: body
-                );
+                    // Determine routing key based on message type when not given explicitly.
+                    var key = routingKey;
+                    if (string.IsNullOrEmpty(key))
+                    {
+                        key = typeof(T).Name switch
+                        {
+                            "VehicleCreatedEvent" => EventNames.VehicleCreated,
+                            "VehicleUpdatedEvent" => EventNames.VehicleUpdated,
+                            "VehicleDeletedEvent" => EventNames.VehicleDeleted,
+                            "VehicleReservedEvent" => EventNames.VehicleReserved,
+                            _ => "vehicle.events"
+                        };
+                    }
 
-                _logger.LogInformation("Published message of type {MessageType} to exchange '{Exchange}' with routing key '{RoutingKey}'",
-                    typeof(T).Name, EventNames.VehicleExchange, key);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error publishing message of type {MessageType}", typeof(T).Name);
+                    // Persistent so reserved/created events survive a broker restart.
+                    var properties = _channel.CreateBasicProperties();
+                    properties.Persistent = true;
+
+                    _channel.BasicPublish(
+                        exchange: EventNames.VehicleExchange,
+                        routingKey: key,
+                        basicProperties: properties,
+                        body: body
+                    );
+
+                    _logger.LogInformation("Published message of type {MessageType} to exchange '{Exchange}' with routing key '{RoutingKey}'",
+                        typeof(T).Name, EventNames.VehicleExchange, key);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error publishing message of type {MessageType}", typeof(T).Name);
+                }
             }
         }
 
