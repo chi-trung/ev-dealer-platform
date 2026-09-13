@@ -140,7 +140,7 @@ Fan-out works as intended for `vehicle.reserved`: one publish, two queues
   `DeviceTokensAuthTests.cs` (Issue #36) pins the controller's authorization
   decision table (own/dealer/foreign/missing-claim × PUT/GET/DELETE, incl.
   prefix-shaped negatives that kill a StartsWith mutant of the ownership
-  rule). CI runs all five inside the "Build .NET services" job.
+  rule). CI runs all six inside the "Build .NET services" job.
 
 ## Device-token registry (Issue #33)
 

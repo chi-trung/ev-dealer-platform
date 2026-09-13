@@ -108,11 +108,10 @@ Xem file `NIFI_INTEGRATION.md` để biết cách cấu hình NiFi flows để t
 
 ## Lưu ý quan trọng
 
-### 1. OrderId Type Mismatch
-- `Order.OrderId` là `int`
-- `Payment.OrderId` là `Guid`
-- Hiện tại code xử lý bằng cách không match trực tiếp, sử dụng logic đơn giản hóa
-- **Cần fix**: Tạo mapping table hoặc thống nhất kiểu dữ liệu
+### 1. OrderId Type Mismatch — ĐÃ XỬ LÝ (Issue #37)
+- `Order.OrderId` là `int`; `Payment.OrderId` giờ cũng là `int` FK thật (migration `PaymentOrderLinkToIntFK` trong SalesService — trước đây là `Guid` không ràng buộc gì, link thật nằm ở shadow column `OrderId1` chưa bao giờ được populate)
+- `SalesDataService.GetPaymentsAsync` parse `orderId` bằng `GetInt32()` — payload int trên wire khớp trực tiếp, không còn JsonException bị swallow thành rỗng
+- Không cần mapping table
 
 ### 2. Customer Name
 - Trong `DebtFromCustomerDto`, `CustomerName` hiện tại là "Customer" (hardcoded)

@@ -136,7 +136,12 @@ public class SalesPushConsumerTests : IDisposable
         await new PaymentReceivedConsumer(fcm, Registry()).HandleAsync(Json(Payment()));
 
         Assert.Equal(new[] { "tok-phone" }, fcm.LastMulticastTokens);
-        Assert.Contains("10,000,000", fcm.LastMulticastBody);
+        // The consumer renders the amount with {Amount:N0} under
+        // CultureInfo.CurrentCulture, so the expected grouping must be computed
+        // the same way — a hardcoded "10,000,000" would fail on vi-VN/de-DE
+        // hosts ("10.000.000") without any product regression. Pins the
+        // N0-grouping intent culture-symmetrically (review of PR #42).
+        Assert.Contains(10000000m.ToString("N0"), fcm.LastMulticastBody);
         Assert.Equal("payment", fcm.LastMulticastData!["type"]);
         Assert.Equal("11", fcm.LastMulticastData["orderId"]);
         Assert.Equal("5", fcm.LastMulticastData["customerId"]);
