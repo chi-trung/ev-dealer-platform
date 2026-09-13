@@ -203,7 +203,7 @@ services:
     networks:
       - ev-dealer-network
 
-  # --- NotificationService (consumer of 11 queues, no DB) ---------------------
+  # --- NotificationService (consumer of 14 queues, no DB) ---------------------
   # Firebase credential file is intentionally NOT mounted: it doesn't exist in
   # the repo (secret), and Docker mounting a missing host path creates a
   # DIRECTORY over /app/firebase-credentials.json — worse than failing cleanly
@@ -239,6 +239,9 @@ services:
       - RabbitMQ__Queues__CustomerDeleted=customer.deleted
       - RabbitMQ__Queues__PaymentReceived=payment.received
       - RabbitMQ__Queues__OrderStatusChanged=order.status.changed
+      - RabbitMQ__Queues__VehicleCreated=vehicle.created
+      - RabbitMQ__Queues__VehicleUpdated=vehicle.updated
+      - RabbitMQ__Queues__VehicleDeleted=vehicle.deleted
       - RabbitMQ__MaxDeliveryAttempts=3
       - RabbitMQ__RetryTtlMilliseconds=5000
       - Firebase__CredentialPath=/app/firebase-credentials.json

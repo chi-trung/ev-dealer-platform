@@ -31,6 +31,9 @@ namespace NotificationService.Services
         private const string CustomerDeletedQueueKey = "CustomerDeleted";
         private const string PaymentReceivedQueueKey = "PaymentReceived";
         private const string OrderStatusChangedQueueKey = "OrderStatusChanged";
+        private const string VehicleCreatedQueueKey = "VehicleCreated";
+        private const string VehicleUpdatedQueueKey = "VehicleUpdated";
+        private const string VehicleDeletedQueueKey = "VehicleDeleted";
 
         private readonly IConfiguration _configuration;
         private readonly IServiceProvider _serviceProvider;
@@ -47,6 +50,9 @@ namespace NotificationService.Services
         private IModel? _customerDeletedChannel;
         private IModel? _paymentReceivedChannel;
         private IModel? _orderStatusChangedChannel;
+        private IModel? _vehicleCreatedChannel;
+        private IModel? _vehicleUpdatedChannel;
+        private IModel? _vehicleDeletedChannel;
         private int _maxAttempts = EventRetryPolicy.DefaultMaxAttempts;
         private int _retryTtlMs = EventRetryPolicy.DefaultRetryTtlMs;
 
@@ -110,6 +116,13 @@ namespace NotificationService.Services
                     // payment.received, order.status.changed.
                     _paymentReceivedChannel = OpenQueueChannel(QueueName(PaymentReceivedQueueKey, "payment.received"), vehicleTopicRoutingKey: null);
                     _orderStatusChangedChannel = OpenQueueChannel(QueueName(OrderStatusChangedQueueKey, "order.status.changed"), vehicleTopicRoutingKey: null);
+
+                    // Vehicle lifecycle events published by VehicleService to
+                    // the vehicle_events topic exchange - same bind-by-event-key
+                    // contract as the customer queues above.
+                    _vehicleCreatedChannel = OpenTopicQueueChannel(QueueName(VehicleCreatedQueueKey, "vehicle.created"), VehicleExchange, "vehicle.created");
+                    _vehicleUpdatedChannel = OpenTopicQueueChannel(QueueName(VehicleUpdatedQueueKey, "vehicle.updated"), VehicleExchange, "vehicle.updated");
+                    _vehicleDeletedChannel = OpenTopicQueueChannel(QueueName(VehicleDeletedQueueKey, "vehicle.deleted"), VehicleExchange, "vehicle.deleted");
 
                     Log.Information("RabbitMQ consumer connection and channels initialized successfully.");
                 }
@@ -222,6 +235,12 @@ namespace NotificationService.Services
                 sp => sp.GetRequiredService<PaymentReceivedConsumer>().HandleAsync);
             StartConsumingQueue(_orderStatusChangedChannel, QueueName(OrderStatusChangedQueueKey, "order.status.changed"),
                 sp => sp.GetRequiredService<OrderStatusChangedConsumer>().HandleAsync);
+            StartConsumingQueue(_vehicleCreatedChannel, QueueName(VehicleCreatedQueueKey, "vehicle.created"),
+                sp => sp.GetRequiredService<VehicleCreatedConsumer>().HandleAsync);
+            StartConsumingQueue(_vehicleUpdatedChannel, QueueName(VehicleUpdatedQueueKey, "vehicle.updated"),
+                sp => sp.GetRequiredService<VehicleUpdatedConsumer>().HandleAsync);
+            StartConsumingQueue(_vehicleDeletedChannel, QueueName(VehicleDeletedQueueKey, "vehicle.deleted"),
+                sp => sp.GetRequiredService<VehicleDeletedConsumer>().HandleAsync);
 
             Log.Information("Started consuming messages from all queues.");
         }
@@ -346,6 +365,9 @@ namespace NotificationService.Services
             _customerDeletedChannel?.Close();
             _paymentReceivedChannel?.Close();
             _orderStatusChangedChannel?.Close();
+            _vehicleCreatedChannel?.Close();
+            _vehicleUpdatedChannel?.Close();
+            _vehicleDeletedChannel?.Close();
             _connection?.Close();
             Log.Information("RabbitMQ consumer connection closed.");
         }

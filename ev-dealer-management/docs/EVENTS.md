@@ -48,9 +48,9 @@ Broker connection settings live under the `RabbitMQ` config section of each serv
 
 | Routing key | Producer (payload) | Consumer queues |
 |---|---|---|
-| `vehicle.created` | VehicleService — `VehicleCreatedEvent` | *(none yet — reserved for search/cache indexing)* |
-| `vehicle.updated` | VehicleService — `VehicleUpdatedEvent` | *(none yet)* |
-| `vehicle.deleted` | VehicleService — `VehicleDeletedEvent` | *(none yet)* |
+| `vehicle.created` | VehicleService — `VehicleCreatedEvent` (VehicleId, Model, Type, Price, DealerId, CreatedAt) | `vehicle.created` (NotificationService → log-only; payload carries no DeviceToken) |
+| `vehicle.updated` | VehicleService — `VehicleUpdatedEvent` (VehicleId, Model, Type, Price, DealerId, UpdatedAt) | `vehicle.updated` (NotificationService → log-only; same) |
+| `vehicle.deleted` | VehicleService — `VehicleDeletedEvent` (VehicleId, DeletedAt) | `vehicle.deleted` (NotificationService → log-only; same) |
 | `vehicle.reserved` | VehicleService — `VehicleReservedEvent` (VehicleId, VehicleName, VehiclePrice, DealerId, CustomerName/Email/Phone, ColorVariantId/Name, Quantity, Notes, ReservedAt, DeviceToken) | `vehicle.reserved` (NotificationService → push), `customer_vehicle_reserved` (CustomerService → create/update customer + purchase) |
 | `testdrive.scheduled` | CustomerService — `TestDriveScheduledEvent` (TestDriveId, CustomerId, VehicleId, DealerId, CustomerEmail, CustomerName, VehicleModel*, ScheduledDate, DeviceToken*) | `testdrive.scheduled` (NotificationService → push) |
 
@@ -92,6 +92,7 @@ exchange; the routing key **is** the queue name (from `RabbitMQ:Queues:*` config
 | Queue | Durable | Bound to | Consumed by |
 |---|---|---|---|
 | `vehicle.reserved` | yes | `vehicle_events` / `vehicle.reserved` | NotificationService |
+| `vehicle.created` / `vehicle.updated` / `vehicle.deleted` | yes | `vehicle_events` / own routing key | NotificationService (log-only) |
 | `testdrive.scheduled` | yes | `vehicle_events` / `testdrive.scheduled` | NotificationService |
 | `customer_vehicle_reserved` | yes | `vehicle_events` / `vehicle.reserved` | CustomerService |
 | `sales.completed` | yes | default exchange | NotificationService |
@@ -125,13 +126,16 @@ Fan-out works as intended for `vehicle.reserved`: one publish, two queues
    accumulating; no notification content designed for them yet.~~
    — **closed**: `payment.received` + `order.status.changed` queues consumed
    log-only (payloads carry no CustomerEmail/DeviceToken yet).
-3. **`vehicle.created/updated/deleted` have no consumers** — topology keeps room
-   for reporting/search indexing later.
+3. ~~**`vehicle.created/updated/deleted` have no consumers** — topology keeps room
+   for reporting/search indexing later.~~
+   — **closed**: `vehicle.created/updated/deleted` queues bound + log-only
+   consumers (payloads carry no DeviceToken yet). The event bus now has no
+   unwired published events.
 4. ~~**docker-compose ships only user/vehicle/sales + rabbitmq**~~ — **closed in
    W5**: all six services plus the gateway run in `docker-compose.yml` on
    `ev-dealer-network` with `RabbitMQ__HostName=rabbitmq`. The W4 retry
    topology is live in compose: `customer_vehicle_reserved(.retry/.dlq)` and
-   notification's eleven `<queue>(.retry/.dlq)` triplets materialize on the
+   notification's fourteen `<queue>(.retry/.dlq)` triplets materialize on the
    broker as events flow. Notification containers boot without a Firebase
    credential (secret, out of repo): push endpoints 500 and consumed events
    cycle retry→DLQ, which is the documented degraded state, not a regression.
