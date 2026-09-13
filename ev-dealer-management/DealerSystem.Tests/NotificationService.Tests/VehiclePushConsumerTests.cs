@@ -140,6 +140,21 @@ public class VehiclePushConsumerTests : IDisposable
             new VehicleUpdatedConsumer(fcm, Registry()).HandleAsync(Json(Updated())));
     }
 
+    [Fact]
+    public async Task VehicleUpdated_NoWhereToSend_LogsOnlyAndDoesNotThrow()
+    {
+        // Nothing registered for dealer:3 — pins the log-only guard here too.
+        // Without it, the "registered != null" mutant (empty list reaches FCM,
+        // SendMulticastAsync returns false on empty input, consumer throws ->
+        // retry/DLQ churn for healthy events) would pass this consumer's
+        // section: the created/deleted sections each pin the guard, and the
+        // class header claims the fallback as a pinned behavior for all three.
+        var fcm = Fcm();
+        await new VehicleUpdatedConsumer(fcm, Registry()).HandleAsync(Json(Updated()));
+
+        Assert.Null(fcm.LastMulticastTokens);
+    }
+
     // ---- vehicle.deleted ------------------------------------------------------
 
     [Fact]

@@ -149,6 +149,12 @@ Fan-out works as intended for `vehicle.reserved`: one publish, two queues
   Issue #38 dealer-push wiring (dealer-subject multicast for all three
   lifecycle events, throw-on-false, cross-dealer and customer-vs-dealer
   subject negative controls, the pre-#38 missing-DealerId degradation);
+  `VehicleDeleteProducerTests.cs` (Issue #38 review) runs the real
+  VehicleService.DeleteVehicleAsync against a real ApplicationDbContext with a
+  recording IMessageProducer, pinning that the published event carries the
+  vehicle's own DealerId (the consumer-side tests hand-build the DTO, so the
+  producer line is invisible to them; a zeroed assignment would log-only
+  forever with a green suite);
   `ContractRejectionFkTests.cs` (Issue #37 review) runs the real
   ContractsController against a real SalesDbContext to pin that rejecting a
   contract with payments deletes the payments before the order (the Restrict
@@ -156,7 +162,7 @@ Fan-out works as intended for `vehicle.reserved`: one publish, two queues
   `DeviceTokensAuthTests.cs` (Issue #36) pins the controller's authorization
   decision table (own/dealer/foreign/missing-claim × PUT/GET/DELETE, incl.
   prefix-shaped negatives that kill a StartsWith mutant of the ownership
-  rule). CI runs all eight inside the "Build .NET services" job.
+  rule). CI runs all nine inside the "Build .NET services" job.
 
 ## Device-token registry (Issue #33)
 
