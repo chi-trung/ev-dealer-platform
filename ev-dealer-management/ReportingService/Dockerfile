@@ -14,9 +14,10 @@ RUN dotnet publish "ReportingService.csproj" -c Release -o /app/publish /p:UseAp
 
 FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS final
 WORKDIR /app
-COPY --from=publish /app/publish .
 
-# aspnet:8.0 (Debian) ships no curl — required for the HEALTHCHECK below
+# aspnet:8.0 (Debian) ships no curl — required for the HEALTHCHECK below.
+# Runs BEFORE the publish COPY so code-only rebuilds reuse this cached layer
+# instead of re-downloading from Debian mirrors on every iteration.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends curl \
     && rm -rf /var/lib/apt/lists/*
@@ -24,6 +25,8 @@ RUN apt-get update \
 # reporting_dev.db is relocated here via REPORTING_DB_PATH (see Program.cs
 # change); compose mounts ./ReportingService/data at /app/data.
 RUN mkdir -p /app/data
+
+COPY --from=publish /app/publish .
 
 ENV ASPNETCORE_URLS=http://+:80
 

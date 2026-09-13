@@ -14,9 +14,10 @@ RUN dotnet publish "CustomerService.csproj" -c Release -o /app/publish /p:UseApp
 
 FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS final
 WORKDIR /app
-COPY --from=publish /app/publish .
 
-# aspnet:8.0 (Debian) ships no curl — required for the HEALTHCHECK below
+# aspnet:8.0 (Debian) ships no curl — required for the HEALTHCHECK below.
+# Runs BEFORE the publish COPY so code-only rebuilds reuse this cached layer
+# instead of re-downloading from Debian mirrors on every iteration.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends curl \
     && rm -rf /var/lib/apt/lists/*
@@ -24,6 +25,8 @@ RUN apt-get update \
 # SQLite DB lands at /app/data/customers.db (see Program.cs config-honoring
 # change + compose ConnectionStrings__DefaultConnection + ./CustomerService/data mount)
 RUN mkdir -p /app/data
+
+COPY --from=publish /app/publish .
 
 # Kestrel binds 80 in-container (docs/GATEWAY.md rewrite: customerservice:80);
 # compose's ASPNETCORE_URLS repeats this — the ENV makes the image self-sufficient.

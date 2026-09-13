@@ -2,17 +2,17 @@
 # so without these rules bin/ and local SQLite files get COPY'd into the image:
 # stale assemblies break restore/publish caching and *.db would silently ship
 # real dev data.
-bin/
-obj/
+**/bin/
+**/obj/
 .migration*
 .vs/
 **/node_modules
 **/*.db
 Dockerfile
 *.db
-*.db-shm
-*.db-wal
-Logs/
+**/*.db-shm
+**/*.db-wal
+**/Logs/
 *.user
 *.suo
 .idea/
@@ -20,3 +20,6 @@ Logs/
 Properties/launchSettings.json
 # Firebase service account key: mounted at runtime, never baked or committed.
 firebase-credentials.json
+
+# dotnet publish output from host builds (see other services)
+publish/
