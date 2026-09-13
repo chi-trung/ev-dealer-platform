@@ -82,8 +82,14 @@ else
 
 if (useSqlite)
 {
-    // Use a local file-based SQLite DB for quick local testing
-    var sqlitePath = Path.Combine(AppContext.BaseDirectory, "reporting_dev.db");
+    // Use a local file-based SQLite DB for quick local testing. REPORTING_DB_PATH
+    // relocates it (docker-compose points it at the /app/data volume — without
+    // this the file sits in the container layer and report rows reset on every
+    // recreate). Unset = old behavior: AppContext.BaseDirectory/reporting_dev.db.
+    var sqlitePath = Environment.GetEnvironmentVariable("REPORTING_DB_PATH");
+    if (string.IsNullOrWhiteSpace(sqlitePath))
+        sqlitePath = Path.Combine(AppContext.BaseDirectory, "reporting_dev.db");
+    Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(sqlitePath))!);
     var sqliteConn = $"Data Source={sqlitePath}";
     builder.Services.AddDbContext<ReportingDbContext>(options =>
         options.UseSqlite(sqliteConn));

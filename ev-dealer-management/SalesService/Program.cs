@@ -54,6 +54,16 @@ builder.Services.AddSingleton<IMessagePublisher, RabbitMQMessagePublisher>();
 
 var app = builder.Build();
 
+// Apply migrations at startup (same pattern as UserService). The bind-mounted
+// data/ dir is empty on a fresh clone, and without a schema every endpoint
+// 500s with `sqlite_error(no such table: Orders)`. On existing dev DBs the
+// single migration is already recorded in __EFMigrationsHistory and this is a
+// no-op.
+using (var scope = app.Services.CreateScope())
+{
+    scope.ServiceProvider.GetRequiredService<SalesDbContext>().Database.Migrate();
+}
+
 // Log the database file path after app is built
 using (var scope = app.Services.CreateScope())
 {
