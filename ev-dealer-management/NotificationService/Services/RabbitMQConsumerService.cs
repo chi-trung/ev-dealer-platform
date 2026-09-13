@@ -66,21 +66,22 @@ namespace NotificationService.Services
                     _retryTtlMs = int.Parse(_configuration["RabbitMQ:RetryTtlMilliseconds"] ?? "5000");
 
                     // SaleCompleted events (default exchange, published by SalesService)
-                    _saleChannel = OpenQueueChannel(QueueName(SaleQueueKey, "sales.completed"), bindVehicleTopic: false);
+                    _saleChannel = OpenQueueChannel(QueueName(SaleQueueKey, "sales.completed"), vehicleTopicRoutingKey: null);
 
                     // VehicleReserved events - must bind to the vehicle_events topic
-                    // exchange, otherwise the queue receives nothing.
-                    _reservationChannel = OpenQueueChannel(QueueName(ReservationQueueKey, "vehicle.reserved"), bindVehicleTopic: true);
+                    // exchange, otherwise the queue receives nothing. The routing key
+                    // is the EVENT name, not the (configurable) queue name.
+                    _reservationChannel = OpenQueueChannel(QueueName(ReservationQueueKey, "vehicle.reserved"), "vehicle.reserved");
 
                     // TestDriveScheduled events - also on the shared topic exchange.
-                    _testDriveChannel = OpenQueueChannel(QueueName(TestDriveQueueKey, "testdrive.scheduled"), bindVehicleTopic: true);
+                    _testDriveChannel = OpenQueueChannel(QueueName(TestDriveQueueKey, "testdrive.scheduled"), "testdrive.scheduled");
 
                     // Sales lifecycle events published by SalesService to the default
                     // exchange (routing key = queue name): order.created, quote.created,
                     // contract.created.
-                    _orderChannel = OpenQueueChannel(QueueName(OrderQueueKey, "order.created"), bindVehicleTopic: false);
-                    _quoteChannel = OpenQueueChannel(QueueName(QuoteQueueKey, "quote.created"), bindVehicleTopic: false);
-                    _contractChannel = OpenQueueChannel(QueueName(ContractQueueKey, "contract.created"), bindVehicleTopic: false);
+                    _orderChannel = OpenQueueChannel(QueueName(OrderQueueKey, "order.created"), vehicleTopicRoutingKey: null);
+                    _quoteChannel = OpenQueueChannel(QueueName(QuoteQueueKey, "quote.created"), vehicleTopicRoutingKey: null);
+                    _contractChannel = OpenQueueChannel(QueueName(ContractQueueKey, "contract.created"), vehicleTopicRoutingKey: null);
 
                     Log.Information("RabbitMQ consumer connection and channels initialized successfully.");
                 }
@@ -93,10 +94,14 @@ namespace NotificationService.Services
 
         /// <summary>
         /// Creates the channel for a queue, declares the queue (plus its
-        /// .retry/.dlq dead-letter topology) and optionally binds it to the
-        /// vehicle_events topic exchange.
+        /// .retry/.dlq dead-letter topology) and, when
+        /// <paramref name="vehicleTopicRoutingKey"/> is set, binds it to the
+        /// vehicle_events topic exchange under that routing key. The key is the
+        /// event name, never the queue name: operators can rename a queue via
+        /// RabbitMQ:Queues (the compose pattern SalesService uses) and must not
+        /// thereby silently unbind it from the exchange.
         /// </summary>
-        private IModel OpenQueueChannel(string queue, bool bindVehicleTopic)
+        private IModel OpenQueueChannel(string queue, string? vehicleTopicRoutingKey)
         {
             var channel = _connection!.CreateModel();
             // One delivery in flight per channel: handlers are serialized, which
@@ -105,10 +110,10 @@ namespace NotificationService.Services
             channel.BasicQos(prefetchSize: 0, prefetchCount: 1, global: false);
             channel.QueueDeclare(queue: queue, durable: true, exclusive: false, autoDelete: false, arguments: null);
             EventRetryPolicy.DeclareRetryTopology(channel, queue, _retryTtlMs);
-            if (bindVehicleTopic)
+            if (vehicleTopicRoutingKey != null)
             {
                 channel.ExchangeDeclare(exchange: VehicleExchange, type: ExchangeType.Topic, durable: true, autoDelete: false, arguments: null);
-                channel.QueueBind(queue: queue, exchange: VehicleExchange, routingKey: queue);
+                channel.QueueBind(queue: queue, exchange: VehicleExchange, routingKey: vehicleTopicRoutingKey);
             }
             return channel;
         }
