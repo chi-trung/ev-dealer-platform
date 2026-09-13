@@ -89,6 +89,12 @@ try
         Log.Error(ex, "DeviceToken registry DB unavailable — push lookups will fail until the db is fixed");
     }
 
+    // Registration is anonymous unless a gate key is configured (Issue #33
+    // interim; the real fix is authenticated registration, tracked as the
+    // follow-up). Say so loudly once at boot.
+    if (string.IsNullOrWhiteSpace(app.Configuration["DeviceTokens:RegistrationKey"]))
+        Log.Warning("⚠️ DeviceTokens:RegistrationKey not set — registry accepts anonymous PUT/DELETE (dev mode).");
+
 
     // Configure the HTTP request pipeline.
     if (app.Environment.IsDevelopment())

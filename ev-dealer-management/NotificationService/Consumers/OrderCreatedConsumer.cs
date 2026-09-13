@@ -48,7 +48,8 @@ public class OrderCreatedConsumer
             Log.Information("📢 [THÔNG BÁO ĐƠN HÀNG] {Title} | {Body}", title, body);
 
             // Try to send push notification if a device token is available.
-            // Producers carry none for this event (docs/EVENTS.md gap #4), so
+            // Producers carry none for this event (docs/EVENTS.md "Device-token
+            // registry"), so
             // fall back to the registry keyed by the customer the order
             // belongs to; a payload token (future producer sends one) still
             // wins and bypasses the lookup. Delivery fans out to ALL live

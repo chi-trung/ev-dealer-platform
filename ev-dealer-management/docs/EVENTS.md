@@ -127,9 +127,11 @@ Fan-out works as intended for `vehicle.reserved`: one publish, two queues
   not dead fields; delete a row only if a producer starts publishing one).
   `EventRetryPolicyTests.cs`
   locks `RetryRounds` x-death semantics and the `.retry`/`.dlq` naming. `DeviceTokenRegistryTests.cs`
-  pins the registry semantics (key spelling, upsert dedupe, multi-device fan-out,
-  revoke, and the UNIQUE `(Key, Token)` index via real SQLite). CI runs
-  all three inside the "Build .NET services" job.
+  pins the registry semantics (key spelling, upsert dedupe with a DETECTABLE
+  UpdatedAt refresh, multi-device fan-out, per-subject cap, concurrent-
+  registration 500-freedom, revoke incl. the concurrent-loser case, read-time
+  fail-soft, and the UNIQUE `(Key, Token)` index) against real SQLite temp
+  files. CI runs all three inside the "Build .NET services" job.
 
 ## Device-token registry (Issue #33)
 
@@ -138,9 +140,20 @@ NotificationService owns a one-table SQLite store (`Models/DeviceToken.cs`,
 `Data/NotificationDbContext.cs`, `Services/DeviceTokenRegistry.cs`) exposed at
 `/api/DeviceTokens/{key}`:
 
-- `PUT` `{"token": "…"}` — register/upsert (idempotent; refreshes `UpdatedAt`)
-- `GET` — live tokens for the subject (ops probe)
-- `DELETE ?token=…` — revoke one device (404 if unknown)
+- `PUT` `{"token": "…"}` — register/upsert (idempotent; refreshes `UpdatedAt`;
+  concurrent duplicate registrations are absorbed by the UNIQUE index + one
+  retry, so the endpoint never 500s). 409 once the subject holds
+  `MaxTokensPerSubject` (20) tokens.
+- `GET` — token COUNT + masked previews for the subject (registration UI
+  check, ops probe). Raw tokens are deliberately not exported: whoever can
+  read them can revoke the devices and enumerate device counts per customer.
+- `DELETE ?token=…` — revoke one device (404 if unknown; a concurrent-revoke
+  loser gets 404, not a 500)
+
+Endpoints are anonymous, bounded by the cap above and, optionally, by
+`DeviceTokens:RegistrationKey` — when that config value is non-empty, PUT and
+DELETE require it as `X-Device-Registry-Key` (boot logs a warning when unset).
+Full authenticated registration is the follow-up (see gap note below).
 
 Tokens are keyed by **subject string**, built only via
 `Services/NotificationSubjects.cs` — `NotificationSubjects.Customer(id)` →
@@ -156,13 +169,19 @@ fans the push out to **all** live tokens for `customer:<CustomerId>` via
 
 The registry DB is volume-backed in compose
 (`./NotificationService/data:/app/data`), so tokens survive container
-restarts. The DB is fail-soft: if `EnsureCreated` throws at boot the service
-still serves (consumers then degrade to log-only — no push, no crash).
+restarts. It is fail-soft **end-to-end**: if `EnsureCreated` throws at boot the
+service still serves, and a registry that dies at *read* time (file corrupted
+mid-run) logs an error and returns empty — consumers degrade to log-only
+instead of requeueing healthy events into retry→DLQ churn.
 
 Remaining token gap: nothing registers real customer tokens yet — the
 customer-facing app must `PUT` after FCM permission (tracked separately; the
 portal has staff `User` accounts, and `User` carries no `CustomerId`, so the
-subject-to-login mapping needs a product decision).
+subject-to-login mapping needs a product decision). Accepted interim risk:
+an attacker who guesses a subject can plant their OWN token there and receive
+that subject's pushes (they cannot remove or read other tokens). Authenticated
+registration — the follow-up issue — replaces both the cap and the optional
+`RegistrationKey` gate.
 
 ## Known gaps (tracked for next phases)
 
