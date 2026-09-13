@@ -1,5 +1,50 @@
-version: '3.8'
 services:
+  # --- API Gateway (Ocelot) -------------------------------------------------
+  # Publishes 5036 so the Vite frontend's VITE_API_BASE_URL is unchanged.
+  # Gateway:Rewrites maps the six ocelot.json "localhost:<devport>" authorities
+  # onto the in-network container addresses (see docs/GATEWAY.md).
+  apigateway:
+    build: ./APIGatewayService
+    image: evdealer/apigateway:local
+    container_name: evm_apigateway
+    ports:
+      - "5036:80"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_URLS=http://+:80
+      - Gateway__Rewrites__0__From=localhost:7001
+      - Gateway__Rewrites__0__To=userservice:80
+      - Gateway__Rewrites__1__From=localhost:5068
+      - Gateway__Rewrites__1__To=vehicleservice:8080
+      - Gateway__Rewrites__2__From=localhost:5003
+      - Gateway__Rewrites__2__To=salesservice:80
+      - Gateway__Rewrites__3__From=localhost:5039
+      - Gateway__Rewrites__3__To=customerservice:80
+      - Gateway__Rewrites__4__From=localhost:5208
+      - Gateway__Rewrites__4__To=reportingservice:80
+      - Gateway__Rewrites__5__From=localhost:5051
+      - Gateway__Rewrites__5__To=notificationservice:80
+    depends_on:
+      # service_started, not service_healthy: the app-image healthchecks are
+      # new in this PR (curl was absent from aspnet:8.0). Upgrade to
+      # service_healthy once `docker compose ps` shows all healthy.
+      userservice:
+        condition: service_started
+      vehicleservice:
+        condition: service_started
+      salesservice:
+        condition: service_started
+      customerservice:
+        condition: service_started
+      reportingservice:
+        condition: service_started
+      notificationservice:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      - ev-dealer-network
+
+  # --- UserService (SQLite; no RabbitMQ — verified zero broker usage) -------
   userservice:
     build: ./UserService
     image: evdealer/userservice:local
@@ -10,6 +55,7 @@ services:
       - ./UserService/data:/app/data
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_URLS=http://+:80
       - ConnectionStrings__DefaultConnection=Data Source=/app/data/users.db
       - Jwt__Key=ReplaceThisWithASecretKeyForDevelopment
       - Jwt__Issuer=evm.local
@@ -23,7 +69,10 @@ services:
       - EmailSettings__FromName=EV Dealer
       - EmailSettings__EnableSsl=true
     restart: unless-stopped
+    networks:
+      - ev-dealer-network          # was missing: kept userservice off the shared network
 
+  # --- VehicleService (SQLite; producer-only, lazy/non-fatal broker) --------
   vehicleservice:
     build: ./VehicleService
     image: evdealer/vehicleservice:local
@@ -32,8 +81,10 @@ services:
       - "5224:8080"
     volumes:
       - ./VehicleService/data:/app/data
+      - ./VehicleService/wwwroot/images:/app/wwwroot/images   # uploads otherwise die with the container
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_URLS=http://+:8080   # pinned: base image defaults via ASPNETCORE_HTTP_PORTS=8080; keep explicit so it can never drift
       - ConnectionStrings__DefaultConnection=Data Source=/app/data/vehicles.db
       - RabbitMQ__HostName=rabbitmq
       - RabbitMQ__Port=5672
@@ -46,6 +97,7 @@ services:
     networks:
       - ev-dealer-network
 
+  # --- SalesService (SQLite; pure producer) ---------------------------------
   salesservice:
     build: ./SalesService
     image: evdealer/salesservice:local
@@ -66,6 +118,8 @@ services:
       - RabbitMQ__Queues__OrderCreated=order.created
       - RabbitMQ__Queues__PaymentReceived=payment.received
       - RabbitMQ__Queues__OrderStatusChanged=order.status.changed
+      - RabbitMQ__Queues__QuoteCreated=quote.created        # was implicit via appsettings; explicit now
+      - RabbitMQ__Queues__ContractCreated=contract.created
       - Services__VehicleService=http://vehicleservice:8080
     depends_on:
       rabbitmq:
@@ -76,6 +130,122 @@ services:
     networks:
       - ev-dealer-network
 
+  # --- CustomerService (NEW to compose; consumer of vehicle.reserved,
+  #     W4 retry topology: customer_vehicle_reserved[.retry/.dlq]) -----------
+  # NB: Jwt trio must byte-match userservice or every token CustomerService
+  #     validates is rejected. ConnectionStrings honored via the Program.cs
+  #     change in this PR (code used to hard-compute ContentRootPath/customers.db).
+  customerservice:
+    build: ./CustomerService
+    image: evdealer/customerservice:local
+    container_name: evm_customerservice
+    ports:
+      - "5039:80"
+    volumes:
+      - ./CustomerService/data:/app/data
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development   # gates Database.Migrate() (Program.cs)
+      - ASPNETCORE_URLS=http://+:80
+      - ConnectionStrings__DefaultConnection=Data Source=/app/data/customers.db
+      - Jwt__Key=ReplaceThisWithASecretKeyForDevelopment
+      - Jwt__Issuer=evm.local
+      - Jwt__Audience=evm.local
+      - RabbitMQ__HostName=rabbitmq
+      - RabbitMQ__Port=5672
+      - RabbitMQ__UserName=guest
+      - RabbitMQ__Password=guest
+      - RabbitMQ__MaxDeliveryAttempts=3
+      - RabbitMQ__RetryTtlMilliseconds=5000
+    depends_on:
+      # Mandatory: VehicleReservedEventConsumer.ExecuteAsync has a single
+      # try/catch — if the broker is down at boot the consumer thread exits
+      # PERMANENTLY while /health keeps returning 200 (silent dead consumer).
+      rabbitmq:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - ev-dealer-network
+
+  # --- ReportingService (NEW; HTTP fan-out, no broker, no JWT) --------------
+  # USE_SQLITE=true on purpose: the only migration in Migrations/ is
+  # SQLite-flavoured DDL and would fail into a swallowed catch against
+  # Postgres (boot schema-less). REPORTING_DB_PATH lands the SQLite file on
+  # the volume instead of the container layer (see Program.cs change).
+  reportingservice:
+    build: ./ReportingService
+    image: evdealer/reportingservice:local
+    container_name: evm_reportingservice
+    ports:
+      - "5208:80"
+    volumes:
+      - ./ReportingService/data:/app/data
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_URLS=http://+:80
+      - USE_SQLITE=true
+      - REPORTING_DB_PATH=/app/data/reporting_dev.db
+      - Services__SalesService=http://salesservice:80
+      - Services__VehicleService=http://vehicleservice:8080
+      - Services__UserService=http://userservice:80
+      - Services__CustomerService=http://customerservice:80
+    depends_on:
+      userservice:
+        condition: service_started
+      vehicleservice:
+        condition: service_started
+      salesservice:
+        condition: service_started
+      customerservice:
+        condition: service_started
+      # Boot-time SynchronizeAllDataAsync() swallows failures; expect an empty
+      # report DB after cold start — POST /api/reports/synchronize-data re-runs it.
+    restart: unless-stopped
+    networks:
+      - ev-dealer-network
+
+  # --- NotificationService (NEW; consumer of 6 queues, no DB) ---------------
+  # Firebase credential file is intentionally NOT mounted: it doesn't exist in
+  # the repo (secret), and Docker mounting a missing host path creates a
+  # DIRECTORY over /app/firebase-credentials.json — worse than failing cleanly
+  # at first FCM resolution. Without it: boot fine, push endpoints 500 on lazy
+  # first use, consumed events cycle retry→DLQ. Provision the key out-of-band,
+  # then either uncomment the bind mount below or:
+  #   docker cp firebase-credentials.json evm_notificationservice:/app/firebase-credentials.json
+  #   docker compose restart notificationservice
+  notificationservice:
+    build: ./NotificationService
+    image: evdealer/notificationservice:local
+    container_name: evm_notificationservice
+    ports:
+      - "5051:80"
+    volumes:
+      - ./NotificationService/Logs:/app/Logs   # Serilog file sink path is not env-overridable
+      # - ./NotificationService/firebase-credentials.json:/app/firebase-credentials.json:ro
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_URLS=http://+:80
+      - RabbitMQ__HostName=rabbitmq
+      - RabbitMQ__Port=5672
+      - RabbitMQ__UserName=guest
+      - RabbitMQ__Password=guest
+      - RabbitMQ__Queues__SaleCompleted=sales.completed
+      - RabbitMQ__Queues__VehicleReserved=vehicle.reserved
+      - RabbitMQ__Queues__TestDriveScheduled=testdrive.scheduled
+      - RabbitMQ__Queues__OrderCreated=order.created
+      - RabbitMQ__Queues__QuoteCreated=quote.created
+      - RabbitMQ__Queues__ContractCreated=contract.created
+      - RabbitMQ__MaxDeliveryAttempts=3
+      - RabbitMQ__RetryTtlMilliseconds=5000
+      - Firebase__CredentialPath=/app/firebase-credentials.json
+      # Firebase__ProjectId omitted: appsettings.json already has the right value.
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - ev-dealer-network
+
+  # --- RabbitMQ (unchanged except position) ---------------------------------
   rabbitmq:
     image: "rabbitmq:3-management"
     hostname: "rabbitmq"
@@ -91,11 +261,16 @@ services:
       - rabbitmq_data:/var/lib/rabbitmq
       - rabbitmq_logs:/var/log/rabbitmq
     healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "ping"]
-      interval: 30s
+      # check_port_connectivity, not ping: `ping` only proves the Erlang VM is
+      # up, so listeners still race it — a consumer connecting on that green
+      # light gets ConnectionRefused, and CustomerService's consumer dies
+      # permanently (single try/catch around ExecuteAsync). This one waits for
+      # the AMQP port to actually accept connections.
+      test: ["CMD", "rabbitmq-diagnostics", "check_port_connectivity"]
+      interval: 10s
       timeout: 10s
-      retries: 5
-      start_period: 40s
+      retries: 10
+      start_period: 20s
     restart: unless-stopped
     networks:
       - ev-dealer-network
@@ -109,4 +284,3 @@ volumes:
 networks:
   ev-dealer-network:
     driver: bridge
-

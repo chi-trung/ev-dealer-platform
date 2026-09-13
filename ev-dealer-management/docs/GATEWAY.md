@@ -64,9 +64,13 @@ Two shape constraints, learned the hard way in review: a **host-only** rewrite
 would collapse all six services onto one container name (every entry shares
 the host `localhost` and differs only by port), hence full authorities; and
 `:` is the .NET config path separator, so it **cannot appear in a key** —
-hence a list of pairs instead of a map. The container names/ports above are
-placeholders until W5 puts the remaining services into `docker-compose.yml`;
-the rewrite values are finalized there.
+hence a list of pairs instead of a map. The table above is now the final
+docker-compose wiring (W5): `docker-compose.yml` sets exactly these six
+`Gateway__Rewrites__N__*` env vars on the `apigateway` service, which
+publishes **5036:80** so the frontend URL is unchanged. Because of that, do
+**not** also run a gateway on the host while compose is up — it collides on
+5036, and a host-run gateway would need `localhost:5223/5224/...` mappings
+(the published host ports), not these container authorities.
 
 ## CORS
 

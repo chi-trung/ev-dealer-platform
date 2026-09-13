@@ -109,6 +109,11 @@ Fan-out works as intended for `vehicle.reserved`: one publish, two queues
    accumulating; no notification content designed for them yet.
 3. **`vehicle.created/updated/deleted` have no consumers** — topology keeps room
    for reporting/search indexing later.
-4. **docker-compose ships only user/vehicle/sales + rabbitmq** — CustomerService and
-   NotificationService run outside compose, hence `HostName: localhost` defaults;
-   adding them to compose is part of the W5 e2e task.
+4. ~~**docker-compose ships only user/vehicle/sales + rabbitmq**~~ — **closed in
+   W5**: all six services plus the gateway run in `docker-compose.yml` on
+   `ev-dealer-network` with `RabbitMQ__HostName=rabbitmq`. The W4 retry
+   topology is live in compose: `customer_vehicle_reserved(.retry/.dlq)` and
+   notification's six `<queue>(.retry/.dlq)` triplets materialize on the
+   broker as events flow. Notification containers boot without a Firebase
+   credential (secret, out of repo): push endpoints 500 and consumed events
+   cycle retry→DLQ, which is the documented degraded state, not a regression.
