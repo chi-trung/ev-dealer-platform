@@ -60,7 +60,9 @@ public class QuoteCreatedConsumer
                 }
                 else
                 {
-                    Log.Warning("⚠️ Push notification failed for Quote: {QuoteId} (notification logged only)", quoteEvent.QuoteId);
+                    // IFcmService swallows send errors and returns false; throwing
+                    // here lets the bus retry and eventually DLQ the delivery.
+                    throw new InvalidOperationException($"FCM push failed for Quote {quoteEvent.QuoteId}");
                 }
             }
             else
@@ -73,6 +75,10 @@ public class QuoteCreatedConsumer
         catch (Exception ex)
         {
             Log.Error(ex, "❌ Error processing QuoteCreatedEvent");
+            // Rethrow: RabbitMQConsumerService decides retry-vs-DLQ from this
+            // exception (EventRetryPolicy). Swallowing here used to ack the
+            // delivery and lose the notification silently.
+            throw;
         }
     }
 }

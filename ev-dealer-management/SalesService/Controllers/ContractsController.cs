@@ -2,8 +2,10 @@ using Microsoft.AspNetCore.Mvc;
 using SalesService.Data;
 using SalesService.Models;
 using SalesService.DTOs;
+using SalesService.Services;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Configuration;
 using System;
 using System.Threading.Tasks;
 using System.Collections.Generic; // Added for IEnumerable
@@ -16,11 +18,15 @@ namespace SalesService.Controllers
     {
         private readonly SalesDbContext _context;
         private readonly ILogger<ContractsController> _logger;
+        private readonly IMessagePublisher _messagePublisher;
+        private readonly IConfiguration _configuration;
 
-        public ContractsController(SalesDbContext context, ILogger<ContractsController> logger)
+        public ContractsController(SalesDbContext context, ILogger<ContractsController> logger, IMessagePublisher messagePublisher, IConfiguration configuration)
         {
             _context = context;
             _logger = logger;
+            _messagePublisher = messagePublisher;
+            _configuration = configuration;
         }
 
         /// <summary>
@@ -99,6 +105,34 @@ namespace SalesService.Controllers
             {
                 await _context.SaveChangesAsync();
                 _logger.LogInformation("Successfully created contract {ContractId} for Order ID {OrderId}.", contract.ContractId, request.OrderId);
+
+                // Publish ContractCreated event (NotificationService pushes it to the
+                // customer's device). Mirrors OrdersController's publish pattern:
+                // log-and-continue, never fail the request on a broker error.
+                try
+                {
+                    var contractCreatedEvent = new ContractCreatedEvent
+                    {
+                        ContractId = contract.ContractId.ToString(),
+                        ContractNumber = contract.ContractNumber,
+                        OrderId = contract.OrderId,
+                        CustomerId = contract.CustomerId,
+                        DealerId = contract.DealerId,
+                        SalespersonId = contract.SalespersonId,
+                        TotalAmount = contract.TotalAmount,
+                        PaymentStatus = contract.PaymentStatus,
+                        Status = contract.Status,
+                        CreatedAt = contract.CreatedAt
+                    };
+
+                    var contractCreatedQueue = _configuration["RabbitMQ:Queues:ContractCreated"] ?? "contract.created";
+                    await _messagePublisher.PublishMessageAsync(contractCreatedQueue, contractCreatedEvent);
+                    _logger.LogInformation("Published ContractCreated event for Contract {ContractId}.", contract.ContractId);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error publishing ContractCreated event for Contract {ContractId}.", contract.ContractId);
+                }
             }
             catch (DbUpdateException ex)
             {

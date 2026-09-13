@@ -58,12 +58,19 @@ public class SaleCompletedConsumer
             }
             else
             {
-                Log.Error("Failed to send order confirmation push notification for Order: {OrderId}", saleEvent.OrderId);
+                // IFcmService swallows send errors and returns false; throwing
+                // here lets the bus retry the delivery and eventually park it
+                // in the DLQ (docs/EVENTS.md failure policy) instead of acking.
+                throw new InvalidOperationException($"FCM push failed for Order {saleEvent.OrderId}");
             }
         }
         catch (Exception ex)
         {
             Log.Error(ex, "Error processing SaleCompletedEvent");
+            // Rethrow: RabbitMQConsumerService decides retry-vs-DLQ from this
+            // exception (EventRetryPolicy). Swallowing here used to ack the
+            // delivery and lose the notification silently.
+            throw;
         }
     }
 }

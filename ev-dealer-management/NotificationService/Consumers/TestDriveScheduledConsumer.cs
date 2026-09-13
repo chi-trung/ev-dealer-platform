@@ -62,12 +62,18 @@ public class TestDriveScheduledConsumer
             }
             else
             {
-                Log.Error("Failed to send test drive confirmation push notification for Customer: {CustomerName}", testDriveEvent.CustomerName);
+                // IFcmService swallows send errors and returns false; throwing
+                // here lets the bus retry and eventually DLQ the delivery.
+                throw new InvalidOperationException($"FCM push failed for test drive of customer {testDriveEvent.CustomerName}");
             }
         }
         catch (Exception ex)
         {
             Log.Error(ex, "Error processing TestDriveScheduledEvent");
+            // Rethrow: RabbitMQConsumerService decides retry-vs-DLQ from this
+            // exception (EventRetryPolicy). Swallowing here used to ack the
+            // delivery and lose the notification silently.
+            throw;
         }
     }
 }

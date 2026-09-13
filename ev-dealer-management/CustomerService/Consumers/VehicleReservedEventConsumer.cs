@@ -1,4 +1,5 @@
 using CustomerService.DTOs;
+using CustomerService.Events;
 using CustomerService.Services;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -14,6 +15,7 @@ namespace CustomerService.Consumers
     {
         // Same topic exchange VehicleService publishes vehicle.reserved to (docs/EVENTS.md).
         private const string VehicleExchange = "vehicle_events";
+        private const string Queue = "customer_vehicle_reserved";
 
         private readonly IServiceScopeFactory _scopeFactory;
         private readonly ILogger<VehicleReservedEventConsumer> _logger;
@@ -50,8 +52,11 @@ namespace CustomerService.Consumers
                 // Declare exchange and queue, then bind this service's own queue
                 // to the shared topic exchange.
                 _channel.ExchangeDeclare(exchange: VehicleExchange, type: ExchangeType.Topic, durable: true);
-                _channel.QueueDeclare(queue: "customer_vehicle_reserved", durable: true, exclusive: false, autoDelete: false);
-                _channel.QueueBind(queue: "customer_vehicle_reserved", exchange: VehicleExchange, routingKey: "vehicle.reserved");
+                _channel.QueueDeclare(queue: Queue, durable: true, exclusive: false, autoDelete: false);
+                _channel.QueueBind(queue: Queue, exchange: VehicleExchange, routingKey: "vehicle.reserved");
+                var retryTtlMs = int.Parse(_configuration["RabbitMQ:RetryTtlMilliseconds"] ?? "5000");
+                var maxAttempts = int.Parse(_configuration["RabbitMQ:MaxDeliveryAttempts"] ?? "3");
+                EventRetryPolicy.DeclareRetryTopology(_channel, Queue, retryTtlMs);
 
                 // Prefetch 1: process one delivery at a time. The handler does a
                 // check-then-insert on Customers.Email (unique index); concurrent
@@ -73,17 +78,18 @@ namespace CustomerService.Consumers
                     catch (JsonException ex)
                     {
                         // Unparseable payload (empty body, truncated, foreign message):
-                        // ack and discard. Nack+requeue would poison-loop this message
-                        // forever - see docs/EVENTS.md "Known gaps" for the planned DLX.
-                        _logger.LogWarning(ex, "Received a malformed VehicleReservedEvent payload; acking and discarding. Body: {Message}", message);
-                        _channel.BasicAck(deliveryTag: ea.DeliveryTag, multiple: false);
+                        // retrying never helps, but discarding loses it silently - park
+                        // it in customer_vehicle_reserved.dlq for operators instead
+                        // (docs/EVENTS.md, W4).
+                        _logger.LogWarning(ex, "Received a malformed VehicleReservedEvent payload; parking in DLQ. Body: {Message}", message);
+                        Park(ea);
                         return;
                     }
 
                     if (reservationEvent == null)
                     {
-                        _logger.LogWarning("Received a null VehicleReservedEvent payload; acking and discarding.");
-                        _channel.BasicAck(deliveryTag: ea.DeliveryTag, multiple: false);
+                        _logger.LogWarning("Received a null VehicleReservedEvent payload; parking in DLQ.");
+                        Park(ea);
                         return;
                     }
 
@@ -103,13 +109,34 @@ namespace CustomerService.Consumers
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogError(ex, "Error processing VehicleReservedEvent");
-                        // Reject message and requeue
-                        _channel.BasicNack(deliveryTag: ea.DeliveryTag, multiple: false, requeue: true);
+                        // Transient handler failure (DB down, race): re-publish to the
+                        // .retry queue (TTL delay) instead of the old nack+requeue
+                        // hot-loop. After RabbitMQ:MaxDeliveryAttempts rounds the
+                        // message is parked in the DLQ.
+                        var rounds = EventRetryPolicy.RetryRounds(ea, Queue);
+                        if (rounds >= maxAttempts)
+                        {
+                            _logger.LogError(ex, "VehicleReservedEvent exhausted {Max} retries; parking in DLQ. Body: {Message}", maxAttempts, message);
+                            Park(ea);
+                            return;
+                        }
+
+                        _logger.LogWarning(ex, "Error processing VehicleReservedEvent (attempt {Attempt}/{Max}); retrying in {Ttl}ms",
+                            rounds + 1, maxAttempts, retryTtlMs);
+                        try
+                        {
+                            EventRetryPolicy.ScheduleRetry(_channel, ea, Queue, retryTtlMs);
+                        }
+                        catch (Exception retryEx)
+                        {
+                            _logger.LogError(retryEx, "Could not schedule retry; falling back to requeue.");
+                            try { _channel.BasicNack(deliveryTag: ea.DeliveryTag, multiple: false, requeue: true); }
+                            catch (Exception nackEx) { _logger.LogError(nackEx, "Fallback nack failed."); }
+                        }
                     }
                 };
 
-                _channel.BasicConsume(queue: "customer_vehicle_reserved", autoAck: false, consumer: consumer);
+                _channel.BasicConsume(queue: Queue, autoAck: false, consumer: consumer);
 
                 _logger.LogInformation("VehicleReservedEventConsumer started and waiting for messages...");
 
@@ -122,6 +149,24 @@ namespace CustomerService.Consumers
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error in VehicleReservedEventConsumer");
+            }
+        }
+
+        /// <summary>
+        /// Parks a delivery in the dead-letter queue (body retained), falling
+        /// back to nack+requeue if the publish fails (dead channel).
+        /// </summary>
+        private void Park(BasicDeliverEventArgs ea)
+        {
+            try
+            {
+                EventRetryPolicy.ParkInDeadLetterQueue(_channel!, ea, Queue);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Could not park message in DLQ; requeueing instead.");
+                try { _channel?.BasicNack(deliveryTag: ea.DeliveryTag, multiple: false, requeue: true); }
+                catch (Exception nackEx) { _logger.LogError(nackEx, "Fallback nack failed."); }
             }
         }
 
