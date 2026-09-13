@@ -417,13 +417,20 @@ public class UserServiceImpl : IUserService
 
         var tokenHandler = new System.IdentityModel.Tokens.Jwt.JwtSecurityTokenHandler();
         var keyBytes = Encoding.UTF8.GetBytes(key);
+        // Issue #36: staff accounts tied to a dealer carry a "dealer" claim so
+        // the device-token registry lets them manage dealer:<n> subjects.
+        // Omitted (not empty) when the account has no DealerId — consumers of
+        // the claim parse int and fail closed.
+        var claims = new List<System.Security.Claims.Claim> {
+            new System.Security.Claims.Claim("id", user.Id.ToString()),
+            new System.Security.Claims.Claim(System.Security.Claims.ClaimTypes.Name, user.Username),
+            new System.Security.Claims.Claim(System.Security.Claims.ClaimTypes.Role, user.Role)
+        };
+        if (user.DealerId.HasValue)
+            claims.Add(new System.Security.Claims.Claim("dealer", user.DealerId.Value.ToString()));
         var descriptor = new SecurityTokenDescriptor
         {
-            Subject = new System.Security.Claims.ClaimsIdentity(new[] {
-                new System.Security.Claims.Claim("id", user.Id.ToString()),
-                new System.Security.Claims.Claim(System.Security.Claims.ClaimTypes.Name, user.Username),
-                new System.Security.Claims.Claim(System.Security.Claims.ClaimTypes.Role, user.Role)
-            }),
+            Subject = new System.Security.Claims.ClaimsIdentity(claims),
             Expires = DateTime.UtcNow.AddHours(8),
             Issuer = issuer,
             Audience = audience,

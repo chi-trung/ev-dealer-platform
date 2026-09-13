@@ -1,4 +1,5 @@
 import api from './api'
+import { registerDeviceTokenWithBackend, getDeviceToken } from '../firebase/notificationService'
 
 const authService = {
   // Login
@@ -25,6 +26,12 @@ const authService = {
       if (rememberMe) {
         localStorage.setItem('rememberMe', 'true')
       }
+
+      // Issue #36: now that a JWT exists, bind this browser's FCM token to the
+      // account's registry subjects (user:<id>, dealer:<n> when applicable).
+      // Fire-and-forget — login must not fail over a notification channel, and
+      // App.jsx already handles the permission-denied case (no token → no-op).
+      registerDeviceTokenWithBackend(getDeviceToken()); // no await
 
       // Notify listeners (AuthProvider) to refresh current user
       try { window.dispatchEvent(new Event('authChanged')) } catch (e) {}

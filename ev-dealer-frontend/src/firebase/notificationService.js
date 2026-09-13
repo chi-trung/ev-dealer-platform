@@ -1,4 +1,5 @@
 import { requestNotificationPermission, onMessageListener, getCurrentToken } from './messaging';
+import api from '../services/api';
 
 /**
  * Notification Service
@@ -6,6 +7,60 @@ import { requestNotificationPermission, onMessageListener, getCurrentToken } fro
  */
 
 const DEVICE_TOKEN_KEY = 'fcm_device_token';
+
+/**
+ * Issue #36: register the minted FCM token with the NotificationService
+ * device-token registry under the LOGGED-IN staff user's subjects, so push
+ * consumers can find this device. The registry (PUT /api/DeviceTokens/{key})
+ * is JWT-gated and accepts only the caller's own subjects:
+ *   user:<id>     always (the account's own mailbox)
+ *   dealer:<n>    only when the account has a DealerId (the JWT carries the
+ *                 matching "dealer" claim minted at login)
+ * Fire-and-forget: a failed registration must never break the app boot or
+ * login flow — pushes are a bonus channel, not a product dependency.
+ * Returns the subjects it tried (for tests/debugging), or [] when nobody is
+ * logged in or there is no token.
+ */
+export const registerDeviceTokenWithBackend = async (token) => {
+  if (!token) return [];
+  const jwt = localStorage.getItem('token');
+  let user = null;
+  try {
+    user = JSON.parse(localStorage.getItem('user') || 'null');
+  } catch {
+    user = null;
+  }
+  if (!jwt || !user) return []; // not logged in — no subject to register under
+
+  // authService stores the /auth/login UserDto (camelCase), but tolerate the
+  // PascalCase shape the same code already tolerates for the login response.
+  const userId = user.id ?? user.Id;
+  // Mirror the SERVER contract (AuthorizeSubject does int.TryParse on the id
+  // claim): a non-numeric id can never own a subject, so don't fire a request
+  // the controller provably rejects — notably ProtectedRoute's DEV-mode mock
+  // (id 'dev-user-1'), whose fake bearer would 401 and trip api.js's
+  // session-wipe redirect on every boot of the login-free dev flow.
+  // (/^\d+$/ also rejects null/undefined via String(), and rejects 0-padded
+  // or negative spellings int.TryParse would accept — harmless either way,
+  // the server owns the final decision; this only prunes doomed traffic.)
+  if (!/^\d+$/.test(String(userId))) return [];
+
+  const subjects = [`user:${userId}`];
+  const dealerId = user.dealerId ?? user.DealerId;
+  if (dealerId && /^\d+$/.test(String(dealerId))) subjects.push(`dealer:${dealerId}`);
+
+  for (const subject of subjects) {
+    try {
+      await api.put(`/DeviceTokens/${subject}`, { token });
+      console.log(`🔑 Device token registered for ${subject}`);
+    } catch (error) {
+      // 401 here also trips api.js's session-expiry handling; swallow
+      // everything else (offline gateway, 403 after a role change, 409 cap).
+      console.warn(`⚠️ Device token registration failed for ${subject}:`, error.message);
+    }
+  }
+  return subjects;
+};
 
 /**
  * Initialize notifications (request permission and save token)
@@ -21,21 +76,27 @@ export const initializeNotifications = async () => {
       if (token) {
         localStorage.setItem(DEVICE_TOKEN_KEY, token);
         console.log('✅ Device token restored from Firebase');
+        // App-load path (Issue #36): a returning logged-in session re-registers
+        // its device — the registry upsert is idempotent, so refreshing on
+        // every load keeps UpdatedAt honest across the 8h JWT lifetime.
+        // No-ops when nobody is logged in.
+        registerDeviceTokenWithBackend(token); // fire-and-forget
         return token;
       }
     }
 
     // Request permission and get new token
     const token = await requestNotificationPermission();
-    
+
     if (token) {
       // Save token to localStorage
       localStorage.setItem(DEVICE_TOKEN_KEY, token);
       console.log('✅ Device token saved to localStorage');
-      
-      // TODO: Optional - Send token to backend to save in database
-      // await saveTokenToBackend(token);
-      
+
+      // Issue #36: send the token to the device-token registry for the
+      // logged-in account's subjects (no-op pre-login; login() re-registers).
+      registerDeviceTokenWithBackend(token); // fire-and-forget
+
       return token;
     } else {
       console.warn('⚠️ Failed to get device token');
@@ -156,30 +217,12 @@ export const isPermissionGranted = () => {
   return Notification.permission === 'granted';
 };
 
-/**
- * Optional: Save token to backend database
- * Uncomment and implement if you want to save tokens on server
- */
-// const saveTokenToBackend = async (token) => {
-//   try {
-//     await fetch('/api/users/device-token', {
-//       method: 'POST',
-//       headers: {
-//         'Content-Type': 'application/json',
-//       },
-//       body: JSON.stringify({ deviceToken: token })
-//     });
-//     console.log('✅ Token saved to backend');
-//   } catch (error) {
-//     console.error('❌ Error saving token to backend:', error);
-//   }
-// };
-
 export default {
   initializeNotifications,
   getDeviceToken,
   clearDeviceToken,
   setupNotificationListener,
   isNotificationSupported,
-  isPermissionGranted
+  isPermissionGranted,
+  registerDeviceTokenWithBackend
 };

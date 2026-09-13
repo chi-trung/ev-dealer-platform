@@ -133,7 +133,11 @@ Fan-out works as intended for `vehicle.reserved`: one publish, two queues
   UpdatedAt refresh, multi-device fan-out, per-subject cap, concurrent-
   registration 500-freedom, revoke incl. the concurrent-loser case, read-time
   fail-soft, and the UNIQUE `(Key, Token)` index) against real SQLite temp
-  files. CI runs all three inside the "Build .NET services" job.
+  files; `CustomerConsumerTests.cs` pins the Issue #35 push wiring;
+  `DeviceTokensAuthTests.cs` (Issue #36) pins the controller's authorization
+  decision table (own/dealer/foreign/missing-claim × PUT/GET/DELETE, incl.
+  prefix-shaped negatives that kill a StartsWith mutant of the ownership
+  rule). CI runs all five inside the "Build .NET services" job.
 
 ## Device-token registry (Issue #33)
 
@@ -152,15 +156,25 @@ NotificationService owns a one-table SQLite store (`Models/DeviceToken.cs`,
 - `DELETE ?token=…` — revoke one device (404 if unknown; a concurrent-revoke
   loser gets 404, not a 500)
 
-Endpoints are anonymous, bounded by the cap above and, optionally, by
-`DeviceTokens:RegistrationKey` — when that config value is non-empty, PUT and
-DELETE require it as `X-Device-Registry-Key` (boot logs a warning when unset).
-Full authenticated registration is the follow-up (see gap note below).
+Endpoints require a UserService JWT (`Authorization: Bearer`, validated with
+the same `Jwt:Key/Issuer/Audience` as every other service — Issue #36), and a
+caller may manage only their OWN subjects: `user:<id>` (the token's `id`
+claim) and `dealer:<n>` when the token carries a matching `dealer` claim
+(minted at login for accounts with a `DealerId`). Anything else — another
+user's mailbox, an arbitrary `customer:…` — is 403. The interim
+`DeviceTokens:RegistrationKey` header gate is deleted; the per-subject cap
+and masked GET previews remain (auth bounds WHO may write a subject, not HOW
+much one subject can hoard). The staff portal registers its FCM token after
+login and on app load with a token (`user:<id>` + `dealer:<n>` when the
+account has a dealer), so pushes reach staff devices; the customer-facing
+audience remains unbuilt.
 
 Tokens are keyed by **subject string**, built only via
 `Services/NotificationSubjects.cs` — `NotificationSubjects.Customer(id)` →
-`"customer:<id>"`. One spelling server-side; consumers look up exactly what
-the registration API stored.
+`"customer:<id>"`, `User(id)` → `"user:<id>"`, `Dealer(id)` → `"dealer:<id>"`.
+One spelling server-side; consumers look up exactly what the registration API
+stored, and the Issue #36 write-scope check compares against the same builders
+(the authorization decision and the storage key can never drift apart).
 
 Resolution order in `order.created` / `quote.created` / `contract.created` /
 `testdrive.scheduled` consumers: an in-band payload token **wins** (future
@@ -180,14 +194,17 @@ service still serves, and a registry that dies at *read* time (file corrupted
 mid-run) logs an error and returns empty — consumers degrade to log-only
 instead of requeueing healthy events into retry→DLQ churn.
 
-Remaining token gap: nothing registers real customer tokens yet — the
-customer-facing app must `PUT` after FCM permission (tracked separately; the
-portal has staff `User` accounts, and `User` carries no `CustomerId`, so the
-subject-to-login mapping needs a product decision). Accepted interim risk:
-an attacker who guesses a subject can plant their OWN token there and receive
-that subject's pushes (they cannot remove or read other tokens). Authenticated
-registration — the follow-up issue — replaces both the cap and the optional
-`RegistrationKey` gate.
+Remaining token gap: no *customer*-subject tokens are registered yet — the
+portal is staff-only, and `user:<id>` / `dealer:<id>` pushes become
+deliverable as consumers start fanning out to them (Issue #38 wires the
+vehicle events to `dealer:<DealerId>`; `user:` is registration-only for now,
+its consumers coming with whatever notifies a staff user directly). The old
+"Issue #33 accepted risk" — anyone guessing a subject could plant their own
+token there — is closed by Issue #36: writes require a JWT whose `id`/`dealer`
+claims own the exact subject. `customer:<n>` subjects are consequently
+write-protected from the API entirely (no claim maps to one); they can only
+gain tokens if a future authenticated customer app adds a customer-scoped
+rule here.
 
 ## Known gaps (tracked for next phases)
 
@@ -195,8 +212,9 @@ registration — the follow-up issue — replaces both the cap and the optional
    `customer_events`. NotificationService should acknowledge new customers. (W4 follow-up)~~
    — **closed**: `customer.created/updated/deleted` queues bound; since Issue #35
    they are push-capable via the registry (`customer:<CustomerId>`). No client
-   registers customer-subject tokens yet (portal is staff-only; Issue #36 adds
-   authenticated registration), so live behavior stays log-only + logged
+   registers customer-subject tokens yet (portal is staff-only; Issue #36
+   shipped authenticated registration — `user:`/`dealer:` subjects only), so
+   live behavior stays log-only + logged
    subject — the plumbing, not the audience, was the gap.
 2. ~~**`payment.received` / `order.status.changed` have no consumers** — published,
    accumulating; no notification content designed for them yet.~~
