@@ -25,6 +25,7 @@ builder.Configuration.AddJsonFile("appsettings.json", optional: false, reloadOnC
 // Add services to the container.
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
+builder.Services.AddHealthChecks();
 
 // Add custom services
 builder.Services.AddScoped<IForecastingService, ForecastingService>();
@@ -104,6 +105,9 @@ if (app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 app.UseCors("AllowFrontend");
+
+// Liveness probe for the API gateway aggregate /health (docs/GATEWAY.md).
+app.MapHealthChecks("/health");
 
 // Apply database migrations and ensure database is created
 using (var scope = app.Services.CreateScope())

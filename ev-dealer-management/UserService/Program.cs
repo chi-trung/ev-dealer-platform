@@ -16,6 +16,7 @@ builder.Configuration.AddJsonFile("appsettings.json", optional: false, reloadOnC
 // Add services
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
+builder.Services.AddHealthChecks();
 builder.Services.AddAuthorization();
 builder.Services.AddAuthentication();
 
@@ -96,6 +97,9 @@ app.UseHttpsRedirection();
 app.UseCors("AllowFrontend");
 app.UseAuthentication();
 app.UseAuthorization();
+
+// Liveness probe for the API gateway aggregate /health (docs/GATEWAY.md).
+app.MapHealthChecks("/health");
 
 app.MapPost("/api/auth/register", async (RegisterRequest req, IUserService userService) =>
 {
