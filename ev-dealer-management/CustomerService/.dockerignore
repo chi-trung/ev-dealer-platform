@@ -1,22 +1,15 @@
 # Build context is the service directory (compose uses `build: ./<Service>`),
-# so without these rules bin/ and local SQLite files get COPY'd into the image:
-# stale assemblies break restore/publish caching and *.db would silently ship
-# real dev data.
+# so without these rules bin/ (~55M) and local SQLite files get COPY'd into the
+# image: stale assemblies break restore/publish caching and customers.db would
+# silently ship real dev data.
 bin/
 obj/
-.migration*
-.vs/
-**/node_modules
-**/*.db
-Dockerfile
 *.db
 *.db-shm
 *.db-wal
 Logs/
 *.user
-*.suo
-.idea/
-.vscode/
+.suo
 Properties/launchSettings.json
 # Firebase service account key: mounted at runtime, never baked or committed.
 firebase-credentials.json
