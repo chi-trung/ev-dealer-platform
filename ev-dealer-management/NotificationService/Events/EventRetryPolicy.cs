@@ -31,29 +31,55 @@ public static class EventRetryPolicy
 
     /// <summary>
     /// Declares the &lt;queue&gt;.retry (TTL, dead-letters back into the main
-    /// queue via the default exchange) and &lt;queue&gt;.dlq parking queue.
-    /// Idempotent: same arguments every time, so redeploying is safe.
+    /// queue via the default exchange) and &lt;queue&gt;.dlq parking queue on a
+    /// THROWAWAY channel and swallows declare failures: redeclaring an existing
+    /// queue with a different x-message-ttl is a channel-level
+    /// PRECONDITION_FAILED soft error, and both consumers call this inside
+    /// their single top-level try. On the consumer's own channel an operator's
+    /// RabbitMQ:RetryTtlMilliseconds edit would therefore kill every later
+    /// queue (NotificationService) or the whole consumer thread
+    /// (CustomerService) while /health keeps returning 200. Fail-soft means the
+    /// broker keeps its existing TTL and the consumer keeps running; the
+    /// warning names the remedy. Takes the connection, not the consumer's
+    /// channel: IModel (6.x) exposes no Connection property.
     /// </summary>
-    public static void DeclareRetryTopology(IModel channel, string queue, int retryTtlMs)
+    public static void DeclareRetryTopology(IConnection connection, string queue, int retryTtlMs)
     {
-        channel.QueueDeclare(
-            queue: RetryQueueFor(queue),
-            durable: true,
-            exclusive: false,
-            autoDelete: false,
-            arguments: new Dictionary<string, object>
-            {
-                ["x-message-ttl"] = retryTtlMs,
-                ["x-dead-letter-exchange"] = "",
-                ["x-dead-letter-routing-key"] = queue,
-            });
-
-        channel.QueueDeclare(
-            queue: DeadLetterQueueFor(queue),
-            durable: true,
-            exclusive: false,
-            autoDelete: false,
-            arguments: null);
+        var retryQueue = RetryQueueFor(queue);
+        try
+        {
+            using var tempChannel = connection.CreateModel();
+            // The .dlq takes no arguments, so this declare is always idempotent.
+            tempChannel.QueueDeclare(
+                queue: DeadLetterQueueFor(queue),
+                durable: true,
+                exclusive: false,
+                autoDelete: false,
+                arguments: null);
+            tempChannel.QueueDeclare(
+                queue: RetryQueueFor(queue),
+                durable: true,
+                exclusive: false,
+                autoDelete: false,
+                arguments: new Dictionary<string, object>
+                {
+                    ["x-message-ttl"] = retryTtlMs,
+                    ["x-dead-letter-exchange"] = "",
+                    ["x-dead-letter-routing-key"] = queue,
+                });
+        }
+        catch (Exception ex)
+        {
+            // Console.Error, not a logger: this static helper is shared by
+            // both consumers and carries no ILogger; stderr lands in
+            // `docker compose logs` either way.
+            Console.Error.WriteLine(
+                $"[EventRetryPolicy] WARNING: could not (re)declare {retryQueue}: {ex.Message}. " +
+                "If this is PRECONDITION_FAILED, the broker's x-message-ttl for that queue differs from " +
+                "RabbitMQ:RetryTtlMilliseconds; the existing queue keeps its old TTL and processing " +
+                $"continues. To apply the new value: docker exec evm_rabbitmq rabbitmqctl delete_queue {retryQueue} " +
+                "(drops any messages waiting to retry) and restart the consumer, or revert the setting.");
+        }
     }
 
     /// <summary>
@@ -92,10 +118,13 @@ public static class EventRetryPolicy
     /// <summary>
     /// Re-publishes the delivery to the retry queue (original properties and
     /// body preserved, so x-death keeps accumulating) and acks the original.
+    /// The topology declare goes through the same throwaway-channel guard as
+    /// boot: a TTL mismatch must not close this consumer channel mid-delivery
+    /// (publish then throws and the caller falls back to nack+requeue).
     /// </summary>
-    public static void ScheduleRetry(IModel channel, BasicDeliverEventArgs ea, string queue, int retryTtlMs)
+    public static void ScheduleRetry(IConnection connection, IModel channel, BasicDeliverEventArgs ea, string queue, int retryTtlMs)
     {
-        DeclareRetryTopology(channel, queue, retryTtlMs);
+        DeclareRetryTopology(connection, queue, retryTtlMs);
         var properties = ea.BasicProperties ?? channel.CreateBasicProperties();
         channel.BasicPublish("", RetryQueueFor(queue), properties, ea.Body.ToArray());
         channel.BasicAck(ea.DeliveryTag, multiple: false);

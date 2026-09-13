@@ -21,6 +21,13 @@ CustomerService — identical copies, services share no assembly):**
   have them); the retry hop is explicit re-publish + ack. NotificationService
   handlers now `throw` after logging so this policy sees processing errors
   (including failed FCM sends) instead of swallowing them and acking.
+- Changing `RetryTtlMilliseconds` on a broker that already has a `*.retry`
+  queue makes the boot-time re-declare fail with a channel-level
+  PRECONDITION_FAILED. `DeclareRetryTopology` runs that declare on a throwaway
+  channel and logs the remedy instead of letting it kill the consumer: the old
+  TTL stays in effect until an operator deletes the retry queue
+  (`docker exec evm_rabbitmq rabbitmqctl delete_queue <queue>.retry` — drops
+  messages pending retry) and restarts the service.
 
 Broker connection settings live under the `RabbitMQ` config section of each service:
 `HostName` / `Port` / `UserName` / `Password` (env override: `RabbitMQ__HostName` etc.).

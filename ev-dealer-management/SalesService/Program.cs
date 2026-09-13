@@ -56,12 +56,20 @@ var app = builder.Build();
 
 // Apply migrations at startup (same pattern as UserService). The bind-mounted
 // data/ dir is empty on a fresh clone, and without a schema every endpoint
-// 500s with `sqlite_error(no such table: Orders)`. On existing dev DBs the
-// single migration is already recorded in __EFMigrationsHistory and this is a
-// no-op.
+// 500s with `sqlite_error(no such table: Orders)`. Pre-squash dev DBs (history
+// rows for the migrations deleted in 73ce679, schema already present) make
+// Migrate() throw "table already exists" — safe to ignore, same fail-soft as
+// ReportingService — and fresh DBs get migrated normally.
 using (var scope = app.Services.CreateScope())
 {
-    scope.ServiceProvider.GetRequiredService<SalesDbContext>().Database.Migrate();
+    try
+    {
+        scope.ServiceProvider.GetRequiredService<SalesDbContext>().Database.Migrate();
+    }
+    catch (Exception ex)
+    {
+        Console.Error.WriteLine($"[SalesService] Warning: could not apply database migrations (existing schema assumed): {ex.Message}");
+    }
 }
 
 // Log the database file path after app is built
