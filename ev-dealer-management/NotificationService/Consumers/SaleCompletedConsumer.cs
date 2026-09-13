@@ -64,6 +64,10 @@ public class SaleCompletedConsumer
         catch (Exception ex)
         {
             Log.Error(ex, "Error processing SaleCompletedEvent");
+            // Rethrow: RabbitMQConsumerService decides retry-vs-DLQ from this
+            // exception (EventRetryPolicy). Swallowing here used to ack the
+            // delivery and lose the notification silently.
+            throw;
         }
     }
 }

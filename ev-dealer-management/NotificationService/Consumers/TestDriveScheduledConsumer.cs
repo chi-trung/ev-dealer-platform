@@ -68,6 +68,10 @@ public class TestDriveScheduledConsumer
         catch (Exception ex)
         {
             Log.Error(ex, "Error processing TestDriveScheduledEvent");
+            // Rethrow: RabbitMQConsumerService decides retry-vs-DLQ from this
+            // exception (EventRetryPolicy). Swallowing here used to ack the
+            // delivery and lose the notification silently.
+            throw;
         }
     }
 }

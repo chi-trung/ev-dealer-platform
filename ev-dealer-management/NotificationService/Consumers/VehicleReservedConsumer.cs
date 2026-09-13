@@ -72,6 +72,10 @@ public class VehicleReservedConsumer
         catch (Exception ex)
         {
             Log.Error(ex, "Error processing VehicleReservedEvent");
+            // Rethrow: RabbitMQConsumerService decides retry-vs-DLQ from this
+            // exception (EventRetryPolicy). Swallowing here used to ack the
+            // delivery and lose the notification silently.
+            throw;
         }
     }
 }

@@ -73,6 +73,10 @@ public class QuoteCreatedConsumer
         catch (Exception ex)
         {
             Log.Error(ex, "❌ Error processing QuoteCreatedEvent");
+            // Rethrow: RabbitMQConsumerService decides retry-vs-DLQ from this
+            // exception (EventRetryPolicy). Swallowing here used to ack the
+            // delivery and lose the notification silently.
+            throw;
         }
     }
 }

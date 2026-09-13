@@ -1,12 +1,26 @@
 # Event Topology (RabbitMQ)
 
 Canonical event bus for the EV Dealer microservices. Every publish is **persistent**
-(`Persistent = true`) and every consumer **acks manually** (`autoAck: false`).
-Acknowledgement policy per consumer: CustomerService's `VehicleReservedEventConsumer`
-acks on success, acks-and-discards malformed payloads, and nack+requeues on processing
-errors (with `BasicQos` prefetch 1 so same-email deliveries can't race the unique
-index). NotificationService's consumers ack after invoking their handler, but the
-handlers currently swallow their own errors — see "Known gaps" #3.
+(`Persistent = true`) and every consumer **acks manually** (`autoAck: false`,
+`BasicQos` prefetch 1 so one delivery is in flight per channel — this also keeps
+same-email check-then-inserts from racing the unique index).
+
+**Failure policy (W4, `Events/EventRetryPolicy.cs` in NotificationService and
+CustomerService — identical copies, services share no assembly):**
+
+- **Malformed payload** (empty/garbage body that can never parse): parked in
+  `<queue>.dlq` — previously ack-and-discarded, which lost it invisibly.
+- **Handler threw**: re-published to `<queue>.retry` (a queue with
+  `x-message-ttl` = `RabbitMQ:RetryTtlMilliseconds`, default 5000ms) and the
+  original delivery is acked; TTL expiry dead-letters it back to the main queue
+  via the default exchange. The attempt count rides the broker-maintained
+  `x-death` header; past `RabbitMQ:MaxDeliveryAttempts` (default 3) the message
+  goes to `<queue>.dlq` instead of retrying again.
+- The main queues are declared **without** x-dead-letter arguments (RabbitMQ
+  refuses to redeclare an existing queue differently — live brokers already
+  have them); the retry hop is explicit re-publish + ack. NotificationService
+  handlers now `throw` after logging so this policy sees processing errors
+  (including failed FCM sends) instead of swallowing them and acking.
 
 Broker connection settings live under the `RabbitMQ` config section of each service:
 `HostName` / `Port` / `UserName` / `Password` (env override: `RabbitMQ__HostName` etc.).
@@ -56,10 +70,11 @@ exchange; the routing key **is** the queue name (from `RabbitMQ:Queues:*` config
 | Routing key = queue | Producer (payload) | Consumer |
 |---|---|---|
 | `sales.completed` | SalesService OrdersController — `SaleCompletedEvent` (OrderId, CustomerEmail, CustomerName, VehicleModel, TotalPrice, CompletedAt, DeviceToken?) | NotificationService `sales.completed` → push (skipped without DeviceToken) |
-| `order.created` | SalesService OrdersController — `OrderCreatedEvent` | **unrouted** — NotificationService has `OrderCreatedConsumer` but it is not wired to a queue |
+| `order.created` | SalesService OrdersController — `OrderCreatedEvent` | NotificationService `order.created` → push |
+| `quote.created` | SalesService QuotesController — `QuoteCreatedEvent` | NotificationService `quote.created` → push |
+| `contract.created` | SalesService ContractsController — `ContractCreatedEvent` (ContractId, ContractNumber, OrderId, CustomerId, DealerId, SalespersonId, TotalAmount, PaymentStatus, Status, CreatedAt; DeviceToken always null — the API collects none) | NotificationService `contract.created` → push |
 | `payment.received` | SalesService PaymentsController | no consumer |
 | `order.status.changed` | SalesService OrdersController | no consumer |
-| `quote.created` | SalesService QuotesController | **unrouted** — `QuoteCreatedConsumer` exists, not wired |
 
 ## Queue inventory
 
@@ -69,7 +84,11 @@ exchange; the routing key **is** the queue name (from `RabbitMQ:Queues:*` config
 | `testdrive.scheduled` | yes | `vehicle_events` / `testdrive.scheduled` | NotificationService |
 | `customer_vehicle_reserved` | yes | `vehicle_events` / `vehicle.reserved` | CustomerService |
 | `sales.completed` | yes | default exchange | NotificationService |
-| `order.created`, `payment.received`, `order.status.changed`, `quote.created` | yes (declared by publisher) | default exchange | nobody — messages accumulate |
+| `order.created` | yes | default exchange | NotificationService |
+| `quote.created` | yes | default exchange | NotificationService |
+| `contract.created` | yes | default exchange | NotificationService |
+| `payment.received`, `order.status.changed` | yes (declared by publisher) | default exchange | nobody — messages accumulate |
+| `<queue>.retry` / `<queue>.dlq` | yes | default exchange (retry dead-letters back to `<queue>`) | broker-side for retry; DLQ is operator-facing |
 
 Fan-out works as intended for `vehicle.reserved`: one publish, two queues
 (NotificationService push + CustomerService CRM upsert).
@@ -78,25 +97,18 @@ Fan-out works as intended for `vehicle.reserved`: one publish, two queues
 
 - Producer (vehicle domain): `VehicleService/Services/RabbitMQProducerService.cs`, keys in `VehicleService/Events/EventNames.cs`
 - Producer (customer domain): `CustomerService/Services/RabbitMQProducerService.cs`, keys in `CustomerService/Events/EventNames.cs`
-- Producer (sales): `SalesService/Services/RabbitMQMessagePublisher.cs`
-- Consumers: `NotificationService/Services/RabbitMQConsumerService.cs` (declares+binds queues, dispatches to `Consumers/*` handlers), `CustomerService/Consumers/VehicleReservedEventConsumer.cs`
+- Producer (sales): `SalesService/Services/RabbitMQMessagePublisher.cs` (`_publishLock` — singleton `IModel` is not thread-safe)
+- Consumers: `NotificationService/Services/RabbitMQConsumerService.cs` (one channel per queue, declares+binds queues, dispatches to `Consumers/*` handlers), `CustomerService/Consumers/VehicleReservedEventConsumer.cs`
+- Retry/DLQ policy: `NotificationService/Events/EventRetryPolicy.cs` + identical `CustomerService/Events/EventRetryPolicy.cs`; knobs `RabbitMQ:MaxDeliveryAttempts` (3), `RabbitMQ:RetryTtlMilliseconds` (5000)
 
 ## Known gaps (tracked for next phases)
 
-1. **Unrouted sales consumers** — `OrderCreatedConsumer`, `QuoteCreatedConsumer`,
-   `ContractCreatedConsumer` classes exist in NotificationService but are never
-   registered or bound to a queue; their events pile up unconsumed. (W4)
-2. **`contract.created` has no producer** — the DTO exists in SalesService but no
-   code publishes it.
-3. **No dead-letter queues and no retry limits** — malformed payloads are now
-   ack-discarded, but a message that fails *processing* in CustomerService is
-   nack-requeued forever, and NotificationService handlers catch their own errors
-   (e.g. a failed FCM send) and still ack — so those events are silently lost.
-   W4 adds DLX + retry limits and moves error handling out of the handlers.
-4. **`customer.*` consumers not wired** — events are published but nothing binds
-   `customer_events`. NotificationService should acknowledge new customers. (W4)
-5. **docker-compose ships only user/vehicle/sales + rabbitmq** — CustomerService and
+1. **`customer.*` consumers not wired** — events are published but nothing binds
+   `customer_events`. NotificationService should acknowledge new customers. (W4 follow-up)
+2. **`payment.received` / `order.status.changed` have no consumers** — published,
+   accumulating; no notification content designed for them yet.
+3. **`vehicle.created/updated/deleted` have no consumers** — topology keeps room
+   for reporting/search indexing later.
+4. **docker-compose ships only user/vehicle/sales + rabbitmq** — CustomerService and
    NotificationService run outside compose, hence `HostName: localhost` defaults;
    adding them to compose is part of the W5 e2e task.
-6. **`vehicle.created/updated/deleted` have no consumers** — topology keeps room
-   for reporting/search indexing later.

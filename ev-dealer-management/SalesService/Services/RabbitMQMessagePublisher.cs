@@ -16,6 +16,11 @@ public class RabbitMQMessagePublisher : IMessagePublisher, IDisposable
     private IConnection? _connection;
     private IModel? _channel;
     private readonly object _lock = new object();
+    // IModel is NOT thread-safe (RabbitMQ.Client docs): the singleton channel is
+    // shared by concurrent requests, so publishes must be serialized or frames
+    // interleave and corrupt the connection. Same _publishLock pattern as the
+    // CustomerService producer (PR #11 review round).
+    private readonly object _publishLock = new object();
     private bool _disposed = false;
 
     public RabbitMQMessagePublisher(IConfiguration configuration, ILogger<RabbitMQMessagePublisher> logger)
@@ -72,33 +77,39 @@ public class RabbitMQMessagePublisher : IMessagePublisher, IDisposable
     {
         try
         {
-            var channel = GetChannel();
-            
-            // Declare queue (idempotent operation)
-            channel.QueueDeclare(
-                queue: queueName,
-                durable: true,
-                exclusive: false,
-                autoDelete: false,
-                arguments: null
-            );
+            // Serialize the whole channel interaction: declare + publish must not
+            // interleave with another request's frames on the shared IModel.
+            lock (_publishLock)
+            {
+                var channel = GetChannel();
 
-            // Serialize message
-            var json = JsonSerializer.Serialize(message);
-            var body = Encoding.UTF8.GetBytes(json);
+                // Declare queue (idempotent operation)
+                channel.QueueDeclare(
+                    queue: queueName,
+                    durable: true,
+                    exclusive: false,
+                    autoDelete: false,
+                    arguments: null
+                );
 
-            // Publish message
-            var properties = channel.CreateBasicProperties();
-            properties.Persistent = true; // Make message persistent
+                // Serialize message
+                var json = JsonSerializer.Serialize(message);
+                var body = Encoding.UTF8.GetBytes(json);
 
-            channel.BasicPublish(
-                exchange: "",
-                routingKey: queueName,
-                basicProperties: properties,
-                body: body
-            );
+                // Publish message
+                var properties = channel.CreateBasicProperties();
+                properties.Persistent = true; // Make message persistent
 
-            _logger.LogInformation("Message published to queue: {QueueName}, Message: {Message}", queueName, json);
+                channel.BasicPublish(
+                    exchange: "",
+                    routingKey: queueName,
+                    basicProperties: properties,
+                    body: body
+                );
+
+                _logger.LogInformation("Message published to queue: {QueueName}", queueName);
+                _logger.LogDebug("Published payload to {QueueName}: {Message}", queueName, json);
+            }
         }
         catch (Exception ex)
         {

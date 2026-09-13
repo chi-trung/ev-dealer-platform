@@ -76,6 +76,10 @@ public class ContractCreatedConsumer
         catch (Exception ex)
         {
             Log.Error(ex, "❌ Error processing ContractCreatedEvent");
+            // Rethrow: RabbitMQConsumerService decides retry-vs-DLQ from this
+            // exception (EventRetryPolicy). Swallowing here used to ack the
+            // delivery and lose the notification silently.
+            throw;
         }
     }
 }

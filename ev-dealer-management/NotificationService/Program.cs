@@ -29,6 +29,9 @@ try
     builder.Services.AddScoped<SaleCompletedConsumer>();
     builder.Services.AddScoped<VehicleReservedConsumer>();
     builder.Services.AddScoped<TestDriveScheduledConsumer>();
+    builder.Services.AddScoped<OrderCreatedConsumer>();
+    builder.Services.AddScoped<QuoteCreatedConsumer>();
+    builder.Services.AddScoped<ContractCreatedConsumer>();
 
     // Register RabbitMQ Consumer Service
     builder.Services.AddSingleton<IMessageConsumer, RabbitMQConsumerService>();
