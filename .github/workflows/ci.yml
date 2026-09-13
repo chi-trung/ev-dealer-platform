@@ -22,8 +22,11 @@ jobs:
         run: dotnet build DealerSystem.sln -clp:ErrorsOnly
       - name: Run unit tests
         # EventRetryPolicy + producer↔consumer payload contract tests
-        # (DealerSystem.Tests, Issue #31). Reuses the build above.
-        run: dotnet test DealerSystem.sln --no-build --filter "FullyQualifiedName~NotificationService.Tests"
+        # (DealerSystem.Tests, Issue #31). Reuses the build above. Run by
+        # project path, NOT an FQN filter: `--filter` that matches zero tests
+        # still exits 0, so a namespace rename would silently disable the
+        # gate. The path form fails if the project is missing or has no tests.
+        run: dotnet test DealerSystem.Tests/NotificationService.Tests/NotificationService.Tests.csproj --no-build
 
   frontend:
     name: Build React frontend
