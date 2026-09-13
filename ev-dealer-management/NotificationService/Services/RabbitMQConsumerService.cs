@@ -15,6 +15,9 @@ namespace NotificationService.Services
         // CustomerService (testdrive.*). See docs/EVENTS.md.
         private const string VehicleExchange = "vehicle_events";
 
+        // Topic exchange published by CustomerService (customer.*).
+        private const string CustomerExchange = "customer_events";
+
         // One channel per consumed queue: IModel is not thread-safe and a
         // delivery must be acked/rejected on its own channel.
         private const string SaleQueueKey = "SaleCompleted";
@@ -23,6 +26,9 @@ namespace NotificationService.Services
         private const string OrderQueueKey = "OrderCreated";
         private const string QuoteQueueKey = "QuoteCreated";
         private const string ContractQueueKey = "ContractCreated";
+        private const string CustomerCreatedQueueKey = "CustomerCreated";
+        private const string CustomerUpdatedQueueKey = "CustomerUpdated";
+        private const string CustomerDeletedQueueKey = "CustomerDeleted";
 
         private readonly IConfiguration _configuration;
         private readonly IServiceProvider _serviceProvider;
@@ -34,6 +40,9 @@ namespace NotificationService.Services
         private IModel? _orderChannel;
         private IModel? _quoteChannel;
         private IModel? _contractChannel;
+        private IModel? _customerCreatedChannel;
+        private IModel? _customerUpdatedChannel;
+        private IModel? _customerDeletedChannel;
         private int _maxAttempts = EventRetryPolicy.DefaultMaxAttempts;
         private int _retryTtlMs = EventRetryPolicy.DefaultRetryTtlMs;
 
@@ -83,6 +92,14 @@ namespace NotificationService.Services
                     _quoteChannel = OpenQueueChannel(QueueName(QuoteQueueKey, "quote.created"), vehicleTopicRoutingKey: null);
                     _contractChannel = OpenQueueChannel(QueueName(ContractQueueKey, "contract.created"), vehicleTopicRoutingKey: null);
 
+                    // Customer lifecycle events published by CustomerService to
+                    // the customer_events topic exchange. Like the vehicle
+                    // queues above, these bind by EVENT routing key, never the
+                    // queue name (renames via RabbitMQ:Queues must not unbind).
+                    _customerCreatedChannel = OpenTopicQueueChannel(QueueName(CustomerCreatedQueueKey, "customer.created"), CustomerExchange, "customer.created");
+                    _customerUpdatedChannel = OpenTopicQueueChannel(QueueName(CustomerUpdatedQueueKey, "customer.updated"), CustomerExchange, "customer.updated");
+                    _customerDeletedChannel = OpenTopicQueueChannel(QueueName(CustomerDeletedQueueKey, "customer.deleted"), CustomerExchange, "customer.deleted");
+
                     Log.Information("RabbitMQ consumer connection and channels initialized successfully.");
                 }
                 catch (Exception ex)
@@ -131,6 +148,31 @@ namespace NotificationService.Services
             }
         }
 
+        /// <summary>
+        /// Topic-exchange variant of <see cref="OpenQueueChannel"/>: same
+        /// declare + retry-topology + fail-soft contract, but binds to an
+        /// arbitrary topic exchange instead of the vehicle one.
+        /// </summary>
+        private IModel? OpenTopicQueueChannel(string queue, string exchange, string routingKey)
+        {
+            try
+            {
+                var channel = _connection!.CreateModel();
+                channel.BasicQos(prefetchSize: 0, prefetchCount: 1, global: false);
+                channel.QueueDeclare(queue: queue, durable: true, exclusive: false, autoDelete: false, arguments: null);
+                EventRetryPolicy.DeclareRetryTopology(_connection!, queue, _retryTtlMs);
+                channel.ExchangeDeclare(exchange: exchange, type: ExchangeType.Topic, durable: true, autoDelete: false, arguments: null);
+                channel.QueueBind(queue: queue, exchange: exchange, routingKey: routingKey);
+                return channel;
+            }
+            catch (Exception ex)
+            {
+                // Same per-queue fail-soft as OpenQueueChannel: losing only
+                // this queue, never the channels declared after it.
+                Log.Error(ex, "Could not open consumer channel for queue {Queue}; this queue will NOT be consumed.", queue);
+                return null;
+            }
+        }
         public void StartConsuming()
         {
             if (_connection == null || !_connection.IsOpen)
@@ -156,6 +198,12 @@ namespace NotificationService.Services
                 sp => sp.GetRequiredService<QuoteCreatedConsumer>().HandleAsync);
             StartConsumingQueue(_contractChannel, QueueName(ContractQueueKey, "contract.created"),
                 sp => sp.GetRequiredService<ContractCreatedConsumer>().HandleAsync);
+            StartConsumingQueue(_customerCreatedChannel, QueueName(CustomerCreatedQueueKey, "customer.created"),
+                sp => sp.GetRequiredService<CustomerCreatedConsumer>().HandleAsync);
+            StartConsumingQueue(_customerUpdatedChannel, QueueName(CustomerUpdatedQueueKey, "customer.updated"),
+                sp => sp.GetRequiredService<CustomerUpdatedConsumer>().HandleAsync);
+            StartConsumingQueue(_customerDeletedChannel, QueueName(CustomerDeletedQueueKey, "customer.deleted"),
+                sp => sp.GetRequiredService<CustomerDeletedConsumer>().HandleAsync);
 
             Log.Information("Started consuming messages from all queues.");
         }
@@ -275,6 +323,9 @@ namespace NotificationService.Services
             _orderChannel?.Close();
             _quoteChannel?.Close();
             _contractChannel?.Close();
+            _customerCreatedChannel?.Close();
+            _customerUpdatedChannel?.Close();
+            _customerDeletedChannel?.Close();
             _connection?.Close();
             Log.Information("RabbitMQ consumer connection closed.");
         }
