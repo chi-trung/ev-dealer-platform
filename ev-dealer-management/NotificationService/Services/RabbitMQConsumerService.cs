@@ -29,6 +29,8 @@ namespace NotificationService.Services
         private const string CustomerCreatedQueueKey = "CustomerCreated";
         private const string CustomerUpdatedQueueKey = "CustomerUpdated";
         private const string CustomerDeletedQueueKey = "CustomerDeleted";
+        private const string PaymentReceivedQueueKey = "PaymentReceived";
+        private const string OrderStatusChangedQueueKey = "OrderStatusChanged";
 
         private readonly IConfiguration _configuration;
         private readonly IServiceProvider _serviceProvider;
@@ -43,6 +45,8 @@ namespace NotificationService.Services
         private IModel? _customerCreatedChannel;
         private IModel? _customerUpdatedChannel;
         private IModel? _customerDeletedChannel;
+        private IModel? _paymentReceivedChannel;
+        private IModel? _orderStatusChangedChannel;
         private int _maxAttempts = EventRetryPolicy.DefaultMaxAttempts;
         private int _retryTtlMs = EventRetryPolicy.DefaultRetryTtlMs;
 
@@ -100,6 +104,13 @@ namespace NotificationService.Services
                     _customerUpdatedChannel = OpenTopicQueueChannel(QueueName(CustomerUpdatedQueueKey, "customer.updated"), CustomerExchange, "customer.updated");
                     _customerDeletedChannel = OpenTopicQueueChannel(QueueName(CustomerDeletedQueueKey, "customer.deleted"), CustomerExchange, "customer.deleted");
 
+                    // Sales-side lifecycle events published by SalesService to
+                    // the default exchange (routing key = queue name, from
+                    // RabbitMQ:Queues:PaymentReceived/OrderStatusChanged):
+                    // payment.received, order.status.changed.
+                    _paymentReceivedChannel = OpenQueueChannel(QueueName(PaymentReceivedQueueKey, "payment.received"), vehicleTopicRoutingKey: null);
+                    _orderStatusChangedChannel = OpenQueueChannel(QueueName(OrderStatusChangedQueueKey, "order.status.changed"), vehicleTopicRoutingKey: null);
+
                     Log.Information("RabbitMQ consumer connection and channels initialized successfully.");
                 }
                 catch (Exception ex)
@@ -110,13 +121,16 @@ namespace NotificationService.Services
         }
 
         /// <summary>
-        /// Creates the channel for a queue, declares the queue (plus its
+        /// Creates the channel for a queue: declares the queue (plus its
         /// .retry/.dlq dead-letter topology) and, when
         /// <paramref name="vehicleTopicRoutingKey"/> is set, binds it to the
         /// vehicle_events topic exchange under that routing key. The key is the
         /// event name, never the queue name: operators can rename a queue via
         /// RabbitMQ:Queues (the compose pattern SalesService uses) and must not
-        /// thereby silently unbind it from the exchange.
+        /// thereby silently unbind it from the exchange. With a null key the
+        /// queue stays on the default exchange, where the routing key IS the
+        /// queue name (the SalesService publisher pattern: payment.received,
+        /// order.status.changed, sales.*).
         /// </summary>
         private IModel? OpenQueueChannel(string queue, string? vehicleTopicRoutingKey)
         {
@@ -204,6 +218,10 @@ namespace NotificationService.Services
                 sp => sp.GetRequiredService<CustomerUpdatedConsumer>().HandleAsync);
             StartConsumingQueue(_customerDeletedChannel, QueueName(CustomerDeletedQueueKey, "customer.deleted"),
                 sp => sp.GetRequiredService<CustomerDeletedConsumer>().HandleAsync);
+            StartConsumingQueue(_paymentReceivedChannel, QueueName(PaymentReceivedQueueKey, "payment.received"),
+                sp => sp.GetRequiredService<PaymentReceivedConsumer>().HandleAsync);
+            StartConsumingQueue(_orderStatusChangedChannel, QueueName(OrderStatusChangedQueueKey, "order.status.changed"),
+                sp => sp.GetRequiredService<OrderStatusChangedConsumer>().HandleAsync);
 
             Log.Information("Started consuming messages from all queues.");
         }
@@ -326,6 +344,8 @@ namespace NotificationService.Services
             _customerCreatedChannel?.Close();
             _customerUpdatedChannel?.Close();
             _customerDeletedChannel?.Close();
+            _paymentReceivedChannel?.Close();
+            _orderStatusChangedChannel?.Close();
             _connection?.Close();
             Log.Information("RabbitMQ consumer connection closed.");
         }

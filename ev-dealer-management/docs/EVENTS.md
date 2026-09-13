@@ -84,8 +84,8 @@ exchange; the routing key **is** the queue name (from `RabbitMQ:Queues:*` config
 | `order.created` | SalesService OrdersController — `OrderCreatedEvent` (no DeviceToken field) | NotificationService `order.created` → log-only today: push needs a DeviceToken the payload never carries (see Known gaps) |
 | `quote.created` | SalesService QuotesController — `QuoteCreatedEvent` (no DeviceToken field) | NotificationService `quote.created` → log-only today: same as `order.created` |
 | `contract.created` | SalesService ContractsController — `ContractCreatedEvent` (ContractId, ContractNumber, OrderId, CustomerId, DealerId, SalespersonId, TotalAmount, PaymentStatus, Status, CreatedAt; DeviceToken always null — the API collects none) | NotificationService `contract.created` → log-only today: DeviceToken is never populated |
-| `payment.received` | SalesService PaymentsController | no consumer |
-| `order.status.changed` | SalesService OrdersController | no consumer |
+| `payment.received` | SalesService PaymentsController — `PaymentReceivedEvent` (PaymentId, OrderId, Amount, PaymentMethod, Status, PaidDate, CreatedAt) | `payment.received` (NotificationService → log-only; payload carries no CustomerEmail/DeviceToken) |
+| `order.status.changed` | SalesService OrdersController — `OrderStatusChangedEvent` (OrderId, OrderNumber, OldStatus, NewStatus, ChangedAt) | `order.status.changed` (NotificationService → log-only; same) |
 
 ## Queue inventory
 
@@ -99,7 +99,8 @@ exchange; the routing key **is** the queue name (from `RabbitMQ:Queues:*` config
 | `quote.created` | yes | default exchange | NotificationService |
 | `contract.created` | yes | default exchange | NotificationService |
 | `customer.created` / `customer.updated` / `customer.deleted` | yes | `customer_events` / own routing key | NotificationService (log-only) |
-| `payment.received`, `order.status.changed` | yes (declared by publisher) | default exchange | nobody — messages accumulate |
+| `payment.received` | yes | default exchange | NotificationService (log-only) |
+| `order.status.changed` | yes | default exchange | NotificationService (log-only) |
 | `<queue>.retry` / `<queue>.dlq` | yes | default exchange (retry dead-letters back to `<queue>`) | broker-side for retry; DLQ is operator-facing |
 
 Fan-out works as intended for `vehicle.reserved`: one publish, two queues
@@ -120,15 +121,17 @@ Fan-out works as intended for `vehicle.reserved`: one publish, two queues
    — **closed**: `customer.created/updated/deleted` queues bound + log-only
    consumers (no DeviceToken in payloads yet; push wiring is the remaining
    follow-up when the API collects tokens).
-2. **`payment.received` / `order.status.changed` have no consumers** — published,
-   accumulating; no notification content designed for them yet.
+2. ~~**`payment.received` / `order.status.changed` have no consumers** — published,
+   accumulating; no notification content designed for them yet.~~
+   — **closed**: `payment.received` + `order.status.changed` queues consumed
+   log-only (payloads carry no CustomerEmail/DeviceToken yet).
 3. **`vehicle.created/updated/deleted` have no consumers** — topology keeps room
    for reporting/search indexing later.
 4. ~~**docker-compose ships only user/vehicle/sales + rabbitmq**~~ — **closed in
    W5**: all six services plus the gateway run in `docker-compose.yml` on
    `ev-dealer-network` with `RabbitMQ__HostName=rabbitmq`. The W4 retry
    topology is live in compose: `customer_vehicle_reserved(.retry/.dlq)` and
-   notification's nine `<queue>(.retry/.dlq)` triplets materialize on the
+   notification's eleven `<queue>(.retry/.dlq)` triplets materialize on the
    broker as events flow. Notification containers boot without a Firebase
    credential (secret, out of repo): push endpoints 500 and consumed events
    cycle retry→DLQ, which is the documented degraded state, not a regression.
