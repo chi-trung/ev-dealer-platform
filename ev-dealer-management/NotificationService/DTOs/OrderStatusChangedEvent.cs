@@ -13,5 +13,8 @@ namespace NotificationService.DTOs
         public string OldStatus { get; set; } = string.Empty;
         public string NewStatus { get; set; } = string.Empty;
         public DateTime ChangedAt { get; set; }
+        // Issue #37: the order's owner, so the consumer can push via the
+        // registry subject customer:<CustomerId>.
+        public int CustomerId { get; set; }
     }
 }

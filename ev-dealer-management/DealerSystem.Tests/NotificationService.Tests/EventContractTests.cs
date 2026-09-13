@@ -187,7 +187,9 @@ public class EventContractTests
         typeof(NS.CustomerDeletedEvent));
 
     [Fact] public void SaleCompleted_Contract_Holds() => AssertContractSpirits(
-        new SA.SaleCompletedEvent { OrderId = "11", CustomerEmail = "d@example.com", CustomerName = "Pham Van D", VehicleModel = "VF8", TotalPrice = 640000000m, CompletedAt = When, DeviceToken = "tok-sale" },
+        // CustomerId non-default (Issue #37): the registry-fallback key must
+        // survive the wire; 0 would round-trip vacuously.
+        new SA.SaleCompletedEvent { OrderId = "11", CustomerEmail = "d@example.com", CustomerName = "Pham Van D", VehicleModel = "VF8", TotalPrice = 640000000m, CompletedAt = When, DeviceToken = "tok-sale", CustomerId = 7 },
         typeof(NS.SaleCompletedEvent));
 
     [Fact] public void OrderCreated_Contract_Holds() => AssertContractSpirits(
@@ -195,11 +197,11 @@ public class EventContractTests
         typeof(NS.OrderCreatedEvent));
 
     [Fact] public void PaymentReceived_Contract_Holds() => AssertContractSpirits(
-        new SA.PaymentReceivedEvent { PaymentId = "p-1", OrderId = "11", Amount = 10000000m, PaymentMethod = "Cash", Status = "Paid", PaidDate = When, CreatedAt = When },
+        new SA.PaymentReceivedEvent { PaymentId = "p-1", OrderId = "11", Amount = 10000000m, PaymentMethod = "Cash", Status = "Paid", PaidDate = When, CreatedAt = When, CustomerId = 7 },
         typeof(NS.PaymentReceivedEvent));
 
     [Fact] public void OrderStatusChanged_Contract_Holds() => AssertContractSpirits(
-        new SA.OrderStatusChangedEvent { OrderId = "11", OrderNumber = "ORD-2026-0913", OldStatus = "Pending", NewStatus = "Confirmed", ChangedAt = When },
+        new SA.OrderStatusChangedEvent { OrderId = "11", OrderNumber = "ORD-2026-0913", OldStatus = "Pending", NewStatus = "Confirmed", ChangedAt = When, CustomerId = 7 },
         typeof(NS.OrderStatusChangedEvent));
 
     [Fact] public void QuoteCreated_Contract_Holds() => AssertContractSpirits(

@@ -83,12 +83,12 @@ exchange; the routing key **is** the queue name (from `RabbitMQ:Queues:*` config
 
 | Routing key = queue | Producer (payload) | Consumer |
 |---|---|---|
-| `sales.completed` | SalesService OrdersController — `SaleCompletedEvent` (OrderId, CustomerEmail, CustomerName, VehicleModel, TotalPrice, CompletedAt, DeviceToken?) | NotificationService `sales.completed` → push (skipped without DeviceToken; no CustomerId to look a registry key by) |
+| `sales.completed` | SalesService OrdersController — `SaleCompletedEvent` (OrderId, CustomerEmail, CustomerName, VehicleModel, TotalPrice, CompletedAt, DeviceToken?, CustomerId — Issue #37) | NotificationService `sales.completed` → push: payload DeviceToken wins, else registry fallback `customer:<CustomerId>` (Issue #37); log-only when neither yields a token |
 | `order.created` | SalesService OrdersController — `OrderCreatedEvent` (no DeviceToken field) | NotificationService `order.created` → push via registry (`customer:<CustomerId>`, Issue #33); log-only when the customer has no registered device |
 | `quote.created` | SalesService QuotesController — `QuoteCreatedEvent` (no DeviceToken field) | NotificationService `quote.created` → same registry resolution as `order.created` |
 | `contract.created` | SalesService ContractsController — `ContractCreatedEvent` (ContractId, ContractNumber, OrderId, CustomerId, DealerId, SalespersonId, TotalAmount, PaymentStatus, Status, CreatedAt; DeviceToken always null — the API collects none) | NotificationService `contract.created` → same registry resolution as `order.created` |
-| `payment.received` | SalesService PaymentsController — `PaymentReceivedEvent` (PaymentId, OrderId, Amount, PaymentMethod, Status, PaidDate, CreatedAt) | `payment.received` (NotificationService → log-only; payload carries no CustomerEmail/DeviceToken) |
-| `order.status.changed` | SalesService OrdersController — `OrderStatusChangedEvent` (OrderId, OrderNumber, OldStatus, NewStatus, ChangedAt) | `order.status.changed` (NotificationService → log-only; same) |
+| `payment.received` | SalesService PaymentsController — `PaymentReceivedEvent` (PaymentId, OrderId, Amount, PaymentMethod, Status, PaidDate, CreatedAt, CustomerId — resolved from the payment's Order at the publish site, Issue #37) | `payment.received` (NotificationService → registry-only push via `customer:<CustomerId>`, Issue #37; log-only when nothing is registered) |
+| `order.status.changed` | SalesService OrdersController — `OrderStatusChangedEvent` (OrderId, OrderNumber, OldStatus, NewStatus, ChangedAt, CustomerId — Issue #37) | `order.status.changed` (NotificationService → registry-only push via `customer:<CustomerId>`, Issue #37; log-only when nothing is registered) |
 
 ## Queue inventory
 
@@ -103,8 +103,8 @@ exchange; the routing key **is** the queue name (from `RabbitMQ:Queues:*` config
 | `quote.created` | yes | default exchange | NotificationService |
 | `contract.created` | yes | default exchange | NotificationService |
 | `customer.created` / `customer.updated` / `customer.deleted` | yes | `customer_events` / own routing key | NotificationService (push via registry) |
-| `payment.received` | yes | default exchange | NotificationService (log-only) |
-| `order.status.changed` | yes | default exchange | NotificationService (log-only) |
+| `payment.received` | yes | default exchange | NotificationService (push via registry, Issue #37) |
+| `order.status.changed` | yes | default exchange | NotificationService (push via registry, Issue #37) |
 | `<queue>.retry` / `<queue>.dlq` | yes | default exchange (retry dead-letters back to `<queue>`) | broker-side for retry; DLQ is operator-facing |
 
 Fan-out works as intended for `vehicle.reserved`: one publish, two queues
@@ -134,6 +134,9 @@ Fan-out works as intended for `vehicle.reserved`: one publish, two queues
   registration 500-freedom, revoke incl. the concurrent-loser case, read-time
   fail-soft, and the UNIQUE `(Key, Token)` index) against real SQLite temp
   files; `CustomerConsumerTests.cs` pins the Issue #35 push wiring;
+  `SalesPushConsumerTests.cs` pins the Issue #37 sales-push wiring
+  (payload-token-wins vs registry fallback, throw-on-false, the pre-#37
+  missing-CustomerId degradation);
   `DeviceTokensAuthTests.cs` (Issue #36) pins the controller's authorization
   decision table (own/dealer/foreign/missing-claim × PUT/GET/DELETE, incl.
   prefix-shaped negatives that kill a StartsWith mutant of the ownership
@@ -177,15 +180,21 @@ stored, and the Issue #36 write-scope check compares against the same builders
 (the authorization decision and the storage key can never drift apart).
 
 Resolution order in `order.created` / `quote.created` / `contract.created` /
-`testdrive.scheduled` consumers: an in-band payload token **wins** (future
-producers can send one without touching the registry); otherwise the consumer
-fans the push out to **all** live tokens for `customer:<CustomerId>` via
-`SendMulticastAsync`. The `customer.*` trio (Issue #35) is **registry-only**:
-their payloads carry no `DeviceToken` field and the consumers have no
-in-band branch — publishing a token field on those events would be silently
-dropped. Zero tokens anywhere → the old log-only behavior
+`testdrive.scheduled` / `sales.completed` consumers: an in-band payload token
+**wins** (future producers can send one without touching the registry);
+otherwise the consumer fans the push out to **all** live tokens for
+`customer:<CustomerId>` via `SendMulticastAsync` (`sales.completed` gained its
+registry fallback with Issue #37; `CustomerId` is now on that payload). The
+`customer.*` trio (Issue #35) and the two sales status/payment events
+`payment.received` / `order.status.changed` (Issue #37) are **registry-only**:
+their payloads carry no `DeviceToken` field and the consumers have no in-band
+branch — publishing a token field on those events would be silently dropped.
+Zero tokens anywhere → the old log-only behavior
 ("Notification logged only"), which stays the honest fallback — the exact
-subject string tried is logged so a key-spelling drift is visible.
+subject string tried is logged so a key-spelling drift is visible. A pre-#37
+in-flight `payment.received`/`order.status.changed` message with no `CustomerId`
+deserializes it to `0`, looks up `customer:0`, finds nothing, and degrades to
+log-only rather than retry→DLQ.
 
 The registry DB is volume-backed in compose
 (`./NotificationService/data:/app/data`), so tokens survive container
@@ -218,8 +227,16 @@ rule here.
    subject — the plumbing, not the audience, was the gap.
 2. ~~**`payment.received` / `order.status.changed` have no consumers** — published,
    accumulating; no notification content designed for them yet.~~
-   — **closed**: `payment.received` + `order.status.changed` queues consumed
-   log-only (payloads carry no CustomerEmail/DeviceToken yet).
+   — **closed**: `payment.received` + `order.status.changed` queues consumed;
+   since Issue #37 they are push-capable via the registry
+   (`customer:<CustomerId>` — the events gained a `CustomerId`, the payment one
+   resolved from the Order at the publish site after `Payment.OrderId` became a
+   real int FK; the old Guid-vs-int mismatch also made
+   `ReportingService.GetPaymentsAsync` swallow a JsonException and return an
+   empty payment list, which the same fix cures). No client registers
+   customer-subject tokens yet (they are write-protected from the API, Issue
+   #36), so live behavior stays log-only + logged subject until a customer app
+   exists.
 3. ~~**`vehicle.created/updated/deleted` have no consumers** — topology keeps room
    for reporting/search indexing later.~~
    — **closed**: `vehicle.created/updated/deleted` queues bound + log-only
