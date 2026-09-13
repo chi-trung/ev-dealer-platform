@@ -8,10 +8,12 @@ namespace NotificationService.Consumers;
 public class QuoteCreatedConsumer
 {
     private readonly IFcmService _fcmService;
+    private readonly IDeviceTokenRegistry _tokens;
 
-    public QuoteCreatedConsumer(IFcmService fcmService)
+    public QuoteCreatedConsumer(IFcmService fcmService, IDeviceTokenRegistry tokens)
     {
         _fcmService = fcmService;
+        _tokens = tokens;
     }
 
     public async Task HandleAsync(string message)
@@ -44,11 +46,26 @@ public class QuoteCreatedConsumer
             // Always log the notification
             Log.Information("📢 [THÔNG BÁO BÁO GIÁ] {Title} | {Body}", title, body);
 
-            // Try to send push notification if device token is available
+            // Try to send push notification if a device token is available.
+            // Registry fallback for the no-token producer (see
+            // OrderCreatedConsumer for the full pattern); fans out to all
+            // live tokens for the customer.
+            List<string> deviceTokens;
             if (!string.IsNullOrWhiteSpace(quoteEvent.DeviceToken))
             {
-                var success = await _fcmService.SendNotificationAsync(
-                    quoteEvent.DeviceToken,
+                deviceTokens = new List<string> { quoteEvent.DeviceToken };
+            }
+            else
+            {
+                var registered = await _tokens.GetTokensAsync(
+                    NotificationSubjects.Customer(quoteEvent.CustomerId));
+                deviceTokens = registered.Count > 0 ? registered.ToList() : new List<string>();
+            }
+
+            if (deviceTokens.Count > 0)
+            {
+                var success = await _fcmService.SendMulticastAsync(
+                    deviceTokens,
                     title,
                     body,
                     data

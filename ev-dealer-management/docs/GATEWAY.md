@@ -18,7 +18,7 @@ restart.
 | `/api/Orders/*`, `/api/Contracts/*`, `/api/Quotes/*`, `/api/Payments/*`, `/api/Promotions/*`, `/api/Deliveries/*`, `/api/ProcessedReservations/*`, `/api/Sales/*` | SalesService (5003) |
 | `/api/customers/*`, `/api/TestDrives/*`, `/api/Complaints/*` (+ legacy alias `/api/CustomerService/Complaints/*`) | CustomerService (5039) |
 | `/api/reports/*` | ReportingService (5208) |
-| `/api/Notification/*` (alias `/api/notifications/*`) | NotificationService (5051) |
+| `/api/Notification/*` (alias `/api/notifications/*`), `/api/DeviceTokens/*` (Issue #33 registry) | NotificationService (5051) |
 | `/api/health/{user,vehicle,sales,customer,reporting,notification}` | each service's `/health` |
 
 ## Health

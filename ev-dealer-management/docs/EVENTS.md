@@ -52,11 +52,12 @@ Broker connection settings live under the `RabbitMQ` config section of each serv
 | `vehicle.updated` | VehicleService — `VehicleUpdatedEvent` (VehicleId, Model, Type, Price, DealerId, UpdatedAt) | `vehicle.updated` (NotificationService → log-only; same) |
 | `vehicle.deleted` | VehicleService — `VehicleDeletedEvent` (VehicleId, DeletedAt) | `vehicle.deleted` (NotificationService → log-only; same) |
 | `vehicle.reserved` | VehicleService — `VehicleReservedEvent` (VehicleId, VehicleName, VehiclePrice, DealerId, CustomerName/Email/Phone, ColorVariantId/Name, Quantity, Notes, ReservedAt, DeviceToken) | `vehicle.reserved` (NotificationService → push), `customer_vehicle_reserved` (CustomerService → create/update customer + purchase) |
-| `testdrive.scheduled` | CustomerService — `TestDriveScheduledEvent` (TestDriveId, CustomerId, VehicleId, DealerId, CustomerEmail, CustomerName, VehicleModel*, ScheduledDate, DeviceToken*) | `testdrive.scheduled` (NotificationService → push) |
+| `testdrive.scheduled` | CustomerService — `TestDriveScheduledEvent` (TestDriveId, CustomerId, VehicleId, DealerId, CustomerEmail, CustomerName, VehicleModel*, ScheduledDate, DeviceToken*) | `testdrive.scheduled` (NotificationService → push; token via registry when payload carries none) |
 
 \* `VehicleModel` is currently empty (CustomerService has no local vehicle catalog) and
 `DeviceToken` is null (the booking API doesn't collect one yet) — the consumer falls
-back to `#<VehicleId>` in the notification and skips push without a token.
+back to `#<VehicleId>` in the notification and resolves the token from the
+device-token registry (`customer:<CustomerId>`, Issue #33) before skipping push.
 
 ### `customer_events` (topic)
 
@@ -80,10 +81,10 @@ exchange; the routing key **is** the queue name (from `RabbitMQ:Queues:*` config
 
 | Routing key = queue | Producer (payload) | Consumer |
 |---|---|---|
-| `sales.completed` | SalesService OrdersController — `SaleCompletedEvent` (OrderId, CustomerEmail, CustomerName, VehicleModel, TotalPrice, CompletedAt, DeviceToken?) | NotificationService `sales.completed` → push (skipped without DeviceToken) |
-| `order.created` | SalesService OrdersController — `OrderCreatedEvent` (no DeviceToken field) | NotificationService `order.created` → log-only today: push needs a DeviceToken the payload never carries (see Known gaps) |
-| `quote.created` | SalesService QuotesController — `QuoteCreatedEvent` (no DeviceToken field) | NotificationService `quote.created` → log-only today: same as `order.created` |
-| `contract.created` | SalesService ContractsController — `ContractCreatedEvent` (ContractId, ContractNumber, OrderId, CustomerId, DealerId, SalespersonId, TotalAmount, PaymentStatus, Status, CreatedAt; DeviceToken always null — the API collects none) | NotificationService `contract.created` → log-only today: DeviceToken is never populated |
+| `sales.completed` | SalesService OrdersController — `SaleCompletedEvent` (OrderId, CustomerEmail, CustomerName, VehicleModel, TotalPrice, CompletedAt, DeviceToken?) | NotificationService `sales.completed` → push (skipped without DeviceToken; no CustomerId to look a registry key by) |
+| `order.created` | SalesService OrdersController — `OrderCreatedEvent` (no DeviceToken field) | NotificationService `order.created` → push via registry (`customer:<CustomerId>`, Issue #33); log-only when the customer has no registered device |
+| `quote.created` | SalesService QuotesController — `QuoteCreatedEvent` (no DeviceToken field) | NotificationService `quote.created` → same registry resolution as `order.created` |
+| `contract.created` | SalesService ContractsController — `ContractCreatedEvent` (ContractId, ContractNumber, OrderId, CustomerId, DealerId, SalespersonId, TotalAmount, PaymentStatus, Status, CreatedAt; DeviceToken always null — the API collects none) | NotificationService `contract.created` → same registry resolution as `order.created` |
 | `payment.received` | SalesService PaymentsController — `PaymentReceivedEvent` (PaymentId, OrderId, Amount, PaymentMethod, Status, PaidDate, CreatedAt) | `payment.received` (NotificationService → log-only; payload carries no CustomerEmail/DeviceToken) |
 | `order.status.changed` | SalesService OrdersController — `OrderStatusChangedEvent` (OrderId, OrderNumber, OldStatus, NewStatus, ChangedAt) | `order.status.changed` (NotificationService → log-only; same) |
 
@@ -120,10 +121,48 @@ Fan-out works as intended for `vehicle.reserved`: one publish, two queues
   publisher's `JsonSerializer.Serialize` default options into the consumer DTO
   and asserts no field is silently dropped; the intentional gaps it encodes are
   `VehiclePrice`/`DealerId` on `vehicle.reserved` (consumer body renders
-  name/quantity only) and the `DeviceToken` placeholder on `order/quote/contract`
-  (APIs collect none — delete the gap row when they do). `EventRetryPolicyTests.cs`
-  locks `RetryRounds` x-death semantics and the `.retry`/`.dlq` naming. CI runs
-  both inside the "Build .NET services" job.
+  name/quantity only) and the `DeviceToken` field on `order/quote/contract`
+  (producers still never put it on the wire — the consumer resolves tokens
+  out-of-band from the registry below, so the gap rows describe the payload,
+  not dead fields; delete a row only if a producer starts publishing one).
+  `EventRetryPolicyTests.cs`
+  locks `RetryRounds` x-death semantics and the `.retry`/`.dlq` naming. `DeviceTokenRegistryTests.cs`
+  pins the registry semantics (key spelling, upsert dedupe, multi-device fan-out,
+  revoke, and the UNIQUE `(Key, Token)` index via real SQLite). CI runs
+  all three inside the "Build .NET services" job.
+
+## Device-token registry (Issue #33)
+
+The push consumers no longer die at a null `DeviceToken` payload field.
+NotificationService owns a one-table SQLite store (`Models/DeviceToken.cs`,
+`Data/NotificationDbContext.cs`, `Services/DeviceTokenRegistry.cs`) exposed at
+`/api/DeviceTokens/{key}`:
+
+- `PUT` `{"token": "…"}` — register/upsert (idempotent; refreshes `UpdatedAt`)
+- `GET` — live tokens for the subject (ops probe)
+- `DELETE ?token=…` — revoke one device (404 if unknown)
+
+Tokens are keyed by **subject string**, built only via
+`Services/NotificationSubjects.cs` — `NotificationSubjects.Customer(id)` →
+`"customer:<id>"`. One spelling server-side; consumers look up exactly what
+the registration API stored.
+
+Resolution order in `order.created` / `quote.created` / `contract.created` /
+`testdrive.scheduled` consumers: an in-band payload token **wins** (future
+producers can send one without touching the registry); otherwise the consumer
+fans the push out to **all** live tokens for `customer:<CustomerId>` via
+`SendMulticastAsync`. Zero tokens anywhere → the old log-only behavior
+("Notification logged only"), which stays the honest fallback.
+
+The registry DB is volume-backed in compose
+(`./NotificationService/data:/app/data`), so tokens survive container
+restarts. The DB is fail-soft: if `EnsureCreated` throws at boot the service
+still serves (consumers then degrade to log-only — no push, no crash).
+
+Remaining token gap: nothing registers real customer tokens yet — the
+customer-facing app must `PUT` after FCM permission (tracked separately; the
+portal has staff `User` accounts, and `User` carries no `CustomerId`, so the
+subject-to-login mapping needs a product decision).
 
 ## Known gaps (tracked for next phases)
 

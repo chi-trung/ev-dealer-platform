@@ -8,10 +8,12 @@ namespace NotificationService.Consumers;
 public class OrderCreatedConsumer
 {
     private readonly IFcmService _fcmService;
+    private readonly IDeviceTokenRegistry _tokens;
 
-    public OrderCreatedConsumer(IFcmService fcmService)
+    public OrderCreatedConsumer(IFcmService fcmService, IDeviceTokenRegistry tokens)
     {
         _fcmService = fcmService;
+        _tokens = tokens;
     }
 
     public async Task HandleAsync(string message)
@@ -45,11 +47,28 @@ public class OrderCreatedConsumer
             // Always log the notification
             Log.Information("📢 [THÔNG BÁO ĐƠN HÀNG] {Title} | {Body}", title, body);
 
-            // Try to send push notification if device token is available
+            // Try to send push notification if a device token is available.
+            // Producers carry none for this event (docs/EVENTS.md gap #4), so
+            // fall back to the registry keyed by the customer the order
+            // belongs to; a payload token (future producer sends one) still
+            // wins and bypasses the lookup. Delivery fans out to ALL live
+            // tokens for the subject via multicast.
+            List<string> deviceTokens;
             if (!string.IsNullOrWhiteSpace(orderEvent.DeviceToken))
             {
-                var success = await _fcmService.SendNotificationAsync(
-                    orderEvent.DeviceToken,
+                deviceTokens = new List<string> { orderEvent.DeviceToken };
+            }
+            else
+            {
+                var registered = await _tokens.GetTokensAsync(
+                    NotificationSubjects.Customer(orderEvent.CustomerId));
+                deviceTokens = registered.Count > 0 ? registered.ToList() : new List<string>();
+            }
+
+            if (deviceTokens.Count > 0)
+            {
+                var success = await _fcmService.SendMulticastAsync(
+                    deviceTokens,
                     title,
                     body,
                     data

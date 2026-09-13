@@ -1,4 +1,5 @@
 using Serilog;
+using Microsoft.EntityFrameworkCore;
 using NotificationService.Services;
 using NotificationService.Consumers;
 
@@ -24,6 +25,17 @@ try
 
     // Register Firebase FCM Service (Singleton for better performance)
     builder.Services.AddSingleton<IFcmService, FirebaseFcmService>();
+
+    // DeviceToken registry (Issue #33): the only database this service owns.
+    // Same connection-string convention as the other services — config /
+    // ConnectionStrings__DefaultConnection wins so docker-compose can relocate
+    // it onto a mounted volume; otherwise the file sits in ContentRootPath.
+    var dbConn = builder.Configuration.GetConnectionString("DefaultConnection");
+    if (string.IsNullOrWhiteSpace(dbConn))
+        dbConn = $"Data Source={Path.Combine(builder.Environment.ContentRootPath, "notifications.db")}";
+    builder.Services.AddDbContext<NotificationService.Data.NotificationDbContext>(options =>
+        options.UseSqlite(dbConn));
+    builder.Services.AddScoped<IDeviceTokenRegistry, DeviceTokenRegistry>();
 
     // Register Consumers
     builder.Services.AddScoped<SaleCompletedConsumer>();
@@ -60,6 +72,23 @@ try
     builder.Services.AddControllers();
 
     var app = builder.Build();
+
+    // Create the registry schema on boot. Single-table with no history to
+    // replay, so EnsureCreated is honest here (the other services ship
+    // migrations and use Migrate()). Fail-soft on a locked/corrupt db file —
+    // a dead registry must not take the 14 queue consumers down with it;
+    // events then degrade to log-only, the pre-Issue-#33 behavior.
+    try
+    {
+        using var scope = app.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<NotificationService.Data.NotificationDbContext>();
+        db.Database.EnsureCreated();
+    }
+    catch (Exception ex)
+    {
+        Log.Error(ex, "DeviceToken registry DB unavailable — push lookups will fail until the db is fixed");
+    }
+
 
     // Configure the HTTP request pipeline.
     if (app.Environment.IsDevelopment())

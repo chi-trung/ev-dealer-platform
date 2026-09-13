@@ -8,10 +8,12 @@ namespace NotificationService.Consumers;
 public class TestDriveScheduledConsumer
 {
     private readonly IFcmService _fcmService;
+    private readonly IDeviceTokenRegistry _tokens;
 
-    public TestDriveScheduledConsumer(IFcmService fcmService)
+    public TestDriveScheduledConsumer(IFcmService fcmService, IDeviceTokenRegistry tokens)
     {
         _fcmService = fcmService;
+        _tokens = tokens;
     }
 
     public async Task HandleAsync(string message)
@@ -32,10 +34,24 @@ public class TestDriveScheduledConsumer
                 ? $"#{testDriveEvent.VehicleId}"
                 : testDriveEvent.VehicleModel;
 
-            // Check if device token is available
-            if (string.IsNullOrWhiteSpace(testDriveEvent.DeviceToken))
+            // Device token: the booking API still sends none (payload token
+            // null), so fall back to the registry (Issue #33) and fan out to
+            // all live tokens for the customer.
+            List<string> deviceTokens;
+            if (!string.IsNullOrWhiteSpace(testDriveEvent.DeviceToken))
             {
-                Log.Warning("No device token found for TestDrive event. Skipping push notification.");
+                deviceTokens = new List<string> { testDriveEvent.DeviceToken };
+            }
+            else
+            {
+                var registered = await _tokens.GetTokensAsync(
+                    NotificationSubjects.Customer(testDriveEvent.CustomerId));
+                deviceTokens = registered.Count > 0 ? registered.ToList() : new List<string>();
+            }
+
+            if (deviceTokens.Count == 0)
+            {
+                Log.Warning("No device token for TestDrive event (customer {CustomerId}). Skipping push notification.", testDriveEvent.CustomerId);
                 return;
             }
 
@@ -49,8 +65,8 @@ public class TestDriveScheduledConsumer
                 { "scheduledDate", testDriveEvent.ScheduledDate.ToString("yyyy-MM-dd HH:mm:ss") }
             };
 
-            var success = await _fcmService.SendNotificationAsync(
-                testDriveEvent.DeviceToken,
+            var success = await _fcmService.SendMulticastAsync(
+                deviceTokens,
                 title,
                 body,
                 data
