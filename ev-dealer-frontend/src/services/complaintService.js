@@ -1,8 +1,9 @@
 // src/services/complaintService.js
 
-// URL cơ sở cho API khiếu nại của bạn
-// Hãy thay thế bằng URL API thực tế của bạn
-const BASE_URL = "http://localhost:5036/api/CustomerService/Complaints"; // Cập nhật BASE_URL để khớp với cấu hình API Gateway
+import api from "./api";
+
+// Đường dẫn cơ sở so với baseURL của api (API Gateway, đã bao gồm /api)
+const BASE_URL = "/CustomerService/Complaints";
 
 const complaintService = {
   /**
@@ -12,22 +13,9 @@ const complaintService = {
    */
   createComplaint: async (complaintData) => {
     try {
-      const response = await fetch(BASE_URL, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          // Thêm token xác thực nếu cần
-          // 'Authorization': `Bearer ${localStorage.getItem('token')}`,
-        },
-        body: JSON.stringify(complaintData),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || "Không thể tạo khiếu nại.");
-      }
-
-      return await response.json();
+      // api đã giải mã response.data, nên kết quả chính là payload JSON như response.json() trước đây
+      const data = await api.post(BASE_URL, complaintData);
+      return data;
     } catch (error) {
       console.error("Lỗi khi tạo khiếu nại:", error);
       throw error;
@@ -40,21 +28,8 @@ const complaintService = {
    */
   getAllComplaints: async () => {
     try {
-      const response = await fetch(BASE_URL, {
-        method: "GET",
-        headers: {
-          "Content-Type": "application/json",
-          // Thêm token xác thực nếu cần
-          // 'Authorization': `Bearer ${localStorage.getItem('token')}`,
-        },
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || "Không thể lấy danh sách khiếu nại.");
-      }
-
-      return await response.json();
+      const data = await api.get(BASE_URL);
+      return data;
     } catch (error) {
       console.error("Lỗi khi lấy tất cả khiếu nại:", error);
       throw error;
@@ -68,21 +43,8 @@ const complaintService = {
    */
   getComplaintById: async (id) => {
     try {
-      const response = await fetch(`${BASE_URL}/${id}`, {
-        method: "GET",
-        headers: {
-          "Content-Type": "application/json",
-          // Thêm token xác thực nếu cần
-          // 'Authorization': `Bearer ${localStorage.getItem('token')}`,
-        },
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || `Không tìm thấy khiếu nại với ID: ${id}.`);
-      }
-
-      return await response.json();
+      const data = await api.get(`${BASE_URL}/${id}`);
+      return data;
     } catch (error) {
       console.error(`Lỗi khi lấy khiếu nại với ID ${id}:`, error);
       throw error;
@@ -97,27 +59,9 @@ const complaintService = {
    */
   updateComplaint: async (id, updatedData) => {
     try {
-      const response = await fetch(`${BASE_URL}/${id}`, {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-          // Thêm token xác thực nếu cần
-          // 'Authorization': `Bearer ${localStorage.getItem('token')}`,
-        },
-        body: JSON.stringify(updatedData),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || `Không thể cập nhật khiếu nại với ID: ${id}.`);
-      }
-
-      // Nếu backend trả về 204 No Content, không cố gắng phân tích JSON
-      if (response.status === 204) {
-        return {}; // Trả về một đối tượng rỗng hoặc null để báo hiệu thành công
-      }
-
-      return await response.json();
+      const data = await api.put(`${BASE_URL}/${id}`, updatedData);
+      // Nếu backend trả về 204 No Content, axios giải mã thành chuỗi rỗng; giữ hành vi trả {} như cũ
+      return data || {};
     } catch (error) {
       console.error(`Lỗi khi cập nhật khiếu nại với ID ${id}:`, error);
       throw error;
@@ -131,19 +75,7 @@ const complaintService = {
    */
   deleteComplaint: async (id) => {
     try {
-      const response = await fetch(`${BASE_URL}/${id}`, {
-        method: "DELETE",
-        headers: {
-          "Content-Type": "application/json",
-          // Thêm token xác thực nếu cần
-          // 'Authorization': `Bearer ${localStorage.getItem('token')}`,
-        },
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || `Không thể xóa khiếu nại với ID: ${id}.`);
-      }
+      await api.delete(`${BASE_URL}/${id}`);
       // Không trả về dữ liệu cho thao tác xóa thành công
       return;
     } catch (error) {

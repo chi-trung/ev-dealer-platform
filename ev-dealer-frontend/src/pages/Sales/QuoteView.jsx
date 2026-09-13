@@ -33,7 +33,7 @@ export default function QuoteView() {
       setError(null);
       try {
         // Fetch quote details from SalesService
-        const quoteData = await api.get(`http://localhost:5003/api/Quotes/${id}`); // api.get already returns response.data
+        const quoteData = await api.get(`/Quotes/${id}`); // api.get already returns response.data
 
         if (!quoteData || !quoteData.customerId) {
             throw new Error("Invalid quote data received from API.");
@@ -43,9 +43,9 @@ export default function QuoteView() {
 
         // Fetch dependent data in parallel
         const [customerData, vehicleData, salespersonData] = await Promise.all([
-            api.get(`http://localhost:5036/api/customers/${quoteData.customerId}`).catch(() => ({ id: quoteData.customerId, name: 'N/A' })),
-            api.get(`http://localhost:5036/api/vehicles/${quoteData.vehicleId}`).catch(() => ({ id: quoteData.vehicleId, model: 'N/A' })),
-            api.get(`http://localhost:7001/api/users/${quoteData.salespersonId}`).catch(() => ({ id: quoteData.salespersonId, fullName: 'N/A' })) // Fetch salesperson from UserService
+            api.get(`/customers/${quoteData.customerId}`).catch(() => ({ id: quoteData.customerId, name: 'N/A' })),
+            api.get(`/vehicles/${quoteData.vehicleId}`).catch(() => ({ id: quoteData.vehicleId, model: 'N/A' })),
+            api.get(`/users/${quoteData.salespersonId}`).catch(() => ({ id: quoteData.salespersonId, fullName: 'N/A' })) // Fetch salesperson from UserService
         ]);
         
         setCustomer(customerData); // api.get already returns response.data
@@ -154,8 +154,11 @@ export default function QuoteView() {
         installmentTotalPaymentCalculated: totals.installmentTotal
       };
 
-      const response = await api.post('http://localhost:5003/api/Sales/generate-quote-pdf', payload, { responseType: 'blob' });
-      const file = new Blob([response.data], { type: 'application/pdf' });
+      // Interceptor unwraps response.data, so this resolves to the blob itself
+      // (timeout raised above the shared 10s: server-side PDF rendering is slow,
+      // and this call previously ran on raw axios with no timeout at all)
+      const blobData = await api.post('/Sales/generate-quote-pdf', payload, { responseType: 'blob', timeout: 120000 });
+      const file = new Blob([blobData], { type: 'application/pdf' });
       const fileURL = URL.createObjectURL(file);
       const link = document.createElement('a');
       link.href = fileURL;

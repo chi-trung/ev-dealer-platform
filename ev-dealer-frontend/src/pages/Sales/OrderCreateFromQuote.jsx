@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import axios from 'axios';
+import api from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 
 // Icons
@@ -98,10 +98,11 @@ export default function OrderCreateFromQuote() {
     setPromotionLoading(true);
     setPromotionError(null);
     try {
-      const response = await axios.get('http://localhost:5003/api/Promotions');
+      const response = await api.get('/Promotions');
       const now = new Date();
       // FIX: Handle cases where API returns an object with array in $values
-      const promotionData = Array.isArray(response.data) ? response.data : response.data?.$values || [];
+      // (api's response interceptor already unwraps one .data level)
+      const promotionData = Array.isArray(response) ? response : response?.$values || [];
       
       // Filter promotions that are currently active
       const activePromotions = promotionData.filter(promo => {
@@ -125,18 +126,19 @@ export default function OrderCreateFromQuote() {
         setError(null);
 
         // 1. Fetch Quote Details
-        const quoteResponse = await axios.get(`http://localhost:5003/api/Quotes/${quoteId}`);
-        const fetchedQuote = quoteResponse.data;
+        const quoteResponse = await api.get(`/Quotes/${quoteId}`);
+        const fetchedQuote = quoteResponse;
         setQuote(fetchedQuote);
 
         // 2. Fetch Customer, Vehicle Details in parallel
+        // api resolves to the payload directly, so the .catch fallbacks return the payload shape too (no { data: ... } wrapper)
         const [customerRes, vehicleRes] = await Promise.all([
-          axios.get(`http://localhost:5036/api/customers/${fetchedQuote.customerId}`).catch(err => { console.error("Error fetching customer:", err); return { data: { name: 'N/A', phone: 'N/A', email: 'N/A', address: 'N/A' } }; }),
-          axios.get(`http://localhost:5036/api/vehicles/${fetchedQuote.vehicleId}`).catch(err => { console.error("Error fetching vehicle:", err); return { data: { model: 'N/A' } }; }),
+          api.get(`/customers/${fetchedQuote.customerId}`).catch(err => { console.error("Error fetching customer:", err); return { name: 'N/A', phone: 'N/A', email: 'N/A', address: 'N/A' }; }),
+          api.get(`/vehicles/${fetchedQuote.vehicleId}`).catch(err => { console.error("Error fetching vehicle:", err); return { model: 'N/A' }; }),
         ]);
 
-        setCustomerInfo(customerRes.data);
-        setVehicleInfo(vehicleRes.data);
+        setCustomerInfo(customerRes);
+        setVehicleInfo(vehicleRes);
         
         // Set salesperson info from logged-in user (as per user's explicit request)
         if (user) {
@@ -278,7 +280,7 @@ export default function OrderCreateFromQuote() {
     // AND updating the quote status. We only need to make this one call.
     try {
       console.log("Sending order payload to backend:", orderPayload);
-      await axios.post('http://localhost:5003/api/Orders/complete', orderPayload);
+      await api.post('/Orders/complete', orderPayload);
       
       // If the call succeeds, we assume the backend has done its job.
       alert("Đơn hàng đã được tạo thành công!");

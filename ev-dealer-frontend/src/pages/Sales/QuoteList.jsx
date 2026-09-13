@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
-import axios from 'axios';
+import api from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 
 // Icons (re-using from SalesList for consistency)
@@ -106,8 +106,8 @@ export default function QuoteList() {
     setLoading(true);
     setError(null);
     try {
-      const response = await axios.get('http://localhost:5003/api/Quotes'); // Corrected port to 5003
-      const data = response.data;
+      // api resolves to response.data, so one .data level is removed
+      const data = await api.get('/Quotes'); // Corrected port to 5003
       // Handle cases where the API returns an object with the array inside a property (e.g., from .NET backend with $values)
       setQuotes(Array.isArray(data) ? data : data?.$values || []);
     } catch (err) {
@@ -137,7 +137,7 @@ export default function QuoteList() {
       try {
         setLoading(true);
         // Assuming there's an API endpoint to update quote status
-        await axios.put(`http://localhost:5003/api/Quotes/${quoteId}/status`, { status: 'Cancelled' }); // Corrected port and endpoint
+        await api.put(`/Quotes/${quoteId}/status`, { status: 'Cancelled' }); // Corrected port and endpoint
         alert(`Báo giá ID ${quoteId} đã được hủy.`);
         fetchQuotes(); // Re-fetch quotes to update the list
       } catch (err) {
