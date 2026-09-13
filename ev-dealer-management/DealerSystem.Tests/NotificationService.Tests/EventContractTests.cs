@@ -47,10 +47,14 @@ public class EventContractTests
 
     /// <summary>
     /// Consumer fields the producer intentionally does not send yet: the
-    /// placeholder DeviceToken on order/quote/contract (the sales APIs
-    /// collect no token — docs/EVENTS.md "DeviceToken always null"). When the
-    /// API starts sending one, delete the row; the test then enforces the
-    /// pairing again.
+    /// DeviceToken on order/quote/contract. The sales APIs still collect no
+    /// token in-band (docs/EVENTS.md "DeviceToken always null"); since Issue
+    /// #33 the consumer resolves a token out-of-band from the DeviceToken
+    /// registry keyed by <c>customer:&lt;CustomerId&gt;</c>, and an in-band
+    /// payload token (if a producer ever sends one) takes precedence. So this
+    /// row is a deliberate wire gap, not a dead field. If a producer starts
+    /// publishing one, delete the row; the test then enforces the pairing
+    /// again.
     /// </summary>
     private static readonly HashSet<(Type Consumer, string Field)> ConsumerOnlyFields = new()
     {

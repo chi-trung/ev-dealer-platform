@@ -216,6 +216,14 @@
       "DownstreamHttpVersion": "1.1"
     },
     {
+      "DownstreamPathTemplate": "/api/DeviceTokens/{everything}",
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [ { "Host": "localhost", "Port": 5051 } ],
+      "UpstreamPathTemplate": "/api/DeviceTokens/{everything}",
+      "UpstreamHttpMethod": [ "GET", "PUT", "DELETE" ],
+      "DownstreamHttpVersion": "1.1"
+    },
+    {
       "DownstreamPathTemplate": "/health",
       "DownstreamScheme": "http",
       "DownstreamHostAndPorts": [ { "Host": "localhost", "Port": 7001 } ],

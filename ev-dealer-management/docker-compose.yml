@@ -203,7 +203,8 @@ services:
     networks:
       - ev-dealer-network
 
-  # --- NotificationService (consumer of 14 queues, no DB) ---------------------
+  # --- NotificationService (consumer of 14 queues; SQLite device-token
+  #     registry per Issue #33 — notifications.db lives on the volume below) --
   # Firebase credential file is intentionally NOT mounted: it doesn't exist in
   # the repo (secret), and Docker mounting a missing host path creates a
   # DIRECTORY over /app/firebase-credentials.json — worse than failing cleanly
@@ -220,10 +221,12 @@ services:
       - "5051:80"
     volumes:
       - ./NotificationService/Logs:/app/Logs   # Serilog file sink path is not env-overridable
+      - ./NotificationService/data:/app/data   # device-token registry (Issue #33); token survives restart
       # - ./NotificationService/firebase-credentials.json:/app/firebase-credentials.json:ro
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
       - ASPNETCORE_URLS=http://+:80
+      - ConnectionStrings__DefaultConnection=Data Source=/app/data/notifications.db
       - RabbitMQ__HostName=rabbitmq
       - RabbitMQ__Port=5672
       - RabbitMQ__UserName=guest
