@@ -201,7 +201,8 @@ namespace SalesService.Controllers
                         VehicleModel = vehicleModel,
                         TotalPrice = order.TotalPrice,
                         CompletedAt = order.CreatedAt,
-                        DeviceToken = null // Can be added later if available in request
+                        DeviceToken = null, // Can be added later if available in request
+                        CustomerId = order.CustomerId // Issue #37: registry fallback key
                     };
 
                     var saleCompletedQueue = _configuration["RabbitMQ:Queues:SaleCompleted"] ?? "sales.completed";
@@ -316,7 +317,8 @@ namespace SalesService.Controllers
                         OrderNumber = order.OrderNumber,
                         OldStatus = oldStatus,
                         NewStatus = request.Status,
-                        ChangedAt = order.UpdatedAt
+                        ChangedAt = order.UpdatedAt,
+                        CustomerId = order.CustomerId // Issue #37: registry lookup key for the push
                     };
 
                     var statusChangedQueue = _configuration["RabbitMQ:Queues:OrderStatusChanged"] ?? "order.status.changed";

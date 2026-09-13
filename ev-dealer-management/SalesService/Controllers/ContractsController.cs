@@ -187,7 +187,17 @@ namespace SalesService.Controllers
             if (request.Status == "Rejected")
             {
                 _logger.LogInformation("Contract {ContractId} rejected; removing related order {OrderId}.", id, order.OrderId);
+                // Issue #37 review: Payments.OrderId is now a real NOT NULL FK with
+                // DeleteBehavior.Restrict (before it, the Guid/shadow-OrderId1 link
+                // constrained nothing, so deleting an Order "succeeded" with
+                // payments silently orphaned). The rejection flow must therefore
+                // delete the order's payments explicitly — dependents before
+                // principal, in the same SaveChanges — or SQLite's FK enforcement
+                // fails the DELETE with "FOREIGN KEY constraint failed" and every
+                // paid order becomes un-rejectable (500).
+                var payments = await _context.Payments.Where(p => p.OrderId == order.OrderId).ToListAsync();
                 _context.Contracts.Remove(contract);
+                _context.Payments.RemoveRange(payments);
                 _context.Orders.Remove(order);
 
                 try

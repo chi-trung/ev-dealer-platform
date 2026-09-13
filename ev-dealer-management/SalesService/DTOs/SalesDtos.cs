@@ -163,7 +163,9 @@ namespace SalesService.DTOs
         public DateTime UpdatedAt { get; set; }
     }
     public class CreatePaymentDto {
-        [Required] public Guid OrderId { get; set; }
+        // Issue #37: int, matching Order's int PK (was Guid — the type mismatch
+        // made the Payments→Orders link a shadow-column afterthought).
+        [Required] public int OrderId { get; set; }
         [Required, Range(0.01, 10000000000.00)] public decimal Amount { get; set; }
         [Required] public DateTime PaymentDate { get; set; } = DateTime.UtcNow;
         [Required, StringLength(50)] public string PaymentMethod { get; set; } = "Cash";
@@ -180,7 +182,7 @@ namespace SalesService.DTOs
     }
     public class PaymentDto {
         public Guid Id { get; set; }
-        public Guid OrderId { get; set; }
+        public int OrderId { get; set; } // Issue #37: was Guid (see CreatePaymentDto)
         public decimal Amount { get; set; }
         public DateTime PaymentDate { get; set; }
         public string PaymentMethod { get; set; } = string.Empty;

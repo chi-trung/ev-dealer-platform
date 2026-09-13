@@ -48,6 +48,21 @@ namespace SalesService.Data
                 entity.Property(e => e.Status).IsRequired().HasMaxLength(30);
                 entity.Property(e => e.PaymentStatus).IsRequired().HasMaxLength(30);
             });
+
+            // Issue #37: Payment.OrderId is now the real int FK. Previously the
+            // model carried a Guid OrderId against an int-PK Order, so EF built
+            // the relationship on a nullable shadow column (OrderId1) and the
+            // declared Guid "FK" never constrained anything — every payment was
+            // link-orphaned by construction. Explicit mapping removes the
+            // shadow column and makes OrderId itself the constraint.
+            modelBuilder.Entity<Payment>(entity =>
+            {
+                entity.HasKey(e => e.PaymentId);
+                entity.HasOne(p => p.Order)
+                      .WithMany()
+                      .HasForeignKey(p => p.OrderId)
+                      .OnDelete(DeleteBehavior.Restrict);
+            });
         }
     }
 }

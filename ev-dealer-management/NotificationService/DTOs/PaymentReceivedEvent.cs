@@ -14,5 +14,9 @@ namespace NotificationService.DTOs
         public string Status { get; set; } = string.Empty;
         public DateTime PaidDate { get; set; }
         public DateTime CreatedAt { get; set; }
+        // Issue #37: resolved from the payment's Order at the publish site
+        // (PaymentsController), so the consumer can push via the registry
+        // subject customer:<CustomerId>.
+        public int CustomerId { get; set; }
     }
 }

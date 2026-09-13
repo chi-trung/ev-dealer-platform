@@ -15,8 +15,11 @@ namespace SalesService.Models
 
         public Guid PaymentId { get; set; }
 
-        // FK
-        public Guid OrderId { get; set; }
+        // FK — int, matching Order's int PK and the Contract pattern. This was
+        // Guid until Issue #37: the mismatch made the link a shadow-property
+        // afterthought (OrderId1) and left PaymentReceivedEvent with no way to
+        // resolve the customer for a push.
+        public int OrderId { get; set; }
         public Order? Order { get; set; }
 
         public decimal Amount { get; set; }

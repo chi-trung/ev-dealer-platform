@@ -58,6 +58,17 @@ namespace SalesService.Controllers
         [HttpPost]
         public async Task<ActionResult<PaymentDto>> CreatePayment(CreatePaymentDto createDto)
         {
+            // Issue #37: OrderId is a real int FK now, so a nonexistent order
+            // must be rejected here (a clean 404 beats the FK DbUpdateException
+            // at SaveChanges) — and the Order row is already in hand to put
+            // CustomerId on the event for the push consumer.
+            var order = await _context.Orders.FindAsync(createDto.OrderId);
+            if (order == null)
+            {
+                _logger.LogWarning("CreatePayment rejected: Order {OrderId} not found.", createDto.OrderId);
+                return NotFound(new { message = $"Order with ID {createDto.OrderId} not found." });
+            }
+
             var payment = new Payment
             {
                 PaymentId = Guid.NewGuid(),
@@ -86,7 +97,8 @@ namespace SalesService.Controllers
                     PaymentMethod = payment.Method,
                     Status = payment.Status,
                     PaidDate = payment.PaidDate ?? payment.CreatedAt,
-                    CreatedAt = payment.CreatedAt
+                    CreatedAt = payment.CreatedAt,
+                    CustomerId = order.CustomerId // Issue #37: push via registry customer:<CustomerId>
                 };
 
                 var paymentReceivedQueue = _configuration["RabbitMQ:Queues:PaymentReceived"] ?? "payment.received";

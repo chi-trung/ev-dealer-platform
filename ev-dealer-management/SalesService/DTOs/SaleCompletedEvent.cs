@@ -13,6 +13,12 @@ namespace SalesService.DTOs
         public decimal TotalPrice { get; set; }
         public DateTime CompletedAt { get; set; }
         public string? DeviceToken { get; set; }
+
+        // Issue #37: lets the consumer resolve the device-token registry
+        // subject customer:<CustomerId> when the payload carries no
+        // DeviceToken. Default 0 (a pre-#37 producer message) simply finds no
+        // registered tokens and degrades to log-only.
+        public int CustomerId { get; set; }
     }
 
     /// <summary>
@@ -44,6 +50,10 @@ namespace SalesService.DTOs
         public string Status { get; set; } = string.Empty;
         public DateTime PaidDate { get; set; }
         public DateTime CreatedAt { get; set; }
+
+        // Issue #37: resolved from the payment's Order at the publish site
+        // (PaymentsController) so the consumer can push via the registry.
+        public int CustomerId { get; set; }
     }
 
     /// <summary>
@@ -56,6 +66,10 @@ namespace SalesService.DTOs
         public string OldStatus { get; set; } = string.Empty;
         public string NewStatus { get; set; } = string.Empty;
         public DateTime ChangedAt { get; set; }
+
+        // Issue #37: the order's owner, so the consumer can push via the
+        // registry subject customer:<CustomerId>.
+        public int CustomerId { get; set; }
     }
 
     /// <summary>
