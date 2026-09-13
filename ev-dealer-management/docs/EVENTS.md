@@ -71,9 +71,10 @@ Each queue binds `customer_events` by its EVENT routing key (never the
 queue name — renames via `RabbitMQ:Queues:*` must not unbind), declares its
 own `.retry`/`.dlq` triplet via the shared `EventRetryPolicy`, and dispatches
 to `Consumers/Customer{Created,Updated,Deleted}Consumer.cs` — push-capable via
-the device-token registry with the same contract as `order.created` (registry
-fan-out to `customer:<CustomerId>`, throw on `success == false`, log-only +
-logged subject when nothing is registered).
+the device-token registry — multicast to all tokens for
+`customer:<CustomerId>`, throw on `success == false`, log-only + logged
+subject when nothing is registered (registry-only: unlike `order.created`
+these payloads carry no `DeviceToken`, so there is no in-band-wins branch).
 
 ### Default exchange (SalesService)
 
@@ -162,11 +163,13 @@ Tokens are keyed by **subject string**, built only via
 the registration API stored.
 
 Resolution order in `order.created` / `quote.created` / `contract.created` /
-`testdrive.scheduled` / `customer.created` / `customer.updated` /
-`customer.deleted` consumers: an in-band payload token **wins** (future
+`testdrive.scheduled` consumers: an in-band payload token **wins** (future
 producers can send one without touching the registry); otherwise the consumer
 fans the push out to **all** live tokens for `customer:<CustomerId>` via
-`SendMulticastAsync`. Zero tokens anywhere → the old log-only behavior
+`SendMulticastAsync`. The `customer.*` trio (Issue #35) is **registry-only**:
+their payloads carry no `DeviceToken` field and the consumers have no
+in-band branch — publishing a token field on those events would be silently
+dropped. Zero tokens anywhere → the old log-only behavior
 ("Notification logged only"), which stays the honest fallback — the exact
 subject string tried is logged so a key-spelling drift is visible.
 
