@@ -65,8 +65,9 @@ builder.Services.AddDbContext<CustomerService.Data.CustomerDbContext>(options =>
 builder.Services.AddScoped<CustomerService.Services.ICustomerService, CustomerService.Services.CustomerService>();
 builder.Services.AddScoped<CustomerService.Services.ITestDriveService, CustomerService.Services.TestDriveService>(); // Register TestDriveService
 
-// Register AutoMapper
-builder.Services.AddAutoMapper(typeof(CustomerService.Profiles.MappingProfile).Assembly);
+// Register AutoMapper (v15+: DI built into the core package; the archived
+// AutoMapper.Extensions.Microsoft.DependencyInjection shim is gone)
+builder.Services.AddAutoMapper(cfg => cfg.AddMaps(typeof(CustomerService.Profiles.MappingProfile).Assembly));
 
 
 // Register RabbitMQ Producer Service
