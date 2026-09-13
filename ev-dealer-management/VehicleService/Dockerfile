@@ -24,6 +24,12 @@ COPY --from=publish /app/publish .
 # Create data directory for SQLite database
 RUN mkdir -p /app/data
 
+# aspnet:8.0 (Debian) ships no curl — without this the HEALTHCHECK below
+# always fails and the container reads "unhealthy" forever
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/*
+
 # Add health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
   CMD curl -f http://localhost:8080/health || exit 1
