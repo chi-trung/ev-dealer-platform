@@ -23,6 +23,10 @@ namespace VehicleService.DTOs
     public class VehicleDeletedEvent
     {
         public int VehicleId { get; set; }
+        // Issue #38: the delete event carried no audience data at all, so no
+        // consumer could route a push. The vehicle entity is loaded (and thus
+        // its DealerId known) at the publish site in DeleteVehicleAsync.
+        public int DealerId { get; set; }
         public DateTime DeletedAt { get; set; }
     }
 }

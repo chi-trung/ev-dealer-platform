@@ -1,16 +1,31 @@
 using NotificationService.DTOs;
+using NotificationService.Services;
 using Serilog;
 using System.Text.Json;
 
 namespace NotificationService.Consumers;
 
 /// <summary>
-/// vehicle.deleted (vehicle_events topic exchange). Log-only today: the
-/// producer payload carries no DeviceToken (see VehicleCreatedConsumer).
+/// vehicle.deleted (vehicle_events topic exchange). Push-capable via the
+/// device-token registry (Issue #38): the payload gained a DealerId (it used
+/// to carry only VehicleId/DeletedAt — no audience data at all), so tokens
+/// resolve for dealer:&lt;DealerId&gt; exactly like the created/updated
+/// consumers. A pre-#38 in-flight message without DealerId deserializes it to
+/// 0 → subject dealer:0 exists by construction but nothing registers there →
+/// honest log-only fallback rather than a retry→DLQ spiral.
 /// </summary>
 public class VehicleDeletedConsumer
 {
-    public Task HandleAsync(string message)
+    private readonly IFcmService _fcmService;
+    private readonly IDeviceTokenRegistry _tokens;
+
+    public VehicleDeletedConsumer(IFcmService fcmService, IDeviceTokenRegistry tokens)
+    {
+        _fcmService = fcmService;
+        _tokens = tokens;
+    }
+
+    public async Task HandleAsync(string message)
     {
         try
         {
@@ -20,17 +35,44 @@ public class VehicleDeletedConsumer
             if (vehicleEvent == null)
             {
                 Log.Warning("⚠️ Failed to deserialize VehicleDeletedEvent from message: {Message}", message);
-                return Task.CompletedTask;
+                return;
             }
 
             var title = "🗑️ Mẫu xe đã ngừng kinh doanh!";
             var body = $"Xe Id #{vehicleEvent.VehicleId} vừa bị xóa khỏi hệ thống.";
+            var data = new Dictionary<string, string>
+            {
+                { "type", "vehicleDeleted" },
+                { "vehicleId", vehicleEvent.VehicleId.ToString() },
+                { "dealerId", vehicleEvent.DealerId.ToString() }
+            };
 
             // Always log the notification
             Log.Information("📢 [THÔNG BÁO XÓA XE] {Title} | {Body}", title, body);
 
+            var subject = NotificationSubjects.Dealer(vehicleEvent.DealerId);
+            var registered = await _tokens.GetTokensAsync(subject);
+            if (registered.Count > 0)
+            {
+                var success = await _fcmService.SendMulticastAsync(
+                    registered.ToList(), title, body, data);
+                if (success)
+                {
+                    Log.Information("✅ Push notification sent successfully for Vehicle: {VehicleId}", vehicleEvent.VehicleId);
+                }
+                else
+                {
+                    // IFcmService swallows send errors and returns false; throwing
+                    // here lets the bus retry and eventually DLQ the delivery.
+                    throw new InvalidOperationException($"FCM push failed for Vehicle {vehicleEvent.VehicleId}");
+                }
+            }
+            else
+            {
+                Log.Information("ℹ️ No device token registered for {Subject}. Notification logged only (no push sent).", subject);
+            }
+
             Log.Debug("✅ VehicleDeleted event processed successfully for Vehicle: {VehicleId}", vehicleEvent.VehicleId);
-            return Task.CompletedTask;
         }
         catch (Exception ex)
         {

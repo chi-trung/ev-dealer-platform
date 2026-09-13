@@ -152,7 +152,9 @@ public class EventContractTests
         typeof(NS.VehicleUpdatedEvent));
 
     [Fact] public void VehicleDeleted_Contract_Holds() => AssertContractSpirits(
-        new VS.VehicleDeletedEvent { VehicleId = 6, DeletedAt = When },
+        // DealerId non-default (Issue #38): it is the registry subject key, so
+        // 0 would round-trip vacuously.
+        new VS.VehicleDeletedEvent { VehicleId = 6, DealerId = 1, DeletedAt = When },
         typeof(NS.VehicleDeletedEvent));
 
     [Fact] public void VehicleReserved_Contract_Holds() => AssertContractSpirits(

@@ -18,7 +18,7 @@ public static class NotificationSubjects
     public static string User(int userId) => $"user:{userId}";
 
     /// <summary>Dealer-domain subject, e.g. "dealer:3" — registrable only when
-    /// the JWT carries a matching "dealer" claim (Issue #36); the vehicle-event
-    /// fan-out lands here in Issue #38.</summary>
+    /// the JWT carries a matching "dealer" claim (Issue #36); the vehicle
+    /// lifecycle events fan their pushes out here (Issue #38).</summary>
     public static string Dealer(int dealerId) => $"dealer:{dealerId}";
 }
