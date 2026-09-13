@@ -62,12 +62,16 @@ back to `#<VehicleId>` in the notification and skips push without a token.
 
 | Routing key | Producer (payload) | Consumer queues |
 |---|---|---|
-| `customer.created` | CustomerService — `CustomerCreatedEvent` (CustomerId: int, Name, Email, Timestamp) | *(no bound queue yet)* |
-| `customer.updated` | CustomerService — `CustomerUpdatedEvent` (CustomerId, Name, Email, Phone, Address, Status, Timestamp) | *(no bound queue yet)* |
-| `customer.deleted` | CustomerService — `CustomerDeletedEvent` (CustomerId, Timestamp) | *(no bound queue yet)* |
+| `customer.created` | CustomerService — `CustomerCreatedEvent` (CustomerId: int, Name, Email, Timestamp) | `customer.created` (NotificationService → log-only; payload carries no DeviceToken) |
+| `customer.updated` | CustomerService — `CustomerUpdatedEvent` (CustomerId, Name, Email, Phone, Address, Status, Timestamp) | `customer.updated` (NotificationService → log-only; same) |
+| `customer.deleted` | CustomerService — `CustomerDeletedEvent` (CustomerId, Timestamp) | `customer.deleted` (NotificationService → log-only; same) |
 
-NotificationService has DTOs for these (`CustomerCreatedEvent`) but **no consumer is
-wired** to a bound queue yet — see "Known gaps".
+Each queue binds `customer_events` by its EVENT routing key (never the queue
+name — renames via `RabbitMQ:Queues:*` must not unbind), declares its own
+`.retry`/`.dlq` triplet via the shared `EventRetryPolicy`, and dispatches to
+`Consumers/Customer{Created,Updated,Deleted}Consumer.cs` (log-only, no
+`IFcmService` dependency — adding push later means taking the token plus a
+`throw on success == false` block like `TestDriveScheduledConsumer`).
 
 ### Default exchange (SalesService)
 
@@ -94,6 +98,7 @@ exchange; the routing key **is** the queue name (from `RabbitMQ:Queues:*` config
 | `order.created` | yes | default exchange | NotificationService |
 | `quote.created` | yes | default exchange | NotificationService |
 | `contract.created` | yes | default exchange | NotificationService |
+| `customer.created` / `customer.updated` / `customer.deleted` | yes | `customer_events` / own routing key | NotificationService (log-only) |
 | `payment.received`, `order.status.changed` | yes (declared by publisher) | default exchange | nobody — messages accumulate |
 | `<queue>.retry` / `<queue>.dlq` | yes | default exchange (retry dead-letters back to `<queue>`) | broker-side for retry; DLQ is operator-facing |
 
@@ -110,8 +115,11 @@ Fan-out works as intended for `vehicle.reserved`: one publish, two queues
 
 ## Known gaps (tracked for next phases)
 
-1. **`customer.*` consumers not wired** — events are published but nothing binds
-   `customer_events`. NotificationService should acknowledge new customers. (W4 follow-up)
+1. ~~**`customer.*` consumers not wired** — events are published but nothing binds
+   `customer_events`. NotificationService should acknowledge new customers. (W4 follow-up)~~
+   — **closed**: `customer.created/updated/deleted` queues bound + log-only
+   consumers (no DeviceToken in payloads yet; push wiring is the remaining
+   follow-up when the API collects tokens).
 2. **`payment.received` / `order.status.changed` have no consumers** — published,
    accumulating; no notification content designed for them yet.
 3. **`vehicle.created/updated/deleted` have no consumers** — topology keeps room
@@ -120,7 +128,7 @@ Fan-out works as intended for `vehicle.reserved`: one publish, two queues
    W5**: all six services plus the gateway run in `docker-compose.yml` on
    `ev-dealer-network` with `RabbitMQ__HostName=rabbitmq`. The W4 retry
    topology is live in compose: `customer_vehicle_reserved(.retry/.dlq)` and
-   notification's six `<queue>(.retry/.dlq)` triplets materialize on the
+   notification's nine `<queue>(.retry/.dlq)` triplets materialize on the
    broker as events flow. Notification containers boot without a Firebase
    credential (secret, out of repo): push endpoints 500 and consumed events
    cycle retry→DLQ, which is the documented degraded state, not a regression.

@@ -32,6 +32,9 @@ try
     builder.Services.AddScoped<OrderCreatedConsumer>();
     builder.Services.AddScoped<QuoteCreatedConsumer>();
     builder.Services.AddScoped<ContractCreatedConsumer>();
+    builder.Services.AddScoped<CustomerCreatedConsumer>();
+    builder.Services.AddScoped<CustomerUpdatedConsumer>();
+    builder.Services.AddScoped<CustomerDeletedConsumer>();
 
     // Register RabbitMQ Consumer Service
     builder.Services.AddSingleton<IMessageConsumer, RabbitMQConsumerService>();
