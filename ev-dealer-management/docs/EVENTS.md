@@ -48,9 +48,9 @@ Broker connection settings live under the `RabbitMQ` config section of each serv
 
 | Routing key | Producer (payload) | Consumer queues |
 |---|---|---|
-| `vehicle.created` | VehicleService — `VehicleCreatedEvent` (VehicleId, Model, Type, Price, DealerId, CreatedAt) | `vehicle.created` (NotificationService → log-only; payload carries no DeviceToken) |
-| `vehicle.updated` | VehicleService — `VehicleUpdatedEvent` (VehicleId, Model, Type, Price, DealerId, UpdatedAt) | `vehicle.updated` (NotificationService → log-only; same) |
-| `vehicle.deleted` | VehicleService — `VehicleDeletedEvent` (VehicleId, DeletedAt) | `vehicle.deleted` (NotificationService → log-only; same) |
+| `vehicle.created` | VehicleService — `VehicleCreatedEvent` (VehicleId, Model, Type, Price, DealerId, CreatedAt) | `vehicle.created` (NotificationService → registry-only push via `dealer:<DealerId>`, Issue #38; payload carries no DeviceToken) |
+| `vehicle.updated` | VehicleService — `VehicleUpdatedEvent` (VehicleId, Model, Type, Price, DealerId, UpdatedAt) | `vehicle.updated` (NotificationService → registry-only push via `dealer:<DealerId>`, Issue #38) |
+| `vehicle.deleted` | VehicleService — `VehicleDeletedEvent` (VehicleId, DealerId — Issue #38, DeletedAt) | `vehicle.deleted` (NotificationService → registry-only push via `dealer:<DealerId>`, Issue #38) |
 | `vehicle.reserved` | VehicleService — `VehicleReservedEvent` (VehicleId, VehicleName, VehiclePrice, DealerId, CustomerName/Email/Phone, ColorVariantId/Name, Quantity, Notes, ReservedAt, DeviceToken) | `vehicle.reserved` (NotificationService → push), `customer_vehicle_reserved` (CustomerService → create/update customer + purchase) |
 | `testdrive.scheduled` | CustomerService — `TestDriveScheduledEvent` (TestDriveId, CustomerId, VehicleId, DealerId, CustomerEmail, CustomerName, VehicleModel*, ScheduledDate, DeviceToken*) | `testdrive.scheduled` (NotificationService → push; token via registry when payload carries none) |
 
@@ -58,6 +58,15 @@ Broker connection settings live under the `RabbitMQ` config section of each serv
 `DeviceToken` is null (the booking API doesn't collect one yet) — the consumer falls
 back to `#<VehicleId>` in the notification and resolves the token from the
 device-token registry (`customer:<CustomerId>`, Issue #33) before skipping push.
+
+The three vehicle lifecycle queues bind `vehicle_events` by their EVENT routing
+key, declare their own `.retry`/`.dlq` triplet, and (since Issue #38) push to
+**all live tokens for `dealer:<DealerId>`** via `SendMulticastAsync` —
+registry-only like the `customer.*` trio (the payloads carry no `DeviceToken`
+and the consumers have no in-band branch). Zero tokens → log-only with the
+exact subject logged; a failed push throws for the retry/DLQ policy.
+`vehicle.deleted` needed a payload change to route at all: `VehicleDeletedEvent`
+gained a `DealerId` the producer fills from the vehicle it deletes.
 
 ### `customer_events` (topic)
 
@@ -95,7 +104,7 @@ exchange; the routing key **is** the queue name (from `RabbitMQ:Queues:*` config
 | Queue | Durable | Bound to | Consumed by |
 |---|---|---|---|
 | `vehicle.reserved` | yes | `vehicle_events` / `vehicle.reserved` | NotificationService |
-| `vehicle.created` / `vehicle.updated` / `vehicle.deleted` | yes | `vehicle_events` / own routing key | NotificationService (log-only) |
+| `vehicle.created` / `vehicle.updated` / `vehicle.deleted` | yes | `vehicle_events` / own routing key | NotificationService (push via `dealer:<DealerId>`, Issue #38) |
 | `testdrive.scheduled` | yes | `vehicle_events` / `testdrive.scheduled` | NotificationService |
 | `customer_vehicle_reserved` | yes | `vehicle_events` / `vehicle.reserved` | CustomerService |
 | `sales.completed` | yes | default exchange | NotificationService |
@@ -136,11 +145,24 @@ Fan-out works as intended for `vehicle.reserved`: one publish, two queues
   files; `CustomerConsumerTests.cs` pins the Issue #35 push wiring;
   `SalesPushConsumerTests.cs` pins the Issue #37 sales-push wiring
   (payload-token-wins vs registry fallback, throw-on-false, the pre-#37
-  missing-CustomerId degradation);
+  missing-CustomerId degradation); `VehiclePushConsumerTests.cs` pins the
+  Issue #38 dealer-push wiring (dealer-subject multicast for all three
+  lifecycle events, throw-on-false, cross-dealer and customer-vs-dealer
+  subject negative controls, the pre-#38 missing-DealerId degradation);
+  `VehicleDeleteProducerTests.cs` (Issue #38 review) runs the real
+  VehicleService.DeleteVehicleAsync against a real ApplicationDbContext with a
+  recording IMessageProducer, pinning that the published event carries the
+  vehicle's own DealerId (the consumer-side tests hand-build the DTO, so the
+  producer line is invisible to them; a zeroed assignment would log-only
+  forever with a green suite);
+  `ContractRejectionFkTests.cs` (Issue #37 review) runs the real
+  ContractsController against a real SalesDbContext to pin that rejecting a
+  contract with payments deletes the payments before the order (the Restrict
+  FK makes the order delete fail otherwise);
   `DeviceTokensAuthTests.cs` (Issue #36) pins the controller's authorization
   decision table (own/dealer/foreign/missing-claim × PUT/GET/DELETE, incl.
   prefix-shaped negatives that kill a StartsWith mutant of the ownership
-  rule). CI runs all six inside the "Build .NET services" job.
+  rule). CI runs all nine inside the "Build .NET services" job.
 
 ## Device-token registry (Issue #33)
 
@@ -185,8 +207,10 @@ Resolution order in `order.created` / `quote.created` / `contract.created` /
 otherwise the consumer fans the push out to **all** live tokens for
 `customer:<CustomerId>` via `SendMulticastAsync` (`sales.completed` gained its
 registry fallback with Issue #37; `CustomerId` is now on that payload). The
-`customer.*` trio (Issue #35) and the two sales status/payment events
-`payment.received` / `order.status.changed` (Issue #37) are **registry-only**:
+`customer.*` trio (Issue #35), the two sales status/payment events
+`payment.received` / `order.status.changed` (Issue #37) and the three vehicle
+lifecycle events `vehicle.created` / `vehicle.updated` / `vehicle.deleted`
+(Issue #38, fanning out to `dealer:<DealerId>`) are **registry-only**:
 their payloads carry no `DeviceToken` field and the consumers have no in-band
 branch — publishing a token field on those events would be silently dropped.
 Zero tokens anywhere → the old log-only behavior
@@ -204,16 +228,17 @@ mid-run) logs an error and returns empty — consumers degrade to log-only
 instead of requeueing healthy events into retry→DLQ churn.
 
 Remaining token gap: no *customer*-subject tokens are registered yet — the
-portal is staff-only, and `user:<id>` / `dealer:<id>` pushes become
-deliverable as consumers start fanning out to them (Issue #38 wires the
-vehicle events to `dealer:<DealerId>`; `user:` is registration-only for now,
-its consumers coming with whatever notifies a staff user directly). The old
-"Issue #33 accepted risk" — anyone guessing a subject could plant their own
-token there — is closed by Issue #36: writes require a JWT whose `id`/`dealer`
-claims own the exact subject. `customer:<n>` subjects are consequently
-write-protected from the API entirely (no claim maps to one); they can only
-gain tokens if a future authenticated customer app adds a customer-scoped
-rule here.
+portal is staff-only. `dealer:<id>` is now a live lookup key (Issue #38 fans
+the vehicle lifecycle events out to it, and the staff portal registers that
+subject at login when the JWT carries a dealer claim, Issue #36), so dealer
+pushes are deliverable wherever a dealer's staff device has registered; `user:`
+is registration-only for now, its consumers coming with whatever notifies a
+staff user directly. The old "Issue #33 accepted risk" — anyone guessing a
+subject could plant their own token there — is closed by Issue #36: writes
+require a JWT whose `id`/`dealer` claims own the exact subject. `customer:<n>`
+subjects are consequently write-protected from the API entirely (no claim maps
+to one); they can only gain tokens if a future authenticated customer app adds
+a customer-scoped rule here.
 
 ## Known gaps (tracked for next phases)
 
@@ -239,9 +264,15 @@ rule here.
    exists.
 3. ~~**`vehicle.created/updated/deleted` have no consumers** — topology keeps room
    for reporting/search indexing later.~~
-   — **closed**: `vehicle.created/updated/deleted` queues bound + log-only
-   consumers (payloads carry no DeviceToken yet). The event bus now has no
-   unwired published events.
+   — **closed**: `vehicle.created/updated/deleted` queues bound; since Issue #38
+   they are push-capable via the registry, fanning out to the vehicle's owning
+   dealer at `dealer:<DealerId>` (the portal staff register that subject when
+   the login JWT carries a dealer claim, Issue #36 — these are the first
+   consumers to use it). `vehicle.deleted` could not route before #38: its
+   payload carried no DealerId at all, so the event gained one at the producer
+   (available on the loaded vehicle in `DeleteVehicleAsync`). Live behavior on
+   a broker with no dealer tokens stays log-only + logged subject until staff
+   devices register.
 4. ~~**docker-compose ships only user/vehicle/sales + rabbitmq**~~ — **closed in
    W5**: all six services plus the gateway run in `docker-compose.yml` on
    `ev-dealer-network` with `RabbitMQ__HostName=rabbitmq`. The W4 retry

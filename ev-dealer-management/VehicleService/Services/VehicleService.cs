@@ -449,6 +449,7 @@ public class VehicleService : IVehicleService
         var vehicleDeletedEvent = new VehicleDeletedEvent
         {
             VehicleId = id,
+            DealerId = vehicle.DealerId,
             DeletedAt = DateTime.UtcNow
         };
         _messageProducer.PublishMessage(vehicleDeletedEvent);
