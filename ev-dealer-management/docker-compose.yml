@@ -227,6 +227,11 @@ services:
       - ASPNETCORE_ENVIRONMENT=Development
       - ASPNETCORE_URLS=http://+:80
       - ConnectionStrings__DefaultConnection=Data Source=/app/data/notifications.db
+      # Issue #36: DeviceTokens API validates the same HS256 tokens UserService
+      # mints — same key/issuer/audience as userservice/customerservice above.
+      - Jwt__Key=ReplaceThisWithASecretKeyForDevelopment
+      - Jwt__Issuer=evm.local
+      - Jwt__Audience=evm.local
       - RabbitMQ__HostName=rabbitmq
       - RabbitMQ__Port=5672
       - RabbitMQ__UserName=guest

@@ -11,4 +11,14 @@ public static class NotificationSubjects
 {
     /// <summary>Customer-domain subject, e.g. "customer:42".</summary>
     public static string Customer(int customerId) => $"customer:{customerId}";
+
+    /// <summary>Portal-account subject, e.g. "user:7" — the key a logged-in
+    /// staff member may register (Issue #36: "id" claim ⇒ exactly this key).
+    /// Not a lookup key for any consumer yet; registration-only for now.</summary>
+    public static string User(int userId) => $"user:{userId}";
+
+    /// <summary>Dealer-domain subject, e.g. "dealer:3" — registrable only when
+    /// the JWT carries a matching "dealer" claim (Issue #36); the vehicle-event
+    /// fan-out lands here in Issue #38.</summary>
+    public static string Dealer(int dealerId) => $"dealer:{dealerId}";
 }

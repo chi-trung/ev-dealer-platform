@@ -61,6 +61,18 @@ public class DeviceTokenRegistryTests : IDisposable
         Assert.Equal("customer:0", NotificationSubjects.Customer(0));
     }
 
+    [Fact]
+    public void UserAndDealerSubjects_HaveExactSpellingAuthChecksMatchOn()
+    {
+        // Issue #36: the controller's write scope compares the request key
+        // against NotificationSubjects.User/Dealer output — registration and
+        // every consumer (dealer fan-out lands in #38) must agree on one
+        // spelling, same failure class as the customer key above.
+        Assert.Equal("user:7", NotificationSubjects.User(7));
+        Assert.Equal("user:0", NotificationSubjects.User(0));
+        Assert.Equal("dealer:3", NotificationSubjects.Dealer(3));
+    }
+
     // ---- register / lookup ---------------------------------------------------
 
     [Fact]

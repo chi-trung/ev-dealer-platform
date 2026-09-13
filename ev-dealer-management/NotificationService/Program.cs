@@ -1,5 +1,8 @@
 using Serilog;
+using System.Text;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.IdentityModel.Tokens;
 using NotificationService.Services;
 using NotificationService.Consumers;
 
@@ -37,9 +40,32 @@ try
         options.UseSqlite(dbConn));
     builder.Services.AddScoped<IDeviceTokenRegistry, DeviceTokenRegistry>();
 
+    // JWT authentication (Issue #36): DeviceTokens registration is now
+    // authenticated. Same validation params as CustomerService/UserService —
+    // tokens are minted by UserService (/api/auth/login) with claims
+    // id / unique_name / role (+ dealer when the account has a DealerId).
+    var jwtSection = builder.Configuration.GetSection("Jwt");
+    var jwtKey = jwtSection.GetValue<string>("Key") ?? "ReplaceThisWithASecretKeyForDevelopment";
+    var keyBytes = Encoding.UTF8.GetBytes(jwtKey);
+
+    builder.Services.AddAuthentication("JwtBearer")
+        .AddJwtBearer("JwtBearer", options =>
+        {
+            options.TokenValidationParameters = new TokenValidationParameters
+            {
+                ValidateIssuer = true,
+                ValidateAudience = true,
+                ValidateLifetime = true,
+                ValidateIssuerSigningKey = true,
+                ValidIssuer = jwtSection.GetValue<string>("Issuer"),
+                ValidAudience = jwtSection.GetValue<string>("Audience"),
+                IssuerSigningKey = new SymmetricSecurityKey(keyBytes)
+            };
+        });
+    builder.Services.AddAuthorization();
+
     // Register Consumers
-    builder.Services.AddScoped<SaleCompletedConsumer>();
-    builder.Services.AddScoped<VehicleReservedConsumer>();
+    builder.Services.AddScoped<SaleCompletedConsumer>();    builder.Services.AddScoped<VehicleReservedConsumer>();
     builder.Services.AddScoped<TestDriveScheduledConsumer>();
     builder.Services.AddScoped<OrderCreatedConsumer>();
     builder.Services.AddScoped<QuoteCreatedConsumer>();
@@ -89,13 +115,6 @@ try
         Log.Error(ex, "DeviceToken registry DB unavailable — push lookups will fail until the db is fixed");
     }
 
-    // Registration is anonymous unless a gate key is configured (Issue #33
-    // interim; the real fix is authenticated registration, tracked as the
-    // follow-up). Say so loudly once at boot.
-    if (string.IsNullOrWhiteSpace(app.Configuration["DeviceTokens:RegistrationKey"]))
-        Log.Warning("⚠️ DeviceTokens:RegistrationKey not set — registry accepts anonymous PUT/DELETE (dev mode).");
-
-
     // Configure the HTTP request pipeline.
     if (app.Environment.IsDevelopment())
     {
@@ -105,6 +124,9 @@ try
 
     // Enable CORS
     app.UseCors("AllowFrontend");
+
+    app.UseAuthentication();
+    app.UseAuthorization();
 
     app.UseHttpsRedirection();
     app.MapControllers();
