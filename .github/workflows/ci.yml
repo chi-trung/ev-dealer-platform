@@ -20,6 +20,10 @@ jobs:
           dotnet-version: '8.0.x'
       - name: Build solution
         run: dotnet build DealerSystem.sln -clp:ErrorsOnly
+      - name: Run unit tests
+        # EventRetryPolicy + producer↔consumer payload contract tests
+        # (DealerSystem.Tests, Issue #31). Reuses the build above.
+        run: dotnet test DealerSystem.sln --no-build --filter "FullyQualifiedName~NotificationService.Tests"
 
   frontend:
     name: Build React frontend

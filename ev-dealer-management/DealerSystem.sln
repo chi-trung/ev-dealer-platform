@@ -17,6 +17,10 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NotificationService", "Noti
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "APIGatewayService", "APIGatewayService\APIGatewayService.csproj", "{2A44FAB4-84E2-46E1-8E0A-9584DF53A954}"
 EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "DealerSystem.Tests", "DealerSystem.Tests", "{EDE10811-5C2C-49EE-87FA-90E0FF5ADC1A}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NotificationService.Tests", "DealerSystem.Tests\NotificationService.Tests\NotificationService.Tests.csproj", "{48164537-74CA-459F-92D4-BB9235F6F471}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -54,5 +58,12 @@ Global
 		{2A44FAB4-84E2-46E1-8E0A-9584DF53A954}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{2A44FAB4-84E2-46E1-8E0A-9584DF53A954}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{2A44FAB4-84E2-46E1-8E0A-9584DF53A954}.Release|Any CPU.Build.0 = Release|Any CPU
+		{48164537-74CA-459F-92D4-BB9235F6F471}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{48164537-74CA-459F-92D4-BB9235F6F471}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{48164537-74CA-459F-92D4-BB9235F6F471}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{48164537-74CA-459F-92D4-BB9235F6F471}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{48164537-74CA-459F-92D4-BB9235F6F471} = {EDE10811-5C2C-49EE-87FA-90E0FF5ADC1A}
 	EndGlobalSection
 EndGlobal

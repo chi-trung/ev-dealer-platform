@@ -114,6 +114,16 @@ Fan-out works as intended for `vehicle.reserved`: one publish, two queues
 - Producer (sales): `SalesService/Services/RabbitMQMessagePublisher.cs` (`_publishLock` — singleton `IModel` is not thread-safe)
 - Consumers: `NotificationService/Services/RabbitMQConsumerService.cs` (one channel per queue, declares+binds queues, dispatches to `Consumers/*` handlers), `CustomerService/Consumers/VehicleReservedEventConsumer.cs`
 - Retry/DLQ policy: `NotificationService/Events/EventRetryPolicy.cs` + identical `CustomerService/Events/EventRetryPolicy.cs`; knobs `RabbitMQ:MaxDeliveryAttempts` (3), `RabbitMQ:RetryTtlMilliseconds` (5000)
+- Contract/unit tests (Issue #31): `DealerSystem.Tests/NotificationService.Tests` —
+  `EventContractTests.cs` round-trips every real producer event type (referenced
+  by assembly, so a field rename on either side breaks the build) through the
+  publisher's `JsonSerializer.Serialize` default options into the consumer DTO
+  and asserts no field is silently dropped; the intentional gaps it encodes are
+  `VehiclePrice`/`DealerId` on `vehicle.reserved` (consumer body renders
+  name/quantity only) and the `DeviceToken` placeholder on `order/quote/contract`
+  (APIs collect none — delete the gap row when they do). `EventRetryPolicyTests.cs`
+  locks `RetryRounds` x-death semantics and the `.retry`/`.dlq` naming. CI runs
+  both inside the "Build .NET services" job.
 
 ## Known gaps (tracked for next phases)
 
