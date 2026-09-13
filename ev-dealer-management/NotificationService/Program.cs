@@ -65,7 +65,8 @@ try
     builder.Services.AddAuthorization();
 
     // Register Consumers
-    builder.Services.AddScoped<SaleCompletedConsumer>();    builder.Services.AddScoped<VehicleReservedConsumer>();
+    builder.Services.AddScoped<SaleCompletedConsumer>();
+    builder.Services.AddScoped<VehicleReservedConsumer>();
     builder.Services.AddScoped<TestDriveScheduledConsumer>();
     builder.Services.AddScoped<OrderCreatedConsumer>();
     builder.Services.AddScoped<QuoteCreatedConsumer>();

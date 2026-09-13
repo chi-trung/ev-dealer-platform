@@ -119,11 +119,32 @@ public class DeviceTokensAuthTests
     {
         // dealer claim = 3 does not open dealer:4 (or dealer:03-style drift:
         // the comparison is against NotificationSubjects.Dealer(parsed), so
-        // only the canonical spelling of THIS dealer id passes).
+        // only the canonical spelling of THIS dealer id passes). Prefix
+        // variants (dealer:33) are here deliberately: a refactor that weakens
+        // the equality to StartsWith must fail THIS test, not the whole suite
+        // unnoticed — dealer claim "3" must not open dealer:300 either.
         var reg = new FakeRegistry();
         var ctl = ControllerWith(reg, ("id", "7"), ("dealer", "3"));
 
-        foreach (var key in new[] { "dealer:4", "dealer:03", "Dealer:3", "dealer: 3" })
+        foreach (var key in new[] { "dealer:4", "dealer:03", "Dealer:3", "dealer: 3", "dealer:33", "dealer:300", "dealer:3x" })
+        {
+            var res = await ctl.Register(key, new RegisterDeviceTokenRequest("tok-x"), default);
+            Assert.Equal(403, Assert.IsType<ObjectResult>(res).StatusCode);
+        }
+    }
+
+    [Fact]
+    public async Task Put_UserSubject_PrefixVariants_Forbidden()
+    {
+        // The user-subject twin of the dealer prefix guard: id claim "7" owns
+        // user:7, never user:70/user:71 — those are REAL other mailboxes, the
+        // exact privilege hole Issue #36 closed. Kills a StartsWith mutant of
+        // the User comparison (review-found gap: the negatives that existed
+        // here didn't discriminate == from StartsWith).
+        var reg = new FakeRegistry();
+        var ctl = ControllerWith(reg, ("id", "7"));
+
+        foreach (var key in new[] { "user:70", "user:71", "user:77" })
         {
             var res = await ctl.Register(key, new RegisterDeviceTokenRequest("tok-x"), default);
             Assert.Equal(403, Assert.IsType<ObjectResult>(res).StatusCode);

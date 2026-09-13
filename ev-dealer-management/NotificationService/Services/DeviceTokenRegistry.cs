@@ -39,8 +39,9 @@ public class DeviceTokenRegistry : IDeviceTokenRegistry
 {
     /// <summary>Cap per subject. FCM multicast tolerates 500 tokens, but a
     /// subject with hundreds of live tokens is spam or abuse, not one real
-    /// customer with a laptop and a phone. Registration is anonymous
-    /// (Issue #33), so the cap is the only backpressure.</summary>
+    /// customer with a laptop and a phone. Registration is authenticated
+    /// (Issue #36) but each caller still owns live subjects — the cap bounds
+    /// one token hoarding a mailbox, so it stays.</summary>
     public const int MaxTokensPerSubject = 20;
 
     // check-then-act races converge in practice after ONE retry (the re-read

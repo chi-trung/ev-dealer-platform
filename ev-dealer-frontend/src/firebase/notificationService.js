@@ -35,11 +35,19 @@ export const registerDeviceTokenWithBackend = async (token) => {
   // authService stores the /auth/login UserDto (camelCase), but tolerate the
   // PascalCase shape the same code already tolerates for the login response.
   const userId = user.id ?? user.Id;
-  if (!userId) return [];
+  // Mirror the SERVER contract (AuthorizeSubject does int.TryParse on the id
+  // claim): a non-numeric id can never own a subject, so don't fire a request
+  // the controller provably rejects — notably ProtectedRoute's DEV-mode mock
+  // (id 'dev-user-1'), whose fake bearer would 401 and trip api.js's
+  // session-wipe redirect on every boot of the login-free dev flow.
+  // (/^\d+$/ also rejects null/undefined via String(), and rejects 0-padded
+  // or negative spellings int.TryParse would accept — harmless either way,
+  // the server owns the final decision; this only prunes doomed traffic.)
+  if (!/^\d+$/.test(String(userId))) return [];
 
   const subjects = [`user:${userId}`];
   const dealerId = user.dealerId ?? user.DealerId;
-  if (dealerId) subjects.push(`dealer:${dealerId}`);
+  if (dealerId && /^\d+$/.test(String(dealerId))) subjects.push(`dealer:${dealerId}`);
 
   for (const subject of subjects) {
     try {
