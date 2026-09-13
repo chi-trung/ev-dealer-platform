@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import axios from 'axios';
+import api from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 
 // Icons
@@ -43,17 +43,16 @@ export default function ContractCreate() {
       try {
         setLoading(true);
         // 1. Fetch Order
-        const orderResponse = await axios.get(`http://localhost:5036/api/Orders/${orderId}`);
-        const fetchedOrder = orderResponse.data;
+        const fetchedOrder = await api.get(`/Orders/${orderId}`); // api interceptor unwraps response.data
         setOrder(fetchedOrder);
 
         // 2. Fetch Customer and Vehicle in parallel
-        const [customerRes, vehicleRes] = await Promise.all([
-          axios.get(`http://localhost:5036/api/customers/${fetchedOrder.customerId}`),
-          axios.get(`http://localhost:5036/api/vehicles/${fetchedOrder.vehicleId}`)
+        const [customer, vehicle] = await Promise.all([
+          api.get(`/customers/${fetchedOrder.customerId}`),
+          api.get(`/vehicles/${fetchedOrder.vehicleId}`)
         ]);
-        setCustomer(customerRes.data);
-        setVehicle(vehicleRes.data);
+        setCustomer(customer);
+        setVehicle(vehicle);
 
       } catch (err) {
         console.error('Error fetching contract data:', err);
@@ -87,7 +86,7 @@ export default function ContractCreate() {
     try {
       setLoading(true);
       // *** FIX: Call API Gateway (port 5036) instead of direct service port ***
-      await axios.post('http://localhost:5036/api/Contracts', payload);
+      await api.post('/Contracts', payload);
       alert('Hợp đồng đã được tạo thành công và đang chờ duyệt!');
       navigate('/sales'); // Navigate back to sales list
     } catch (err) {

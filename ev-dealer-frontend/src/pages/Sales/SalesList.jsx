@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate, useLocation } from 'react-router-dom';
-import axios from 'axios'; // Import axios
+import api from '../../services/api'; // Shared gateway axios instance
 import { useAuth } from '../../context/AuthContext'; // Import useAuth
 
 // Simple SVG Icons
@@ -157,11 +157,12 @@ export default function SalesDashboard() {
     setLoading(true);
     setError(null);
     try {
-      const response = await axios.get('http://localhost:5036/api/Orders');
-      console.log('Raw API response:', response.data);
+      // api interceptor unwraps response.data, so `response` here is the JSON payload
+      const response = await api.get('/Orders');
+      console.log('Raw API response:', response);
 
       // Handle new JSON format with $id and $values for cycle preservation
-      const ordersData = response.data.$values || response.data.value || response.data.data || response.data || [];
+      const ordersData = response.$values || response.value || response.data || response || [];
       
       console.log('Parsed orders:', ordersData);
       setOrders(ordersData);
@@ -278,7 +279,7 @@ export default function SalesDashboard() {
       setLoading(true);
       try {
           // Changed the API endpoint from /api/Sales/orders to /api/Orders
-          await axios.put(`http://localhost:5036/api/Orders/${orderId}/status`, { status: newStatus });
+          await api.put(`/Orders/${orderId}/status`, { status: newStatus });
           alert(successMessage);
           fetchOrders(); // Refresh data
       } catch (err) {

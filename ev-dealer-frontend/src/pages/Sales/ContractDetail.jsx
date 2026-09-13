@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import axios from 'axios';
+import api from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 
 // Icons
@@ -47,22 +47,20 @@ export default function ContractDetail() {
       try {
         setLoading(true);
         // 1. Fetch Contract
-        const contractResponse = await axios.get(`http://localhost:5036/api/Contracts/${contractId}`);
-        const fetchedContract = contractResponse.data;
+        const fetchedContract = await api.get(`/Contracts/${contractId}`);
         setContract(fetchedContract);
 
         // 2. Fetch Order
-        const orderResponse = await axios.get(`http://localhost:5036/api/Orders/${fetchedContract.orderId}`);
-        const fetchedOrder = orderResponse.data;
+        const fetchedOrder = await api.get(`/Orders/${fetchedContract.orderId}`);
         setOrder(fetchedOrder);
 
         // 3. Fetch Customer and Vehicle in parallel
         const [customerRes, vehicleRes] = await Promise.all([
-          axios.get(`http://localhost:5036/api/customers/${fetchedOrder.customerId}`),
-          axios.get(`http://localhost:5036/api/vehicles/${fetchedOrder.vehicleId}`)
+          api.get(`/customers/${fetchedOrder.customerId}`),
+          api.get(`/vehicles/${fetchedOrder.vehicleId}`)
         ]);
-        setCustomer(customerRes.data);
-        setVehicle(vehicleRes.data);
+        setCustomer(customerRes);
+        setVehicle(vehicleRes);
 
       } catch (err) {
         console.error('Error fetching contract data:', err);
@@ -81,7 +79,7 @@ export default function ContractDetail() {
 
     try {
         setLoading(true);
-        await axios.put(`http://localhost:5036/api/Contracts/${contractId}/status`, { status });
+        await api.put(`/Contracts/${contractId}/status`, { status });
         alert(`Hợp đồng đã được ${actionText.toLowerCase()} thành công!`);
         const orderIdentifier = order?.orderId ?? order?.OrderId ?? contract?.orderId;
         if (status === 'Rejected' && orderIdentifier) {

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import axios from 'axios'; // Import axios
+import api from '../../services/api';
 import { useAuth } from '../../context/AuthContext'; // Import useAuth
 
 // Icons
@@ -88,8 +88,8 @@ export default function QuoteCreate() {
     const fetchVehicles = async () => {
       try {
         setFetchingVehicles(true);
-        const response = await axios.get('http://localhost:5036/api/vehicles'); 
-        setVehicles(response.data.items); 
+        const response = await api.get('/vehicles');
+        setVehicles(response.items);
       } catch (err) {
         console.error('Error fetching vehicles:', err);
         setVehiclesError('Failed to load vehicle data.');
@@ -105,8 +105,8 @@ export default function QuoteCreate() {
     const fetchCustomers = async () => {
       try {
         setFetchingCustomers(true);
-        const response = await axios.get('http://localhost:5036/api/customers'); 
-        setCustomers(response.data);
+        const response = await api.get('/customers');
+        setCustomers(response);
       } catch (err) {
         console.error('Error fetching customers:', err);
         setCustomersError('Failed to load customer data.');
@@ -315,8 +315,8 @@ export default function QuoteCreate() {
         // }]
       };
 
-      const quoteResponse = await axios.post('http://localhost:5003/api/Quotes', createQuotePayload); // Changed API endpoint to /api/Quotes
-      console.log('Quote created successfully with ID:', quoteResponse.data.id);
+      const quoteResponse = await api.post('/Quotes', createQuotePayload); // Changed API endpoint to /api/Quotes
+      console.log('Quote created successfully with ID:', quoteResponse.id);
 
       alert('Báo giá đã được tạo thành công!');
       navigate('/sales/quotes');
@@ -372,13 +372,16 @@ export default function QuoteCreate() {
         installmentTotalPaymentCalculated: calculateInstallmentTotalPayment(),
       };
 
-      const response = await axios.post(
-        'http://localhost:5003/api/Sales/generate-quote-pdf', // Changed API endpoint to /api/Sales/generate-quote-pdf
+      // api's response interceptor unwraps to response.data, so this resolves to the blob itself
+      const blob = await api.post(
+        '/Sales/generate-quote-pdf', // Changed API endpoint to /api/Sales/generate-quote-pdf
         payload,
-        { responseType: 'blob' }
+        // Server-side PDF rendering can take well over the shared 10s timeout
+        // (this call previously ran on raw axios, which has no timeout at all).
+        { responseType: 'blob', timeout: 120000 }
       );
 
-      const file = new Blob([response.data], { type: 'application/pdf' });
+      const file = new Blob([blob], { type: 'application/pdf' });
       const fileURL = URL.createObjectURL(file);
       const link = document.createElement('a');
       link.href = fileURL;
