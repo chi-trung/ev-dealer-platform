@@ -56,7 +56,7 @@ namespace CustomerService.Consumers
                 _channel.QueueBind(queue: Queue, exchange: VehicleExchange, routingKey: "vehicle.reserved");
                 var retryTtlMs = int.Parse(_configuration["RabbitMQ:RetryTtlMilliseconds"] ?? "5000");
                 var maxAttempts = int.Parse(_configuration["RabbitMQ:MaxDeliveryAttempts"] ?? "3");
-                EventRetryPolicy.DeclareRetryTopology(_channel, Queue, retryTtlMs);
+                EventRetryPolicy.DeclareRetryTopology(_connection, Queue, retryTtlMs);
 
                 // Prefetch 1: process one delivery at a time. The handler does a
                 // check-then-insert on Customers.Email (unique index); concurrent
@@ -125,7 +125,7 @@ namespace CustomerService.Consumers
                             rounds + 1, maxAttempts, retryTtlMs);
                         try
                         {
-                            EventRetryPolicy.ScheduleRetry(_channel, ea, Queue, retryTtlMs);
+                            EventRetryPolicy.ScheduleRetry(_connection!, _channel, ea, Queue, retryTtlMs);
                         }
                         catch (Exception retryEx)
                         {

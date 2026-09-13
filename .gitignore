@@ -26,6 +26,11 @@ npm-debug.log*
 .env
 .env.*
 !.env.example
+# Firebase service account key for NotificationService (Firebase:CredentialPath).
+# It is mounted into the container at runtime; committing it would leak a
+# credential with FCM send + project access. Pattern also matches the
+# self-documented location in NotificationService/FIREBASE_SETUP.md.
+firebase-credentials.json
 
 # ── Databases & logs ─────────────────────────────────
 *.db

@@ -101,21 +101,34 @@ namespace NotificationService.Services
         /// RabbitMQ:Queues (the compose pattern SalesService uses) and must not
         /// thereby silently unbind it from the exchange.
         /// </summary>
-        private IModel OpenQueueChannel(string queue, string? vehicleTopicRoutingKey)
+        private IModel? OpenQueueChannel(string queue, string? vehicleTopicRoutingKey)
         {
-            var channel = _connection!.CreateModel();
-            // One delivery in flight per channel: handlers are serialized, which
-            // matches the CustomerService consumer (PR #11) and keeps the
-            // check-then-act orderings in the DB handlers safe.
-            channel.BasicQos(prefetchSize: 0, prefetchCount: 1, global: false);
-            channel.QueueDeclare(queue: queue, durable: true, exclusive: false, autoDelete: false, arguments: null);
-            EventRetryPolicy.DeclareRetryTopology(channel, queue, _retryTtlMs);
-            if (vehicleTopicRoutingKey != null)
+            try
             {
-                channel.ExchangeDeclare(exchange: VehicleExchange, type: ExchangeType.Topic, durable: true, autoDelete: false, arguments: null);
-                channel.QueueBind(queue: queue, exchange: VehicleExchange, routingKey: vehicleTopicRoutingKey);
+                var channel = _connection!.CreateModel();
+                // One delivery in flight per channel: handlers are serialized, which
+                // matches the CustomerService consumer (PR #11) and keeps the
+                // check-then-act orderings in the DB handlers safe.
+                channel.BasicQos(prefetchSize: 0, prefetchCount: 1, global: false);
+                channel.QueueDeclare(queue: queue, durable: true, exclusive: false, autoDelete: false, arguments: null);
+                EventRetryPolicy.DeclareRetryTopology(_connection!, queue, _retryTtlMs);
+                if (vehicleTopicRoutingKey != null)
+                {
+                    channel.ExchangeDeclare(exchange: VehicleExchange, type: ExchangeType.Topic, durable: true, autoDelete: false, arguments: null);
+                    channel.QueueBind(queue: queue, exchange: VehicleExchange, routingKey: vehicleTopicRoutingKey);
+                }
+                return channel;
             }
-            return channel;
+            catch (Exception ex)
+            {
+                // Per-queue fail-soft: a single unopenable queue (stale declare
+                // args, permissions) must not abort InitializeRabbitMQ's try and
+                // silently null out the channels of every queue declared after
+                // it - StartConsumingQueue just skips the null ones, so losing
+                // only this queue is logged and visible in `docker compose logs`.
+                Log.Error(ex, "Could not open consumer channel for queue {Queue}; this queue will NOT be consumed.", queue);
+                return null;
+            }
         }
 
         public void StartConsuming()
@@ -200,7 +213,7 @@ namespace NotificationService.Services
                         queue, rounds + 1, _maxAttempts, _retryTtlMs, Truncate(message));
                     try
                     {
-                        EventRetryPolicy.ScheduleRetry(channel, ea, queue, _retryTtlMs);
+                        EventRetryPolicy.ScheduleRetry(_connection!, channel, ea, queue, _retryTtlMs);
                     }
                     catch (Exception retryEx)
                     {

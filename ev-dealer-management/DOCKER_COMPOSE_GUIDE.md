@@ -2,12 +2,13 @@
 
 ## 📋 Tổng Quan
 
-File `docker-compose.yml` đã được cấu hình với:
+File `docker-compose.yml` đã được cấu hình với **toàn bộ stack 7 services + RabbitMQ** (W5):
 - ✅ **RabbitMQ** với persistent volumes và health checks
-- ✅ **SalesService** với RabbitMQ integration
-- ✅ **VehicleService** với RabbitMQ integration
-- ✅ **UserService**
-- ✅ Network isolation và service dependencies
+- ✅ **APIGatewayService** (Ocelot) — cổng host **5036**, route tới 6 services qua `Gateway__Rewrites` (xem `docs/GATEWAY.md`)
+- ✅ **UserService** (5223), **VehicleService** (5224), **SalesService** (5003)
+- ✅ **CustomerService** (5039), **ReportingService** (5208, `USE_SQLITE=true`), **NotificationService** (5051)
+- ✅ Network isolation (`ev-dealer-network`) và service dependencies; `userservice` đã được nối lại vào network (thiếu trước W5)
+- ⚠️ NotificationService chạy **không có** `firebase-credentials.json` (secret không ở trong repo): API boot bình thường, push trả 500 và event tiêu thụ rơi vào `*.dlq`. Provision key out-of-band rồi `docker cp` vào container (xem comment trong docker-compose.yml).
 
 ---
 

@@ -54,6 +54,24 @@ builder.Services.AddSingleton<IMessagePublisher, RabbitMQMessagePublisher>();
 
 var app = builder.Build();
 
+// Apply migrations at startup (same pattern as UserService). The bind-mounted
+// data/ dir is empty on a fresh clone, and without a schema every endpoint
+// 500s with `sqlite_error(no such table: Orders)`. Pre-squash dev DBs (history
+// rows for the migrations deleted in 73ce679, schema already present) make
+// Migrate() throw "table already exists" — safe to ignore, same fail-soft as
+// ReportingService — and fresh DBs get migrated normally.
+using (var scope = app.Services.CreateScope())
+{
+    try
+    {
+        scope.ServiceProvider.GetRequiredService<SalesDbContext>().Database.Migrate();
+    }
+    catch (Exception ex)
+    {
+        Console.Error.WriteLine($"[SalesService] Warning: could not apply database migrations (existing schema assumed): {ex.Message}");
+    }
+}
+
 // Log the database file path after app is built
 using (var scope = app.Services.CreateScope())
 {

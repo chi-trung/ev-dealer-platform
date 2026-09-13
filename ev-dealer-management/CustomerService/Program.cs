@@ -50,11 +50,16 @@ builder.Services.AddAuthentication("JwtBearer")
 // Add Authorization
 builder.Services.AddAuthorization();
 
-// Register DbContext with an absolute path
-var contentRoot = builder.Environment.ContentRootPath;
-var dbPath = Path.Combine(contentRoot, "customers.db");
+// Register DbContext with an absolute path. A configured connection string
+// (env override ConnectionStrings__DefaultConnection) wins so docker-compose can
+// relocate the DB onto the /app/data volume; with none set, behavior is
+// unchanged from before (ContentRootPath/customers.db, i.e. the project dir
+// under `dotnet run`).
+var dbConn = builder.Configuration.GetConnectionString("DefaultConnection");
+if (string.IsNullOrWhiteSpace(dbConn))
+    dbConn = $"Data Source={Path.Combine(builder.Environment.ContentRootPath, "customers.db")}";
 builder.Services.AddDbContext<CustomerService.Data.CustomerDbContext>(options =>
-    options.UseSqlite($"Data Source={dbPath}"));
+    options.UseSqlite(dbConn));
 
 // Register Custom Services
 builder.Services.AddScoped<CustomerService.Services.ICustomerService, CustomerService.Services.CustomerService>();
