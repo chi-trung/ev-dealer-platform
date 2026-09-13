@@ -63,7 +63,9 @@ public class ContractCreatedConsumer
                 }
                 else
                 {
-                    Log.Warning("⚠️ Push notification failed for Contract: {ContractNumber} (notification logged only)", contractEvent.ContractNumber);
+                    // IFcmService swallows send errors and returns false; throwing
+                    // here lets the bus retry and eventually DLQ the delivery.
+                    throw new InvalidOperationException($"FCM push failed for Contract {contractEvent.ContractNumber}");
                 }
             }
             else

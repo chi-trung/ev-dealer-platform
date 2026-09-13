@@ -65,8 +65,9 @@ public class VehicleReservedConsumer
             }
             else
             {
-                Log.Error("Failed to send reservation confirmation push notification for Vehicle: {VehicleId}, Customer: {CustomerName}", 
-                    reservedEvent.VehicleId, reservedEvent.CustomerName);
+                // IFcmService swallows send errors and returns false; throwing
+                // here lets the bus retry and eventually DLQ the delivery.
+                throw new InvalidOperationException($"FCM push failed for Vehicle reservation {reservedEvent.VehicleId}");
             }
         }
         catch (Exception ex)

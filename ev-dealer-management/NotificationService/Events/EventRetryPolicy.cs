@@ -105,10 +105,19 @@ public static class EventRetryPolicy
     /// Parks the delivery in the dead-letter queue for operators to inspect
     /// (and re-publish by hand once fixed) and acks the original. The body is
     /// retained - unlike the old ack-and-discard policy for malformed payloads.
+    /// Only the .dlq is declared here (it takes no arguments, so the declare
+    /// is always idempotent): redeclaring .retry with DefaultRetryTtlMs when
+    /// the broker has it under a configured TTL would PRECONDITION_FAILED
+    /// and close the consumer channel.
     /// </summary>
     public static void ParkInDeadLetterQueue(IModel channel, BasicDeliverEventArgs ea, string queue)
     {
-        DeclareRetryTopology(channel, queue, DefaultRetryTtlMs);
+        channel.QueueDeclare(
+            queue: DeadLetterQueueFor(queue),
+            durable: true,
+            exclusive: false,
+            autoDelete: false,
+            arguments: null);
         var properties = ea.BasicProperties ?? channel.CreateBasicProperties();
         channel.BasicPublish("", DeadLetterQueueFor(queue), properties, ea.Body.ToArray());
         channel.BasicAck(ea.DeliveryTag, multiple: false);

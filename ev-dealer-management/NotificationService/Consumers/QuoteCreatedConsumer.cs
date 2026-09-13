@@ -60,7 +60,9 @@ public class QuoteCreatedConsumer
                 }
                 else
                 {
-                    Log.Warning("⚠️ Push notification failed for Quote: {QuoteId} (notification logged only)", quoteEvent.QuoteId);
+                    // IFcmService swallows send errors and returns false; throwing
+                    // here lets the bus retry and eventually DLQ the delivery.
+                    throw new InvalidOperationException($"FCM push failed for Quote {quoteEvent.QuoteId}");
                 }
             }
             else

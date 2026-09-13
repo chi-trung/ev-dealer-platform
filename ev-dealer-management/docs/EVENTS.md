@@ -70,9 +70,9 @@ exchange; the routing key **is** the queue name (from `RabbitMQ:Queues:*` config
 | Routing key = queue | Producer (payload) | Consumer |
 |---|---|---|
 | `sales.completed` | SalesService OrdersController — `SaleCompletedEvent` (OrderId, CustomerEmail, CustomerName, VehicleModel, TotalPrice, CompletedAt, DeviceToken?) | NotificationService `sales.completed` → push (skipped without DeviceToken) |
-| `order.created` | SalesService OrdersController — `OrderCreatedEvent` | NotificationService `order.created` → push |
-| `quote.created` | SalesService QuotesController — `QuoteCreatedEvent` | NotificationService `quote.created` → push |
-| `contract.created` | SalesService ContractsController — `ContractCreatedEvent` (ContractId, ContractNumber, OrderId, CustomerId, DealerId, SalespersonId, TotalAmount, PaymentStatus, Status, CreatedAt; DeviceToken always null — the API collects none) | NotificationService `contract.created` → push |
+| `order.created` | SalesService OrdersController — `OrderCreatedEvent` (no DeviceToken field) | NotificationService `order.created` → log-only today: push needs a DeviceToken the payload never carries (see Known gaps) |
+| `quote.created` | SalesService QuotesController — `QuoteCreatedEvent` (no DeviceToken field) | NotificationService `quote.created` → log-only today: same as `order.created` |
+| `contract.created` | SalesService ContractsController — `ContractCreatedEvent` (ContractId, ContractNumber, OrderId, CustomerId, DealerId, SalespersonId, TotalAmount, PaymentStatus, Status, CreatedAt; DeviceToken always null — the API collects none) | NotificationService `contract.created` → log-only today: DeviceToken is never populated |
 | `payment.received` | SalesService PaymentsController | no consumer |
 | `order.status.changed` | SalesService OrdersController | no consumer |
 

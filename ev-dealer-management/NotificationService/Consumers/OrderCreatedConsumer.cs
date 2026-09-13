@@ -61,7 +61,9 @@ public class OrderCreatedConsumer
                 }
                 else
                 {
-                    Log.Warning("⚠️ Push notification failed for Order: {OrderNumber} (notification logged only)", orderEvent.OrderNumber);
+                    // IFcmService swallows send errors and returns false; throwing
+                    // here lets the bus retry and eventually DLQ the delivery.
+                    throw new InvalidOperationException($"FCM push failed for Order {orderEvent.OrderNumber}");
                 }
             }
             else
