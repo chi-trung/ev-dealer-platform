@@ -37,6 +37,9 @@ try
     builder.Services.AddScoped<CustomerDeletedConsumer>();
     builder.Services.AddScoped<PaymentReceivedConsumer>();
     builder.Services.AddScoped<OrderStatusChangedConsumer>();
+    builder.Services.AddScoped<VehicleCreatedConsumer>();
+    builder.Services.AddScoped<VehicleUpdatedConsumer>();
+    builder.Services.AddScoped<VehicleDeletedConsumer>();
 
     // Register RabbitMQ Consumer Service
     builder.Services.AddSingleton<IMessageConsumer, RabbitMQConsumerService>();
