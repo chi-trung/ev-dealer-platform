@@ -5,13 +5,21 @@ using Ocelot.Middleware;
 
 var builder = WebApplication.CreateBuilder(args);
 
-var hostRewrites = builder.Configuration
-    .GetSection("Gateway:Hosts")
-    .Get<Dictionary<string, string>>() ?? new Dictionary<string, string>();
+// Downstream endpoint rewrites, as a LIST of {From,To} rather than a map:
+// .NET config keys can't contain ':' (the path separator), so "localhost:7001"
+// only works as a leaf value. Env form: Gateway__Rewrites__0__From=...
+var rewrites = (builder.Configuration
+    .GetSection("Gateway:Rewrites")
+    .Get<List<GatewayRewrite>>() ?? new List<GatewayRewrite>())
+    .Where(r => !string.IsNullOrWhiteSpace(r.From) && !string.IsNullOrWhiteSpace(r.To))
+    .GroupBy(r => r.From, StringComparer.OrdinalIgnoreCase)
+    .ToDictionary(g => g.Key, g => g.First().To, StringComparer.OrdinalIgnoreCase);
 
-// Rewrite downstream hosts in the loaded route file so one ocelot.json serves
-// both localhost dev and the docker-compose network (Gateway:Hosts maps
-// "localhost" -> "userservice"-style container names there).
+// Apply to the loaded route file so one ocelot.json serves both localhost dev
+// and the docker-compose network. Keys/values are full "host:port" authorities:
+// a host-only rewrite would collapse every service (all entries say
+// "localhost", differing only by port) onto one container with ports nothing
+// listens on.
 var ocelotJson = JObject.Parse(File.ReadAllText(
     Path.Combine(builder.Environment.ContentRootPath, "ocelot.json")));
 foreach (var route in ocelotJson["Routes"]?.Children() ?? Enumerable.Empty<JToken>())
@@ -19,9 +27,13 @@ foreach (var route in ocelotJson["Routes"]?.Children() ?? Enumerable.Empty<JToke
     foreach (var hp in route["DownstreamHostAndPorts"]?.Children() ?? Enumerable.Empty<JToken>())
     {
         var host = hp["Host"]?.Value<string>();
-        if (host != null && hostRewrites.TryGetValue(host, out var replacement))
+        var port = hp["Port"]?.Value<string>() ?? "";
+        if (host != null
+            && rewrites.TryGetValue($"{host}:{port}", out var replacement)
+            && replacement.Split(':', 2) is [var newHost, var newPort])
         {
-            hp["Host"] = replacement;
+            hp["Host"] = newHost;
+            hp["Port"] = int.Parse(newPort);
         }
     }
 }
@@ -107,29 +119,47 @@ app.Run();
 internal sealed record GatewayServiceHealth(string service, string status, int? httpStatus, string? error);
 
 /// <summary>
-/// Where the gateway pings each service's /health. Ports mirror the
-/// localhost:port table in ocelot.json; the host follows the Gateway:Hosts
-/// rewrite so the same list works in docker-compose (service names) and dev
-/// (localhost).
+/// One Gateway:Rewrites entry: full downstream authority (host:port) to
+/// replace, and its replacement. Colon can't live in a config key, hence
+/// the list-of-pairs shape.
+/// </summary>
+internal sealed class GatewayRewrite
+{
+    public string From { get; set; } = "";
+    public string To { get; set; } = "";
+}
+
+/// <summary>
+/// Where the gateway pings each service's /health. Mirrors the
+/// host:port authority table in ocelot.json and applies the same
+/// Gateway:Rewrites "host:port" -> "host:port" rewrite, so the probe list
+/// follows the route file into docker-compose addressing.
 /// </summary>
 internal sealed class HcHealthCheckWriter
 {
-    private static readonly (string Service, int Port)[] Services =
+    private static readonly (string Service, string Authority)[] Services =
     {
-        ("user", 7001),
-        ("vehicle", 5068),
-        ("sales", 5003),
-        ("customer", 5039),
-        ("reporting", 5208),
-        ("notification", 5051),
+        ("user", "localhost:7001"),
+        ("vehicle", "localhost:5068"),
+        ("sales", "localhost:5003"),
+        ("customer", "localhost:5039"),
+        ("reporting", "localhost:5208"),
+        ("notification", "localhost:5051"),
     };
 
     public IReadOnlyList<(string Service, string HealthUrl)> Upstreams { get; }
 
     public HcHealthCheckWriter(IConfiguration configuration)
     {
-        var hostRewrites = configuration.GetSection("Gateway:Hosts").Get<Dictionary<string, string>>();
-        var host = hostRewrites?.TryGetValue("localhost", out var h) == true ? h : "localhost";
-        Upstreams = Services.Select(s => (s.Service, $"http://{host}:{s.Port}/health")).ToList();
+        var rewrites = (configuration.GetSection("Gateway:Rewrites").Get<List<GatewayRewrite>>()
+            ?? new List<GatewayRewrite>())
+            .Where(r => !string.IsNullOrWhiteSpace(r.From) && !string.IsNullOrWhiteSpace(r.To))
+            .GroupBy(r => r.From, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.First().To, StringComparer.OrdinalIgnoreCase);
+        Upstreams = Services.Select(s =>
+        {
+            var authority = rewrites.TryGetValue(s.Authority, out var r) ? r : s.Authority;
+            return (s.Service, $"http://{authority}/health");
+        }).ToList();
     }
 }

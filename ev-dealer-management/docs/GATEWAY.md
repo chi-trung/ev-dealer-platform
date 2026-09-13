@@ -8,7 +8,8 @@ Ocelot-based gateway in front of the six microservices. Local dev URL:
 
 `Program.cs` loads `ocelot.json` from disk at startup (it used to build an
 19-route in-memory copy while `ocelot.json` sat unused — a change to the file
-had no effect). Edit routes in `ocelot.json`.
+had no effect). Edit routes in `ocelot.json`; the gateway picks them up on
+restart.
 
 | Upstream | Service (dev port) |
 |---|---|
@@ -32,21 +33,40 @@ had no effect). Edit routes in `ocelot.json`.
   JSON endpoint; VehicleService already had it). Gateway routes listed above
   proxy them one level down as `/api/health/<name>`.
 
-## Host rewrites (docker-compose readiness)
+## Endpoint rewrites (docker-compose readiness)
 
-Every downstream entry in `ocelot.json` uses `localhost`. To run the gateway in
-a compose network, set a rewrite map — `Program.cs` applies it to the loaded
-routes (and the health probe list) at startup:
+Every downstream entry in `ocelot.json` uses `localhost` with the service's dev
+port. To run the gateway in a compose network, configure `Gateway:Rewrites` —
+a **list** of `{ "From", "To" }` pairs whose values are full `host:port`
+authorities. The value carries the port too because containers do not listen
+on the dev ports (Kestrel binds 80/8080 inside the container; the dev port is
+only a host-side mapping):
 
 ```json
-"Gateway": { "Hosts": { "localhost": "userservice" } }
+"Gateway": {
+  "Rewrites": [
+    { "From": "localhost:7001", "To": "userservice:80" },
+    { "From": "localhost:5068", "To": "vehicleservice:8080" },
+    { "From": "localhost:5003", "To": "salesservice:80" },
+    { "From": "localhost:5039", "To": "customerservice:80" },
+    { "From": "localhost:5208", "To": "reportingservice:80" },
+    { "From": "localhost:5051", "To": "notificationservice:80" }
+  ]
+}
 ```
 
-or env `Gateway__Hosts__localhost=userservice`. One map, applied to all
-routes — per-service container names come later in W5 if services get distinct
-DNS names (then use `Gateway__Hosts__user-service`-style keys instead; the
-rewrite is per-host-value, so distinct hosts in the file rewrite
-independently).
+or env vars `Gateway__Rewrites__0__From=localhost:7001` +
+`Gateway__Rewrites__0__To=userservice:80`. `Program.cs` applies the rewrites
+to every `DownstreamHostAndPorts` entry in the loaded file and to the
+gateway's own `/health` probe list.
+
+Two shape constraints, learned the hard way in review: a **host-only** rewrite
+would collapse all six services onto one container name (every entry shares
+the host `localhost` and differs only by port), hence full authorities; and
+`:` is the .NET config path separator, so it **cannot appear in a key** —
+hence a list of pairs instead of a map. The container names/ports above are
+placeholders until W5 puts the remaining services into `docker-compose.yml`;
+the rewrite values are finalized there.
 
 ## CORS
 
