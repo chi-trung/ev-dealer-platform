@@ -63,16 +63,17 @@ device-token registry (`customer:<CustomerId>`, Issue #33) before skipping push.
 
 | Routing key | Producer (payload) | Consumer queues |
 |---|---|---|
-| `customer.created` | CustomerService — `CustomerCreatedEvent` (CustomerId: int, Name, Email, Timestamp) | `customer.created` (NotificationService → log-only; payload carries no DeviceToken) |
-| `customer.updated` | CustomerService — `CustomerUpdatedEvent` (CustomerId, Name, Email, Phone, Address, Status, Timestamp) | `customer.updated` (NotificationService → log-only; same) |
-| `customer.deleted` | CustomerService — `CustomerDeletedEvent` (CustomerId, Timestamp) | `customer.deleted` (NotificationService → log-only; same) |
+| `customer.created` | CustomerService — `CustomerCreatedEvent` (CustomerId: int, Name, Email, Timestamp) | `customer.created` (NotificationService → push via registry, `customer:<CustomerId>`; payload carries no DeviceToken — Issue #35) |
+| `customer.updated` | CustomerService — `CustomerUpdatedEvent` (CustomerId, Name, Email, Phone, Address, Status, Timestamp) | `customer.updated` (NotificationService → push via registry, same resolution) |
+| `customer.deleted` | CustomerService — `CustomerDeletedEvent` (CustomerId, Timestamp) | `customer.deleted` (NotificationService → push via registry, same resolution) |
 
-Each queue binds `customer_events` by its EVENT routing key (never the queue
-name — renames via `RabbitMQ:Queues:*` must not unbind), declares its own
-`.retry`/`.dlq` triplet via the shared `EventRetryPolicy`, and dispatches to
-`Consumers/Customer{Created,Updated,Deleted}Consumer.cs` (log-only, no
-`IFcmService` dependency — adding push later means taking the token plus a
-`throw on success == false` block like `TestDriveScheduledConsumer`).
+Each queue binds `customer_events` by its EVENT routing key (never the
+queue name — renames via `RabbitMQ:Queues:*` must not unbind), declares its
+own `.retry`/`.dlq` triplet via the shared `EventRetryPolicy`, and dispatches
+to `Consumers/Customer{Created,Updated,Deleted}Consumer.cs` — push-capable via
+the device-token registry with the same contract as `order.created` (registry
+fan-out to `customer:<CustomerId>`, throw on `success == false`, log-only +
+logged subject when nothing is registered).
 
 ### Default exchange (SalesService)
 
@@ -100,7 +101,7 @@ exchange; the routing key **is** the queue name (from `RabbitMQ:Queues:*` config
 | `order.created` | yes | default exchange | NotificationService |
 | `quote.created` | yes | default exchange | NotificationService |
 | `contract.created` | yes | default exchange | NotificationService |
-| `customer.created` / `customer.updated` / `customer.deleted` | yes | `customer_events` / own routing key | NotificationService (log-only) |
+| `customer.created` / `customer.updated` / `customer.deleted` | yes | `customer_events` / own routing key | NotificationService (push via registry) |
 | `payment.received` | yes | default exchange | NotificationService (log-only) |
 | `order.status.changed` | yes | default exchange | NotificationService (log-only) |
 | `<queue>.retry` / `<queue>.dlq` | yes | default exchange (retry dead-letters back to `<queue>`) | broker-side for retry; DLQ is operator-facing |
@@ -161,11 +162,13 @@ Tokens are keyed by **subject string**, built only via
 the registration API stored.
 
 Resolution order in `order.created` / `quote.created` / `contract.created` /
-`testdrive.scheduled` consumers: an in-band payload token **wins** (future
+`testdrive.scheduled` / `customer.created` / `customer.updated` /
+`customer.deleted` consumers: an in-band payload token **wins** (future
 producers can send one without touching the registry); otherwise the consumer
 fans the push out to **all** live tokens for `customer:<CustomerId>` via
 `SendMulticastAsync`. Zero tokens anywhere → the old log-only behavior
-("Notification logged only"), which stays the honest fallback.
+("Notification logged only"), which stays the honest fallback — the exact
+subject string tried is logged so a key-spelling drift is visible.
 
 The registry DB is volume-backed in compose
 (`./NotificationService/data:/app/data`), so tokens survive container
@@ -187,9 +190,11 @@ registration — the follow-up issue — replaces both the cap and the optional
 
 1. ~~**`customer.*` consumers not wired** — events are published but nothing binds
    `customer_events`. NotificationService should acknowledge new customers. (W4 follow-up)~~
-   — **closed**: `customer.created/updated/deleted` queues bound + log-only
-   consumers (no DeviceToken in payloads yet; push wiring is the remaining
-   follow-up when the API collects tokens).
+   — **closed**: `customer.created/updated/deleted` queues bound; since Issue #35
+   they are push-capable via the registry (`customer:<CustomerId>`). No client
+   registers customer-subject tokens yet (portal is staff-only; Issue #36 adds
+   authenticated registration), so live behavior stays log-only + logged
+   subject — the plumbing, not the audience, was the gap.
 2. ~~**`payment.received` / `order.status.changed` have no consumers** — published,
    accumulating; no notification content designed for them yet.~~
    — **closed**: `payment.received` + `order.status.changed` queues consumed
