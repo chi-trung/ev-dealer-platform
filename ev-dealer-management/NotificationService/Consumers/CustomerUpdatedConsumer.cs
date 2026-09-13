@@ -1,16 +1,28 @@
 using NotificationService.DTOs;
+using NotificationService.Services;
 using Serilog;
 using System.Text.Json;
 
 namespace NotificationService.Consumers;
 
 /// <summary>
-/// customer.updated (customer_events topic exchange). Log-only today: the
-/// producer payload carries no DeviceToken (see CustomerCreatedConsumer).
+/// customer.updated (customer_events topic exchange). Push-capable via the
+/// device-token registry (Issue #35) — see CustomerCreatedConsumer for the
+/// resolution contract (registry subject customer:&lt;CustomerId&gt;, multicast,
+/// log-only + logged subject when nothing is registered).
 /// </summary>
 public class CustomerUpdatedConsumer
 {
-    public Task HandleAsync(string message)
+    private readonly IFcmService _fcmService;
+    private readonly IDeviceTokenRegistry _tokens;
+
+    public CustomerUpdatedConsumer(IFcmService fcmService, IDeviceTokenRegistry tokens)
+    {
+        _fcmService = fcmService;
+        _tokens = tokens;
+    }
+
+    public async Task HandleAsync(string message)
     {
         try
         {
@@ -20,18 +32,41 @@ public class CustomerUpdatedConsumer
             if (customerEvent == null)
             {
                 Log.Warning("⚠️ Failed to deserialize CustomerUpdatedEvent from message: {Message}", message);
-                return Task.CompletedTask;
+                return;
             }
 
             var title = "🔄 Thông tin khách hàng đã cập nhật!";
             var body = $"Khách hàng {customerEvent.Name} ({customerEvent.Email}, Id #{customerEvent.CustomerId}) vừa được cập nhật.";
+            var data = new Dictionary<string, string>
+            {
+                { "type", "customer" },
+                { "customerId", customerEvent.CustomerId.ToString() },
+            };
 
             // Always log the notification
             Log.Information("📢 [THÔNG BÁO CẬP NHẬT KHÁCH HÀNG] {Title} | {Body}", title, body);
-            Log.Information("ℹ️ No device token in CustomerUpdatedEvent payload. Notification logged only (no push sent).");
+
+            var subject = NotificationSubjects.Customer(customerEvent.CustomerId);
+            var registered = await _tokens.GetTokensAsync(subject);
+            if (registered.Count > 0)
+            {
+                var success = await _fcmService.SendMulticastAsync(
+                    registered.ToList(), title, body, data);
+                if (success)
+                {
+                    Log.Information("✅ Push notification sent successfully for Customer: {CustomerId}", customerEvent.CustomerId);
+                }
+                else
+                {
+                    throw new InvalidOperationException($"FCM push failed for Customer {customerEvent.CustomerId}");
+                }
+            }
+            else
+            {
+                Log.Information("ℹ️ No device token registered for {Subject}. Notification logged only (no push sent).", subject);
+            }
 
             Log.Debug("✅ CustomerUpdated event processed successfully for Customer: {CustomerId}", customerEvent.CustomerId);
-            return Task.CompletedTask;
         }
         catch (Exception ex)
         {

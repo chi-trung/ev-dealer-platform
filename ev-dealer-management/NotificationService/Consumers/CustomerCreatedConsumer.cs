@@ -1,19 +1,31 @@
 using NotificationService.DTOs;
+using NotificationService.Services;
 using Serilog;
 using System.Text.Json;
 
 namespace NotificationService.Consumers;
 
 /// <summary>
-/// customer.created (customer_events topic exchange). The producer payload
-/// carries no DeviceToken, so this is log-only today — same degraded pattern
-/// as OrderCreated/QuoteCreated/ContractCreated. When the booking API starts
-/// collecting device tokens, add the FCM push block (throw on
-/// success == false so the bus retries; see TestDriveScheduledConsumer).
+/// customer.created (customer_events topic exchange). Push-capable via the
+/// device-token registry (Issue #35): the payload carries no DeviceToken (the
+/// producer never has one), so tokens resolve out-of-band for the subject
+/// customer:&lt;CustomerId&gt; and fan out to ALL live devices via multicast.
+/// Zero registered tokens keeps the honest fallback: log-only. The exact
+/// subject string is logged so a NotificationSubjects drift is visible
+/// instead of failing silently.
 /// </summary>
 public class CustomerCreatedConsumer
 {
-    public Task HandleAsync(string message)
+    private readonly IFcmService _fcmService;
+    private readonly IDeviceTokenRegistry _tokens;
+
+    public CustomerCreatedConsumer(IFcmService fcmService, IDeviceTokenRegistry tokens)
+    {
+        _fcmService = fcmService;
+        _tokens = tokens;
+    }
+
+    public async Task HandleAsync(string message)
     {
         try
         {
@@ -23,18 +35,43 @@ public class CustomerCreatedConsumer
             if (customerEvent == null)
             {
                 Log.Warning("⚠️ Failed to deserialize CustomerCreatedEvent from message: {Message}", message);
-                return Task.CompletedTask;
+                return;
             }
 
             var title = "👋 Chào mừng khách hàng mới!";
             var body = $"Khách hàng {customerEvent.Name} ({customerEvent.Email}) vừa được tạo (Id #{customerEvent.CustomerId}).";
+            var data = new Dictionary<string, string>
+            {
+                { "type", "customer" },
+                { "customerId", customerEvent.CustomerId.ToString() },
+            };
 
             // Always log the notification
             Log.Information("📢 [THÔNG BÁO KHÁCH HÀNG MỚI] {Title} | {Body}", title, body);
-            Log.Information("ℹ️ No device token in CustomerCreatedEvent payload. Notification logged only (no push sent).");
+
+            var subject = NotificationSubjects.Customer(customerEvent.CustomerId);
+            var registered = await _tokens.GetTokensAsync(subject);
+            if (registered.Count > 0)
+            {
+                var success = await _fcmService.SendMulticastAsync(
+                    registered.ToList(), title, body, data);
+                if (success)
+                {
+                    Log.Information("✅ Push notification sent successfully for Customer: {CustomerId}", customerEvent.CustomerId);
+                }
+                else
+                {
+                    // IFcmService swallows send errors and returns false; throwing
+                    // here lets the bus retry and eventually DLQ the delivery.
+                    throw new InvalidOperationException($"FCM push failed for Customer {customerEvent.CustomerId}");
+                }
+            }
+            else
+            {
+                Log.Information("ℹ️ No device token registered for {Subject}. Notification logged only (no push sent).", subject);
+            }
 
             Log.Debug("✅ CustomerCreated event processed successfully for Customer: {CustomerId}", customerEvent.CustomerId);
-            return Task.CompletedTask;
         }
         catch (Exception ex)
         {
