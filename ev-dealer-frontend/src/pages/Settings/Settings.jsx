@@ -106,7 +106,11 @@ const Settings = () => {
       alert("Đổi mật khẩu thành công");
       form.reset();
     } catch (err) {
-      alert("Đổi mật khẩu thất bại: " + (err || ""));
+      // Issue #50: the backend answers failures with {success,message} (400) or
+      // nothing (401 — session expired, which the api interceptor already
+      // redirects to /login). The old string-concat showed "[object Object]".
+      const reason = err?.response?.data?.message || err?.message || "lỗi không xác định";
+      alert("Đổi mật khẩu thất bại: " + reason);
     } finally {
       setIsSubmitting(false);
     }

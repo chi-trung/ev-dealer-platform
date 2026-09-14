@@ -125,6 +125,21 @@ app.MapPost("/api/auth/reset-password", async ([FromBody] ResetPasswordRequest r
     return result.Success ? Results.Ok(result) : Results.BadRequest(result);
 });
 
+// Issue #50: authenticated in-session password change (Settings page posts
+// {currentPassword, newPassword} with the login JWT attached by services/api.js).
+// Unlike reset-password, no email token is involved: the current password IS
+// the proof of ownership, and a wrong one is a plain 400 — the same shape the
+// login endpoint uses so the frontend toast wording stays consistent.
+app.MapPost("/api/auth/change-password", [Microsoft.AspNetCore.Authorization.Authorize] async (System.Security.Claims.ClaimsPrincipal user, ChangePasswordRequest req, IUserService userService) =>
+{
+    var userIdClaim = user.FindFirst("id")?.Value;
+    if (!int.TryParse(userIdClaim, out var userId))
+        return Results.Unauthorized();
+
+    var result = await userService.ChangePasswordAsync(userId, req);
+    return result.Success ? Results.Ok(result) : Results.BadRequest(result);
+});
+
 app.MapGet("/api/users/me", [Microsoft.AspNetCore.Authorization.Authorize] async (System.Security.Claims.ClaimsPrincipal user, IUserService userService) =>
 {
     var userIdClaim = user.FindFirst("id")?.Value;
@@ -218,6 +233,10 @@ public record RegisterRequest(string Username, string Email, string FullName, st
 public record LoginRequest(string Username, string Password);
 public record ForgotPasswordRequest([property: JsonPropertyName("email")] string Email);
 public record ResetPasswordRequest([property: JsonPropertyName("token")] string Token, [property: JsonPropertyName("newPassword")] string NewPassword);
+// Issue #50: the Settings "Đổi mật khẩu" form posts exactly these camelCase
+// fields. Minimal-API [FromBody] uses Web defaults (case-insensitive), so the
+// names bind from either casing; no JsonPropertyName needed.
+public record ChangePasswordRequest(string CurrentPassword, string NewPassword);
 public record UserDto(int Id, string Username, string Email, string FullName, string Role, bool IsActive, int? DealerId, DateTime CreatedAt, DateTime UpdatedAt);
 public record UpdateUserRequest(string Email, string FullName);
 public record ChangeRoleRequest(string Role);
@@ -305,6 +324,8 @@ public interface IUserService
     Task<UserResult> ApproveUserAsync(int id);
     Task<PasswordResetResult> ForgotPasswordAsync(ForgotPasswordRequest request);
     Task<PasswordResetResult> ResetPasswordAsync(ResetPasswordRequest request);
+    // Issue #50: authenticated password change for the Settings page.
+    Task<PasswordResetResult> ChangePasswordAsync(int userId, ChangePasswordRequest request);
 }
 
 public class UserServiceImpl : IUserService
@@ -645,6 +666,48 @@ public class UserServiceImpl : IUserService
         await _db.SaveChangesAsync();
 
         return new PasswordResetResult(true, "Password has been reset successfully");
+    }
+
+    // Issue #50: in-session change from the Settings page. The current password
+    // is the proof of ownership (this is NOT the token-based reset flow), so a
+    // wrong one is a plain failure with no email-enumeration softening needed —
+    // the caller already knows the account. Length floor and hashing follow
+    // ResetPasswordAsync exactly so the two paths can't drift.
+    public async Task<PasswordResetResult> ChangePasswordAsync(int userId, ChangePasswordRequest request)
+    {
+        var user = await _db.Users.FindAsync(userId);
+        if (user == null || !user.IsActive)
+            return new PasswordResetResult(false, "Không tìm thấy người dùng.");
+
+        if (string.IsNullOrWhiteSpace(request.CurrentPassword) || string.IsNullOrWhiteSpace(request.NewPassword))
+            return new PasswordResetResult(false, "Cần mật khẩu hiện tại và mật khẩu mới.");
+
+        if (request.NewPassword.Length < 6)
+            return new PasswordResetResult(false, "Mật khẩu mới phải có ít nhất 6 ký tự.");
+
+        if (!BCrypt.Net.BCrypt.Verify(request.CurrentPassword, user.PasswordHash))
+            return new PasswordResetResult(false, "Mật khẩu hiện tại không đúng.");
+
+        user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.NewPassword);
+        user.UpdatedAt = DateTime.UtcNow;
+
+        // A live reset token survives this change — and resetting with it needs
+        // only the token. If the user just proved ownership of the password,
+        // any outstanding forgot-password link they abandoned must die too,
+        // or "change my password" silently leaves the old leak path open for
+        // its remaining hour.
+        var liveTokens = await _db.PasswordResetTokens
+            .Where(t => t.UserId == userId && !t.IsUsed && t.ExpiresAt > DateTime.UtcNow)
+            .ToListAsync();
+        foreach (var t in liveTokens)
+        {
+            t.IsUsed = true;
+            t.UsedAt = DateTime.UtcNow;
+        }
+
+        await _db.SaveChangesAsync();
+
+        return new PasswordResetResult(true, "Đổi mật khẩu thành công.");
     }
 }
 
