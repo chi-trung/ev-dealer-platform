@@ -74,11 +74,11 @@ public class ChangePasswordTests : IDisposable
         return user;
     }
 
-    private async Task<PasswordResetResult> ChangeAsync(int userId, string current, string @new)
+    private async Task<PasswordResetResult> ChangeAsync(int userId, string? current, string? @new)
     {
         using var db = new UserDbContext(_options);
         var svc = new UserServiceImpl(db, Config(), new NoopEmail());
-        return await svc.ChangePasswordAsync(userId, new ChangePasswordRequest(current, @new));
+        return await svc.ChangePasswordAsync(userId, new ChangePasswordRequest(current!, @new!));
     }
 
     private async Task<User> ReloadAsync(int userId)
@@ -131,11 +131,21 @@ public class ChangePasswordTests : IDisposable
     [InlineData("   ", "N3w!password-here")] // whitespace is not a password
     [InlineData("S3cret!old-here", "")]      // empty new password
     [InlineData("S3cret!old-here", "    ")]
-    public async Task BlankInputs_Reject(string current, string @new)
+    // The two rows the review proved are load-bearing for the guard itself —
+    // every row above is ALSO rejected by another branch (Verify on a blank
+    // current, the <6 floor on a short new), so deleting the guard left those
+    // passing (mutation round 1). These two have no other line that catches
+    // them:
+    [InlineData("S3cret!old-here", "        ")] // 8 spaces ≥ 6 chars: passes the floor, Verify is happy — ONLY the blank-guard rejects
+    [InlineData(null, null)]                    // the real "{}" wire shape: both members null (STJ ignores record non-nullability); without the guard NewPassword.Length throws NRE → anonymous 500 instead of 400
+    public async Task BlankInputs_Reject(string? current, string? @new)
     {
         var seeded = await SeedUserAsync();
         var result = await ChangeAsync(seeded.Id, current, @new);
         Assert.False(result.Success);
+        // rejecting must also mean NOT re-keying: without the guard, the
+        // whitespace-new row would flip the account to a spaces password
+        Assert.True(BCrypt.Net.BCrypt.Verify(OldPassword, (await ReloadAsync(seeded.Id)).PasswordHash));
     }
 
     [Fact]
