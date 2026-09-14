@@ -16,9 +16,11 @@
          8.0.10; the other four pin 8.0.0). NuGet "highest wins" resolves the
          whole graph to 8.0.10, so referencing it directly here avoids the
          NU1605 downgrade error without lowering any service's own pin. Used
-         by the registry tests: real SQLite temp FILE dbs (NOT the InMemory
-         test provider — only a real SQLite db enforces the unique (Key,
-         Token) index, which is the dedupe guarantee under test). -->
+         by every SQLite-backed test class (registry, producer, consumer, FK
+         and claim tests): real SQLite temp FILE dbs (NOT the InMemory test
+         provider — only a real SQLite db enforces the unique (Key, Token)
+         index behind the dedupe guarantee, and the real FKs behind the dealer
+         seed). -->
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="8.0.10" />
     <PackageReference Include="xunit" Version="2.9.2" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2">
@@ -38,7 +40,15 @@
     <ProjectReference Include="..\..\SalesService\SalesService.csproj" />
     <!-- Issue #41: the dealer-claim minting test runs the REAL UserServiceImpl
          against a temp SQLite UserDbContext and reads the claims back out of
-         the JWT it returns. -->
+         the JWT it returns. Side effect to know about: like every referenced
+         web app, UserService ships appsettings.json as CopyToOutputDirectory
+         content, and MSBuild's content-conflict resolution made UserService's
+         copy WIN the test bin/Debug/net8.0/appsettings.json slot — which
+         carries the repo's tracked SMTP password. bin/ is gitignored and no
+         test reads the file (all config is AddInMemoryCollection), so this is
+         strictly a local-disk duplication of an already-tracked secret; the
+         standing rule is the password must be revoked before any Issue #10
+         cleanup, not that tests stop materializing it. -->
     <ProjectReference Include="..\..\UserService\UserService.csproj" />
   </ItemGroup>
 

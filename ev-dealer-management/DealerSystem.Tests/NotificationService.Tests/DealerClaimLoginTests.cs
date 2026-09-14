@@ -24,16 +24,24 @@ namespace DealerSystem.Tests.NotificationService.Tests;
 ///
 /// The token payload is read by BASE64URL-DECODING the middle JWT segment
 /// straight to JSON, NOT via JwtSecurityTokenHandler.ReadJwtToken().Claims.
-/// The handler's inbound-claim mapping is lossy at the read side (empirically
-/// it surfaced only id/role/nbf/iat/aud and silently dropped the "dealer",
-/// "unique_name", "exp" and "iss" payload members), so parsing its Claims
-/// would under-report the wire and could HIDE a dropped "dealer" claim — the
-/// exact regression this test exists to catch. Decoding the payload asserts on
-/// the literal JSON consumers receive. Note the outbound wire names are the
-/// short forms: ClaimTypes.Name -> "unique_name", ClaimTypes.Role -> "role"
-/// (JwtSecurityTokenHandler's claim map); an ASP.NET JwtBearer reader maps
-/// them back to ClaimTypes.* in the controller, so a #36 consumer still sees
-/// User.FindFirst(ClaimTypes.Name). Here we pin the bytes on the wire.
+/// Two reasons. (1) Design: the raw payload IS the wire bytes a #36 consumer
+/// receives, so decoding it pins those bytes with zero dependency on any
+/// reader's inbound claim-mapping. (2) In THIS build the legacy read-back
+/// deterministically drops claims: probed 3/3 runs, a 7.1.2 JwtSecurityTokenHandler
+/// surfaced only id/role/nbf/iat/aud while the raw payload (and the modern
+/// 8.x JsonWebTokenHandler) carry all nine members — dealer, unique_name, exp
+/// and iss included. The cause is a version skew this test project inherits:
+/// referencing UserService (JwtBearer 8.x) resolves Microsoft.IdentityModel
+/// Tokens/JsonWebTokens to 8.14.0 while System.IdentityModel.Tokens.Jwt stays
+/// 7.1.2. A standalone probe on a clean single-version 7.1.2 graph does NOT
+/// drop them, so the handler isn't universally lossy — but on THIS graph a
+/// .Claims-based assertion would under-report the wire and could HIDE a
+/// dropped "dealer" claim, the exact regression this file exists to catch.
+/// Note the outbound wire names are the short forms: ClaimTypes.Name ->
+/// "unique_name", ClaimTypes.Role -> "role" (JwtSecurityTokenHandler's claim
+/// map); an ASP.NET JwtBearer reader maps them back to ClaimTypes.* in the
+/// controller, so a #36 consumer still sees User.FindFirst(ClaimTypes.Name).
+/// Here we pin the wire.
 /// </summary>
 public class DealerClaimLoginTests : IDisposable
 {
@@ -153,8 +161,9 @@ public class DealerClaimLoginTests : IDisposable
     // NOTE: no "DealerId == 0 still emits" case. The minting guard is
     // user.DealerId.HasValue, and rewriting it to user.DealerId > 0 is the
     // only way an int-0 would change behavior — but no logged-in user can
-    // have DealerId 0: User.DealerId is an FK to Dealers.Id, which is a SQL
-    // identity column starting at 1, so 0 is not a representable value. The
+    // have DealerId 0: User.DealerId is an FK to Dealers.Id, an integer
+    // primary key whose generated values start at 1 (SQLite rowid under EF's
+    // identity convention), so 0 is not a representable value. The
     // HasValue-vs->0 distinction is therefore unobservable through the real
     // LoginAsync path (seeding it would require raw SQL to fake an unreachable
     // row). Tests above already pin the two OBSERVABLE branches: present id →
