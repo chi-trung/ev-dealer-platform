@@ -39,6 +39,7 @@ try
     builder.Services.AddDbContext<NotificationService.Data.NotificationDbContext>(options =>
         options.UseSqlite(dbConn));
     builder.Services.AddScoped<IDeviceTokenRegistry, DeviceTokenRegistry>();
+    builder.Services.AddScoped<INotificationPreferencesStore, NotificationPreferencesStore>();
 
     // JWT authentication (Issue #36): DeviceTokens registration is now
     // authenticated. Same validation params as CustomerService/UserService —
@@ -100,7 +101,7 @@ try
 
     var app = builder.Build();
 
-    // Create the registry schema on boot. Single-table with no history to
+    // Create the registry schema on boot. Small tables with no history to
     // replay, so EnsureCreated is honest here (the other services ship
     // migrations and use Migrate()). Fail-soft on a locked/corrupt db file —
     // a dead registry must not take the 14 queue consumers down with it;
@@ -110,6 +111,28 @@ try
         using var scope = app.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<NotificationService.Data.NotificationDbContext>();
         db.Database.EnsureCreated();
+        // EnsureCreated is a no-op against an EXISTING file (it never diffs
+        // the model), and notifications.db is a tracked file with the
+        // DeviceTokens table already in it — so Issue #51's second table
+        // ships as explicit IF-NOT- EXISTS DDL matching the EF mapping.
+        // Idempotent on both fresh and existing databases.
+        db.Database.ExecuteSqlRaw("""
+            CREATE TABLE IF NOT EXISTS "NotificationPreferences" (
+                "Id" INTEGER NOT NULL CONSTRAINT "PK_NotificationPreferences" PRIMARY KEY AUTOINCREMENT,
+                "Key" TEXT NOT NULL,
+                "EmailNotifications" INTEGER NOT NULL DEFAULT 0,
+                "SmsNotifications" INTEGER NOT NULL DEFAULT 0,
+                "InAppNotifications" INTEGER NOT NULL DEFAULT 0,
+                "Orders" INTEGER NOT NULL DEFAULT 0,
+                "Deliveries" INTEGER NOT NULL DEFAULT 0,
+                "Payments" INTEGER NOT NULL DEFAULT 0,
+                "SystemAlerts" INTEGER NOT NULL DEFAULT 0,
+                "Promotions" INTEGER NOT NULL DEFAULT 0,
+                "UpdatedAt" TEXT NOT NULL
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS "IX_NotificationPreferences_Key"
+                ON "NotificationPreferences" ("Key");
+            """);
     }
     catch (Exception ex)
     {
