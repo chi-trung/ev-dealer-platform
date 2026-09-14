@@ -12,11 +12,14 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
-    <!-- Same provider version the service pins (EF Core 8.0.0). Used by the
-         registry tests: SQLite :memory: (NOT the InMemory test provider —
-         only a real SQLite db enforces the unique (Key, Token) index, which
-         is the dedupe guarantee under test). -->
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="8.0.0" />
+    <!-- Highest version across the referenced apps (UserService pins EF Sqlite
+         8.0.10; the other four pin 8.0.0). NuGet "highest wins" resolves the
+         whole graph to 8.0.10, so referencing it directly here avoids the
+         NU1605 downgrade error without lowering any service's own pin. Used
+         by the registry tests: real SQLite temp FILE dbs (NOT the InMemory
+         test provider — only a real SQLite db enforces the unique (Key,
+         Token) index, which is the dedupe guarantee under test). -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="8.0.10" />
     <PackageReference Include="xunit" Version="2.9.2" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
@@ -33,6 +36,10 @@
     <ProjectReference Include="..\..\VehicleService\VehicleService.csproj" />
     <ProjectReference Include="..\..\CustomerService\CustomerService.csproj" />
     <ProjectReference Include="..\..\SalesService\SalesService.csproj" />
+    <!-- Issue #41: the dealer-claim minting test runs the REAL UserServiceImpl
+         against a temp SQLite UserDbContext and reads the claims back out of
+         the JWT it returns. -->
+    <ProjectReference Include="..\..\UserService\UserService.csproj" />
   </ItemGroup>
 
 </Project>
