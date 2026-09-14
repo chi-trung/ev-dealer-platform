@@ -29,18 +29,23 @@ namespace DealerSystem.Tests.NotificationService.Tests;
 /// - revert the DTO dicts to Dictionary&lt;string,string&gt; (and totals to
 ///   string) → the real-payload tests fail at deserialization (number→string)
 ///   exactly like the live endpoint would;
-/// - delete the controller action → compile error in these tests.
+/// - delete the controller action → compile error in these tests;
+/// - (Issue #49 review round) Render back to raw je.ToString() → the
+///   money-formatting contract tests fail; drop the null-item skip or the
+///   >500 cap → the null-hole and oversized tests fail.
 /// (Rendered-text assertions are impossible: QuestPDF encodes glyphs through
-/// font subsets, so no payload string appears literally in the PDF bytes.)
+/// font subsets, so no payload string appears literally in the PDF bytes —
+/// which is why the formatting contract is pinned on Render() directly.)
 /// </summary>
 public class QuotePdfGenerationTests
 {
     static QuotePdfGenerationTests()
     {
         // The production host sets this in SalesService/Program.cs; the test
-        // process doesn't run it, and QuestPDF refuses to Generate() without
-        // an explicit license (it throws InvalidOperationException — the very
-        // exception the controller's 503 branch handles).
+        // process doesn't run it. QuestPDF does refuse to Generate() without
+        // an explicit license (review round: the throw is a bare
+        // System.Exception, not InvalidOperationException) — the controller
+        // now catches Exception → 503, which is what makes that path testable.
         QuestPDF.Settings.License = QuestPDF.Infrastructure.LicenseType.Community;
     }
 
@@ -193,5 +198,94 @@ public class QuotePdfGenerationTests
         // DTO property names still bound case-insensitively, the dict KEYS
         // did not) → different documents.
         Assert.NotEqual(camelBytes, pascalBytes);
+    }
+
+    // ---------- Issue #49 adversarial-review round ----------
+
+    [Theory]
+    // The review's exact production shapes: QuoteView.jsx posts the raw
+    // IEEE-754 annuity result with no rounding (e.g. the fixture inputs
+    // compute 22652900.887352396), so the PDF must never print float dust.
+    [InlineData("22652900.887352396", "22.652.900,89")]
+    [InlineData("22610000", "22.610.000")]
+    [InlineData("1615000000", "1.615.000.000")]
+    [InlineData("32361286.98193201", "32.361.286,98")]
+    [InlineData("0", "0")]
+    [InlineData("1356600000.5", "1.356.600.000,5")]
+    [InlineData("-2.5", "-2,5")]
+    public void MoneyValues_RenderNormalized_VietnameseSpelling(string rawJson, string expected)
+    {
+        // Pins Render()'s number contract: rounded to 2dp, '.' thousands,
+        // ',' decimal — and crucially NOT the raw JSON text (ToString() on
+        // the JsonElement before this fix emitted "22652900.887352396").
+        var je = JsonDocument.Parse(rawJson).RootElement;
+        Assert.Equal(expected, SalesService.PdfDocuments.QuotePdfDocument.Render(je));
+        // Strings must keep rendering as raw text (no quotes): the widening
+        // test above relies on it; assert it here so a format-everything
+        // refactor can't break it silently.
+        var str = JsonDocument.Parse("\"850000000\"").RootElement;
+        Assert.Equal("850000000", SalesService.PdfDocuments.QuotePdfDocument.Render(str));
+    }
+
+    [Fact]
+    public void RealAnnuityDouble_DoesNotLeakRawDigitsIntoDocument()
+    {
+        // End-to-end counterpart of the Render contract: the un-rounded
+        // payment in the totals block must produce a DIFFERENT document from
+        // a hand-rounded integer stand-in only because formatting is applied
+        // (before the fix the raw text 22652900.887352396 landed verbatim —
+        // same bytes as the string "22652900.887352396"). Now both paths
+        // converge on the same spelling, proving the PDF shows clean money
+        // regardless of how the browser serialized it.
+        var messy = FrontendPayloadJson.Replace("\"monthlyPaymentCalculated\": 22610000",
+            "\"monthlyPaymentCalculated\": 22610000.083333336");
+        var dto = BindLikeAspNetCore<GenerateQuotePdfRequestDto>(messy);
+        var bytes = Assert.IsType<FileContentResult>(Controller().GenerateQuotePdf(dto));
+        Assert.StartsWith("%PDF-", System.Text.Encoding.Latin1.GetString(bytes.FileContents));
+        Assert.Equal("22.610.000,08", SalesService.PdfDocuments.QuotePdfDocument.Render(
+            (JsonElement)dto.MonthlyPaymentCalculated!));
+    }
+
+    [Fact]
+    public void NullItemHole_AndNullTotals_ProducePdf_NotA500()
+    {
+        // The review reproduced quoteItems:[null] → NullReferenceException →
+        // anonymous 500 (developer exception page in Development). The null
+        // entry must be skipped, not crash, and an explicit JSON null on the
+        // whole collections must bind to null and still render.
+        var dto = BindLikeAspNetCore<GenerateQuotePdfRequestDto>(
+            """{"customerInfo":null,"quoteItems":[null,{"vehicleName":"VF 5","quantity":1,"unitPrice":500000000,"itemTotal":500000000},null],"paymentInfo":null,"additionalInfo":null,"totalCalculatedAmount":null,"downPaymentCalculated":null,"loanAmountCalculated":null,"monthlyPaymentCalculated":null,"installmentTotalPaymentCalculated":null}""");
+        Assert.Null(dto.CustomerInfo);
+        var file = Assert.IsType<FileContentResult>(Controller().GenerateQuotePdf(dto));
+        Assert.StartsWith("%PDF-", System.Text.Encoding.Latin1.GetString(file.FileContents));
+        Assert.True(file.FileContents.Length > 2_000);
+    }
+
+    [Fact]
+    public void NullQuoteItemsList_IsTreatedAsEmpty()
+    {
+        var dto = BindLikeAspNetCore<GenerateQuotePdfRequestDto>(
+            """{"customerInfo":{},"quoteItems":null,"paymentInfo":{},"additionalInfo":{}}""");
+        Assert.Null(dto.QuoteItems);
+        var file = Assert.IsType<FileContentResult>(Controller().GenerateQuotePdf(dto));
+        Assert.StartsWith("%PDF-", System.Text.Encoding.Latin1.GetString(file.FileContents));
+    }
+
+    [Fact]
+    public void OversizedItemCap_Rejects_BeforeRendering()
+    {
+        // The route is an anonymous CPU amplifier; the cap must 400 at the
+        // controller without invoking the renderer. Mutation check: delete
+        // the cap line and 501 items sail through to a FileContentResult.
+        var items = string.Join(",", Enumerable.Repeat(
+            """{"vehicleName":"x","quantity":1,"unitPrice":1,"itemTotal":1}""", 501));
+        var dto = BindLikeAspNetCore<GenerateQuotePdfRequestDto>(
+            """{"customerInfo":{},"quoteItems":[""" + items + """],"paymentInfo":{},"additionalInfo":{}}""");
+        var result = Assert.IsType<BadRequestObjectResult>(Controller().GenerateQuotePdf(dto));
+        Assert.Contains("500", result.Value!.ToString()!);
+        // 500 exactly is still allowed (cap is >, not >=)
+        var ok = BindLikeAspNetCore<GenerateQuotePdfRequestDto>(
+            """{"customerInfo":{},"quoteItems":[""" + string.Join(",", Enumerable.Repeat("""{"vehicleName":"x","quantity":1,"unitPrice":1,"itemTotal":1}""", 500)) + """],"paymentInfo":{},"additionalInfo":{}}""");
+        Assert.IsType<FileContentResult>(Controller().GenerateQuotePdf(ok));
     }
 }
