@@ -231,54 +231,26 @@ class NotificationService {
     }
   }
 
-  // Get notification preferences
+  // Get notification preferences (Issue #51: real API — the old setTimeout
+  // mock resolved the page's "saved" state was a lie; GET returns what PUT
+  // stored server-side, or shared defaults before the first save. The axios
+  // response interceptor already unwraps one layer, so this resolves
+  // { data, success } exactly like the mock did.)
   async getNotificationPreferences() {
     try {
-      // TODO: Replace with real API call
-      // return await api.get('/notifications/preferences')
-
-      // Mock implementation
-      return new Promise((resolve) => {
-        setTimeout(() => {
-          resolve({
-            data: {
-              emailNotifications: true,
-              smsNotifications: false,
-              inAppNotifications: true,
-              notificationTypes: {
-                orders: true,
-                deliveries: true,
-                payments: true,
-                system: false,
-                promotions: false
-              }
-            },
-            success: true
-          })
-        }, 300)
-      })
+      return await api.get('/notifications/preferences')
     } catch (error) {
       console.error('Error fetching notification preferences:', error)
       throw error
     }
   }
 
-  // Update notification preferences
+  // Update notification preferences (Issue #51: real API; the server
+  // rejects a document missing ANY of the eight flags with 400 — off means
+  // muted, so a silent default would mute settings the user never touched)
   async updateNotificationPreferences(preferences) {
     try {
-      // TODO: Replace with real API call
-      // return await api.put('/notifications/preferences', preferences)
-
-      // Mock implementation
-      return new Promise((resolve) => {
-        setTimeout(() => {
-          resolve({
-            data: preferences,
-            success: true,
-            message: 'Notification preferences updated successfully'
-          })
-        }, 500)
-      })
+      return await api.put('/notifications/preferences', preferences)
     } catch (error) {
       console.error('Error updating notification preferences:', error)
       throw error

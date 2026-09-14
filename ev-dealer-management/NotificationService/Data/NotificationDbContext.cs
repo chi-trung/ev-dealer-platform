@@ -5,8 +5,9 @@ namespace NotificationService.Data;
 
 /// <summary>
 /// Tiny owned-by-this-service database for the DeviceToken registry
-/// (Issue #33). Deliberately single-table: tokens only ever matter to the
-/// push senders living in this process.
+/// (Issue #33) and per-subject notification preferences (Issue #51).
+/// Deliberately two small tables with no FKs: both only ever matter to the
+/// push senders and the settings page living in/behind this process.
 /// </summary>
 public class NotificationDbContext : DbContext
 {
@@ -15,6 +16,7 @@ public class NotificationDbContext : DbContext
     }
 
     public DbSet<DeviceToken> DeviceTokens => Set<DeviceToken>();
+    public DbSet<NotificationPreferences> NotificationPreferences => Set<NotificationPreferences>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -37,6 +39,16 @@ public class NotificationDbContext : DbContext
             // write-skew into a 0-row match → DbUpdateConcurrencyException →
             // the retry loop's re-read picks a genuinely stale victim.
             entity.Property(e => e.UpdatedAt).IsConcurrencyToken();
+        });
+
+        modelBuilder.Entity<NotificationPreferences>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            // One preferences document per subject — PUT upserts on this key
+            // (the UNIQUE hit under a concurrent first-save is the race the
+            // store's retry loop absorbs, mirroring the #33 registry).
+            entity.HasIndex(e => e.Key).IsUnique();
+            entity.Property(e => e.Key).IsRequired();
         });
     }
 }

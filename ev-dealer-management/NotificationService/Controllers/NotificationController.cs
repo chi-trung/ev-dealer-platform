@@ -5,13 +5,19 @@ namespace NotificationService.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
-public class NotificationController : ControllerBase
+public partial class NotificationController : ControllerBase
 {
     private readonly IFcmService _fcmService;
+    private readonly INotificationPreferencesStore? _preferencesStore;
 
-    public NotificationController(IFcmService fcmService)
+    // Issue #51: the preferences endpoints (partial class, see
+    // NotificationPreferencesEndpoint.cs) need the store. Optional param so
+    // any legacy `new NotificationController(fcm)` construction keeps
+    // compiling; DI always supplies it.
+    public NotificationController(IFcmService fcmService, INotificationPreferencesStore? preferencesStore = null)
     {
         _fcmService = fcmService;
+        _preferencesStore = preferencesStore;
     }
 
     /// <summary>
