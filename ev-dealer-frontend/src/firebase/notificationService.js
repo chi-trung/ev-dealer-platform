@@ -55,7 +55,9 @@ export const registerDeviceTokenWithBackend = async (token) => {
       console.log(`🔑 Device token registered for ${subject}`);
     } catch (error) {
       // 401 here also trips api.js's session-expiry handling; swallow
-      // everything else (offline gateway, 403 after a role change, 409 cap).
+      // everything else (offline gateway, 403 after a role change, 5xx if
+      // the registry is down). Issue #44 removed the old 409-cap response:
+      // at the cap a new token evicts LRU rows and always lands on 204.
       console.warn(`⚠️ Device token registration failed for ${subject}:`, error.message);
     }
   }
