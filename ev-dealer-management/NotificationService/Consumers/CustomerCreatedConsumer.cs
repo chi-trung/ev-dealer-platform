@@ -53,15 +53,21 @@ public class CustomerCreatedConsumer
             var registered = await _tokens.GetTokensAsync(subject);
             if (registered.Count > 0)
             {
-                var success = await _fcmService.SendMulticastAsync(
+                var result = await _fcmService.SendMulticastAsync(
                     registered.ToList(), title, body, data);
-                if (success)
+                // Evict rows FCM rejected permanently BEFORE deciding on the
+                // throw: a dead token must leave the mailbox even when this
+                // delivery is requeued for other reasons (Issue #44). The call
+                // is best-effort and never throws.
+                await _tokens.RevokeDeadTokensAsync(subject, result.DeadTokens);
+                if (result.Success)
                 {
                     Log.Information("✅ Push notification sent successfully for Customer: {CustomerId}", customerEvent.CustomerId);
                 }
                 else
                 {
-                    // IFcmService swallows send errors and returns false; throwing
+                    // The send layer swallows per-token errors and reports
+                    // Success=false only when NO device was reached; throwing
                     // here lets the bus retry and eventually DLQ the delivery.
                     throw new InvalidOperationException($"FCM push failed for Customer {customerEvent.CustomerId}");
                 }

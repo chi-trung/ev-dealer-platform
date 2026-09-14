@@ -152,22 +152,24 @@ public class CustomerConsumerTests : IDisposable
 
     /// <summary>Records the last multicast attempt and returns a canned result.
     /// Only SendMulticastAsync matters for push consumers; the topic methods
-    /// exist on the interface but no customer consumer uses them.</summary>
+    /// exist on the interface but no customer consumer uses them. DeadTokens
+    /// (Issue #44) is canned per-test to drive the revoke path.</summary>
     private sealed class RecordingFcm : IFcmService
     {
         public bool Result { get; set; } = true;
+        public List<string> DeadTokens { get; set; } = new();
         public List<string>? LastMulticastTokens { get; private set; }
         public string? LastMulticastTitle { get; private set; }
         public string? LastMulticastBody { get; private set; }
         public Dictionary<string, string>? LastMulticastData { get; private set; }
 
-        public Task<bool> SendMulticastAsync(List<string> deviceTokens, string title, string body, Dictionary<string, string>? data = null)
+        public Task<MulticastResult> SendMulticastAsync(List<string> deviceTokens, string title, string body, Dictionary<string, string>? data = null)
         {
             LastMulticastTokens = deviceTokens;
             LastMulticastTitle = title;
             LastMulticastBody = body;
             LastMulticastData = data;
-            return Task.FromResult(Result);
+            return Task.FromResult(new MulticastResult(Result, DeadTokens));
         }
 
         public Task<bool> SendNotificationAsync(string deviceToken, string title, string body, Dictionary<string, string>? data = null)

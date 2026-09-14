@@ -29,6 +29,14 @@ public class NotificationDbContext : DbContext
             entity.HasIndex(e => new { e.Key, e.Token }).IsUnique();
             entity.Property(e => e.Key).IsRequired();
             entity.Property(e => e.Token).IsRequired();
+            // Issue #44 review: the eviction victim is picked by a read that
+            // commits BEFORE SaveChangesAsync opens its transaction, so a
+            // DELETE keyed only on Id could silently delete a row a
+            // concurrent refresh just made the MOST recently used device.
+            // Keying the write on the read-time UpdatedAt turns that
+            // write-skew into a 0-row match → DbUpdateConcurrencyException →
+            // the retry loop's re-read picks a genuinely stale victim.
+            entity.Property(e => e.UpdatedAt).IsConcurrencyToken();
         });
     }
 }

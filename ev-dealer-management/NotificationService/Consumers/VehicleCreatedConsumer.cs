@@ -57,15 +57,20 @@ public class VehicleCreatedConsumer
             var registered = await _tokens.GetTokensAsync(subject);
             if (registered.Count > 0)
             {
-                var success = await _fcmService.SendMulticastAsync(
+                var result = await _fcmService.SendMulticastAsync(
                     registered.ToList(), title, body, data);
-                if (success)
+                // Evict rows FCM rejected permanently BEFORE deciding on the
+                // throw (Issue #44); best-effort, never throws. This is the
+                // dealer: shared-subject path the cap wedge bit hardest.
+                await _tokens.RevokeDeadTokensAsync(subject, result.DeadTokens);
+                if (result.Success)
                 {
                     Log.Information("✅ Push notification sent successfully for Vehicle: {VehicleId}", vehicleEvent.VehicleId);
                 }
                 else
                 {
-                    // IFcmService swallows send errors and returns false; throwing
+                    // The send layer swallows per-token errors and reports
+                    // Success=false only when NO device was reached; throwing
                     // here lets the bus retry and eventually DLQ the delivery.
                     throw new InvalidOperationException($"FCM push failed for Vehicle {vehicleEvent.VehicleId}");
                 }

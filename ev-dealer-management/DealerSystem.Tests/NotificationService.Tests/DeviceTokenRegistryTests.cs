@@ -14,8 +14,10 @@ namespace DealerSystem.Tests.NotificationService.Tests;
 ///   - key formatting lives in exactly one place (NotificationSubjects),
 ///   - (Key, Token) is a dedupe: re-registering refreshes, never duplicates,
 ///     including when two registrations race (the UNIQUE index + retry absorb it),
-///   - several tokens per key fan out (multi-device), bounded per subject,
-///   - revoke is exact and reports whether anything was removed.
+///   - several tokens per key fan out (multi-device), bounded per subject —
+///     since Issue #44 the cap evicts least-recently-used rows, never rejects,
+///   - revoke is exact and reports whether anything was removed,
+///   - the best-effort dead-token revoke helper never throws.
 /// Real SQLite is required — the EF InMemory provider does not enforce the
 /// unique index, so the dedupe guarantee would be untested there. Each test
 /// gets its own temp DB file (deleted on dispose), which is how production
@@ -197,21 +199,154 @@ public class DeviceTokenRegistryTests : IDisposable
     }
 
     [Fact]
-    public async Task Register_BeyondCapForSubject_ThrowsLimit()
+    public async Task Register_AtCap_EvictsLeastRecentlyUsed_AndNewTokenLands()
     {
+        // Issue #44 replaced the hard 409 (which wedged shared dealer
+        // subjects once stale tokens filled the mailbox) with LRU eviction:
+        // at the cap, a NEW token evicts the single least-recently-refreshed
+        // row in the same transaction and always lands — the cap stays a cap.
         var reg = NewRegistry();
         for (var i = 0; i < DeviceTokenRegistry.MaxTokensPerSubject; i++)
             await reg.RegisterAsync("customer:7", $"tok-{i}");
 
-        var ex = await Assert.ThrowsAsync<DeviceTokenLimitExceededException>(
-            () => reg.RegisterAsync("customer:7", "tok-over-limit"));
-        Assert.Contains("customer:7", ex.Message);
-
-        // Over-limit never half-writes, and refreshing an EXISTING token is
-        // still allowed at the cap (logout-proof: same device re-permits).
+        // Deterministic LRU victim: rewind tok-0 so it is strictly oldest.
         await using (var db = New())
+        {
+            var stale = await db.DeviceTokens.SingleAsync(t => t.Token == "tok-0");
+            stale.UpdatedAt = new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+            await db.SaveChangesAsync();
+        }
+
+        await reg.RegisterAsync("customer:7", "tok-new"); // used to throw the limit
+
+        var live = await reg.GetTokensAsync("customer:7");
+        Assert.Equal(DeviceTokenRegistry.MaxTokensPerSubject, live.Count);
+        Assert.DoesNotContain("tok-0", live);   // the stale row paid for the slot
+        Assert.Contains("tok-new", live);      // and the new device is registered
+    }
+
+    [Fact]
+    public async Task Register_AtCap_RefreshOfExistingToken_EvictsNothing()
+    {
+        // Logout-proof half of the cap story (kept from #33 and never allowed
+        // to regress): re-registering a token that already exists refreshes
+        // UpdatedAt and never touches the eviction branch — an active device
+        // cannot be locked out, let alone evict a peer's row, while the
+        // mailbox is full.
+        var reg = NewRegistry();
+        for (var i = 0; i < DeviceTokenRegistry.MaxTokensPerSubject; i++)
+            await reg.RegisterAsync("customer:7", $"tok-{i}");
+        await using (var db = New())
+        {
+            var stale = await db.DeviceTokens.SingleAsync(t => t.Token == "tok-0");
+            stale.UpdatedAt = new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+            await db.SaveChangesAsync();
+        }
+
+        // Refresh tok-5 while tok-0 is the standing eviction victim.
+        await reg.RegisterAsync("customer:7", "tok-5");
+
+        await using (var db = New())
+        {
             Assert.Equal(DeviceTokenRegistry.MaxTokensPerSubject, await db.DeviceTokens.CountAsync());
-        await reg.RegisterAsync("customer:7", "tok-0");
+            var stale = await db.DeviceTokens.SingleAsync(t => t.Token == "tok-0");
+            Assert.Equal(new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc), stale.UpdatedAt);
+        }
+    }
+
+    [Fact]
+    public async Task Register_PastCap_StaysAtCap_AndKeepsLatestRegistration()
+    {
+        // Steady state under churn (the dealer staff-rotation story): five
+        // devices come and go past the cap and the mailbox never grows,
+        // never locks — the newest registration is always live.
+        var reg = NewRegistry();
+        for (var i = 0; i < DeviceTokenRegistry.MaxTokensPerSubject + 5; i++)
+            await reg.RegisterAsync("customer:7", $"tok-{i}");
+
+        var live = await reg.GetTokensAsync("customer:7");
+        Assert.Equal(DeviceTokenRegistry.MaxTokensPerSubject, live.Count);
+        Assert.Contains($"tok-{DeviceTokenRegistry.MaxTokensPerSubject + 4}", live);
+    }
+
+    [Fact]
+    public async Task Register_CapReEvaluatedAfterRace_RetryStillEvictsToCap()
+    {
+        // Eviction re-runs on EVERY attempt (the old 409 checked only the
+        // first). Deterministic race: attempt 0 evicts its victim, but the
+        // trap deletes that row and commits a NEW one before the save, so
+        // the 0-row DELETE aborts the whole transaction (uncommitted eviction
+        // rolls back) and the retry re-evaluates against 20 fresh rows.
+        // A retry that skipped the cap branch would overshoot to Max+1.
+        var reg = NewRegistry();
+        for (var i = 0; i < DeviceTokenRegistry.MaxTokensPerSubject; i++)
+            await reg.RegisterAsync("customer:7", $"tok-{i}");
+        await using (var db = New())
+        {
+            var stale = await db.DeviceTokens.SingleAsync(t => t.Token == "tok-0");
+            stale.UpdatedAt = new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+            await db.SaveChangesAsync(); // attempt 0's eviction target
+        }
+
+        await using var trap = new TrapDbContext(Options, async () =>
+        {
+            if (_trapArmed) return; // fire exactly once, on attempt 0
+            _trapArmed = true;
+            await using var outsider = New();
+            outsider.DeviceTokens.Remove(
+                await outsider.DeviceTokens.SingleAsync(t => t.Token == "tok-0"));
+            outsider.DeviceTokens.Add(new DeviceToken { Key = "customer:7", Token = "tok-x" });
+            await outsider.SaveChangesAsync();
+        });
+        await new DeviceTokenRegistry(trap).RegisterAsync("customer:7", "tok-new");
+
+        var live = await NewRegistry().GetTokensAsync("customer:7");
+        Assert.Equal(DeviceTokenRegistry.MaxTokensPerSubject, live.Count);
+        Assert.Contains("tok-new", live);
+        Assert.Contains("tok-x", live); // the winner's row is not collateral damage
+    }
+
+    [Fact]
+    public async Task Register_VictimRefreshedAfterVictimScan_RetrySparesItAndEvictsTrueLRU()
+    {
+        // Issue #44 review, the write-skew direction: the victim list is read
+        // BEFORE SaveChangesAsync opens its transaction, so a refresh can land
+        // on the victim in between — and the refreshed device just got its 204
+        // and believes it is registered. The UpdatedAt concurrency token makes
+        // the DELETE match 0 rows, aborting (and rolling back) the eviction,
+        // and the retry re-scans to evict the NOW-oldest row instead. Without
+        // the token, tok-0 would be silently deleted behind its own refresh.
+        var reg = NewRegistry();
+        for (var i = 0; i < DeviceTokenRegistry.MaxTokensPerSubject; i++)
+            await reg.RegisterAsync("customer:7", $"tok-{i}");
+        await using (var db = New())
+        {
+            // Deterministic LRU ladder: tok-0 is attempt 0's victim, tok-1 is
+            // the guaranteed next-oldest for the retry (registration times
+            // would otherwise tie at clock resolution).
+            var stale = await db.DeviceTokens.SingleAsync(t => t.Token == "tok-0");
+            stale.UpdatedAt = new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+            var next = await db.DeviceTokens.SingleAsync(t => t.Token == "tok-1");
+            next.UpdatedAt = new DateTime(2021, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+            await db.SaveChangesAsync(); // attempt 0 reads tok-0 as the victim
+        }
+
+        await using var trap = new TrapDbContext(Options, async () =>
+        {
+            if (_trapArmed) return; // fire exactly once, between scan and save
+            _trapArmed = true;
+            await using var refreshingDevice = New();
+            var v = await refreshingDevice.DeviceTokens.SingleAsync(t => t.Token == "tok-0");
+            v.UpdatedAt = DateTime.UtcNow; // commits before our save opens
+            await refreshingDevice.SaveChangesAsync();
+        });
+        await new DeviceTokenRegistry(trap).RegisterAsync("customer:7", "tok-new");
+
+        var live = await NewRegistry().GetTokensAsync("customer:7");
+        Assert.Equal(DeviceTokenRegistry.MaxTokensPerSubject, live.Count); // cap still exact
+        Assert.Contains("tok-0", live);   // the refreshed device survived the race
+        Assert.Contains("tok-new", live); // and the new token still landed
+        Assert.DoesNotContain("tok-1", live); // retry evicted the true oldest
     }
 
     [Fact]
@@ -355,5 +490,72 @@ public class DeviceTokenRegistryTests : IDisposable
             db.DeviceTokens.Add(new DeviceToken { Key = "customer:7", Token = "tok-a" });
             await Assert.ThrowsAsync<DbUpdateException>(() => db.SaveChangesAsync());
         }
+    }
+
+    // ---- best-effort dead-token revoke (Issue #44) -----------------------------
+
+    [Fact]
+    public async Task RevokeDead_RemovesListedTokens_KeepsOthers()
+    {
+        var reg = NewRegistry();
+        await reg.RegisterAsync("customer:7", "tok-dead");
+        await reg.RegisterAsync("customer:7", "tok-live");
+
+        await reg.RevokeDeadTokensAsync("customer:7", new[] { "tok-dead" });
+
+        Assert.Equal(new[] { "tok-live" }, await reg.GetTokensAsync("customer:7"));
+    }
+
+    [Fact]
+    public async Task RevokeDead_NullKeyOrEmptyList_IsNoOp()
+    {
+        // The mixed-path consumers pass "the subject the tokens came from, if
+        // any" — a payload-token send reports null and must not touch rows,
+        // and a clean send reports [] and must not either.
+        var reg = NewRegistry();
+        await reg.RegisterAsync("customer:7", "tok-a");
+
+        await reg.RevokeDeadTokensAsync(null, new[] { "tok-a" });
+        await reg.RevokeDeadTokensAsync("customer:7", Array.Empty<string>());
+
+        Assert.Equal(new[] { "tok-a" }, await reg.GetTokensAsync("customer:7"));
+    }
+
+    [Fact]
+    public async Task RevokeDead_NeverThrows_WhenRevokeBlowsUpMidway()
+    {
+        // THE contract of the helper: a delivery that already reached devices
+        // must not fail the event over cleanup bookkeeping (requeueing would
+        // RE-PUSH the notification). One token's revoke throws; the rest must
+        // still be attempted and the call must return normally.
+        var inner = NewRegistry();
+        var booby = new ThrowingRegistry(inner, throwOn: "tok-booby");
+        await inner.RegisterAsync("customer:7", "tok-booby");
+        await inner.RegisterAsync("customer:7", "tok-dead");
+
+        await booby.RevokeDeadTokensAsync("customer:7", new[] { "tok-booby", "tok-dead" });
+
+        // tok-booby survived (its revoke threw, and threw-away is dropped by
+        // design); tok-dead was revoked despite the earlier failure.
+        Assert.Equal(new[] { "tok-booby" }, await inner.GetTokensAsync("customer:7"));
+    }
+
+    /// <summary>Registry double that throws on one specific token's revoke —
+    /// stands in for SQLITE_BUSY or a dead DB file hitting exactly one row.</summary>
+    private sealed class ThrowingRegistry : IDeviceTokenRegistry
+    {
+        private readonly IDeviceTokenRegistry _inner;
+        private readonly string _throwOn;
+        public ThrowingRegistry(IDeviceTokenRegistry inner, string throwOn)
+            => (_inner, _throwOn) = (inner, throwOn);
+
+        public Task RegisterAsync(string key, string token, CancellationToken ct = default)
+            => _inner.RegisterAsync(key, token, ct);
+        public Task<IReadOnlyList<string>> GetTokensAsync(string key, CancellationToken ct = default)
+            => _inner.GetTokensAsync(key, ct);
+        public Task<bool> RevokeAsync(string key, string token, CancellationToken ct = default)
+            => token == _throwOn
+                ? throw new InvalidOperationException("simulated db failure")
+                : _inner.RevokeAsync(key, token, ct);
     }
 }

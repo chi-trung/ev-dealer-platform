@@ -145,7 +145,7 @@ public class VehiclePushConsumerTests : IDisposable
     {
         // Nothing registered for dealer:3 — pins the log-only guard here too.
         // Without it, the "registered != null" mutant (empty list reaches FCM,
-        // SendMulticastAsync returns false on empty input, consumer throws ->
+        // SendMulticastAsync reports failure on empty input, consumer throws ->
         // retry/DLQ churn for healthy events) would pass this consumer's
         // section: the created/deleted sections each pin the guard, and the
         // class header claims the fallback as a pinned behavior for all three.
@@ -229,22 +229,24 @@ public class VehiclePushConsumerTests : IDisposable
     }
 
     /// <summary>Records the last multicast attempt and returns a canned result.
-    /// All #38 push paths fan out via SendMulticastAsync.</summary>
+    /// All #38 push paths fan out via SendMulticastAsync. DeadTokens (Issue #44)
+    /// is canned per-test to drive the revoke path.</summary>
     private sealed class RecordingFcm : IFcmService
     {
         public bool Result { get; set; } = true;
+        public List<string> DeadTokens { get; set; } = new();
         public List<string>? LastMulticastTokens { get; private set; }
         public string? LastMulticastTitle { get; private set; }
         public string? LastMulticastBody { get; private set; }
         public Dictionary<string, string>? LastMulticastData { get; private set; }
 
-        public Task<bool> SendMulticastAsync(List<string> deviceTokens, string title, string body, Dictionary<string, string>? data = null)
+        public Task<MulticastResult> SendMulticastAsync(List<string> deviceTokens, string title, string body, Dictionary<string, string>? data = null)
         {
             LastMulticastTokens = deviceTokens;
             LastMulticastTitle = title;
             LastMulticastBody = body;
             LastMulticastData = data;
-            return Task.FromResult(Result);
+            return Task.FromResult(new MulticastResult(Result, DeadTokens));
         }
 
         public Task<bool> SendNotificationAsync(string deviceToken, string title, string body, Dictionary<string, string>? data = null)

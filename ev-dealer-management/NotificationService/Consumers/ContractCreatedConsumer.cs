@@ -54,33 +54,39 @@ public class ContractCreatedConsumer
             // OrderCreatedConsumer for the full pattern); fans out to all
             // live tokens for the customer.
             List<string> deviceTokens;
+            string? registrySubject = null;
             if (!string.IsNullOrWhiteSpace(contractEvent.DeviceToken))
             {
                 deviceTokens = new List<string> { contractEvent.DeviceToken };
             }
             else
             {
-                var registered = await _tokens.GetTokensAsync(
-                    NotificationSubjects.Customer(contractEvent.CustomerId));
+                registrySubject = NotificationSubjects.Customer(contractEvent.CustomerId);
+                var registered = await _tokens.GetTokensAsync(registrySubject);
                 deviceTokens = registered.Count > 0 ? registered.ToList() : new List<string>();
             }
 
             if (deviceTokens.Count > 0)
             {
-                var success = await _fcmService.SendMulticastAsync(
+                var result = await _fcmService.SendMulticastAsync(
                     deviceTokens,
                     title,
                     body,
                     data
                 );
+                // Issue #44: revoke rows FCM rejected permanently. Null key on
+                // the payload-token path (no registry row to blame) makes the
+                // call a no-op. Best-effort; never throws.
+                await _tokens.RevokeDeadTokensAsync(registrySubject, result.DeadTokens);
 
-                if (success)
+                if (result.Success)
                 {
                     Log.Information("✅ Push notification sent successfully for Contract: {ContractNumber}", contractEvent.ContractNumber);
                 }
                 else
                 {
-                    // IFcmService swallows send errors and returns false; throwing
+                    // The send layer swallows per-token errors and reports
+                    // Success=false only when NO device was reached; throwing
                     // here lets the bus retry and eventually DLQ the delivery.
                     throw new InvalidOperationException($"FCM push failed for Contract {contractEvent.ContractNumber}");
                 }

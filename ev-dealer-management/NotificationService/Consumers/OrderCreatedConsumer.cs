@@ -55,33 +55,39 @@ public class OrderCreatedConsumer
             // wins and bypasses the lookup. Delivery fans out to ALL live
             // tokens for the subject via multicast.
             List<string> deviceTokens;
+            string? registrySubject = null;
             if (!string.IsNullOrWhiteSpace(orderEvent.DeviceToken))
             {
                 deviceTokens = new List<string> { orderEvent.DeviceToken };
             }
             else
             {
-                var registered = await _tokens.GetTokensAsync(
-                    NotificationSubjects.Customer(orderEvent.CustomerId));
+                registrySubject = NotificationSubjects.Customer(orderEvent.CustomerId);
+                var registered = await _tokens.GetTokensAsync(registrySubject);
                 deviceTokens = registered.Count > 0 ? registered.ToList() : new List<string>();
             }
 
             if (deviceTokens.Count > 0)
             {
-                var success = await _fcmService.SendMulticastAsync(
+                var result = await _fcmService.SendMulticastAsync(
                     deviceTokens,
                     title,
                     body,
                     data
                 );
+                // Issue #44: revoke rows FCM rejected permanently. Null key on
+                // the payload-token path (no registry row to blame) makes the
+                // call a no-op. Best-effort; never throws.
+                await _tokens.RevokeDeadTokensAsync(registrySubject, result.DeadTokens);
 
-                if (success)
+                if (result.Success)
                 {
                     Log.Information("✅ Push notification sent successfully for Order: {OrderNumber}", orderEvent.OrderNumber);
                 }
                 else
                 {
-                    // IFcmService swallows send errors and returns false; throwing
+                    // The send layer swallows per-token errors and reports
+                    // Success=false only when NO device was reached; throwing
                     // here lets the bus retry and eventually DLQ the delivery.
                     throw new InvalidOperationException($"FCM push failed for Order {orderEvent.OrderNumber}");
                 }

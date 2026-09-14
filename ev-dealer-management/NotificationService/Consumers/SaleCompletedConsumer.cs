@@ -67,20 +67,25 @@ public class SaleCompletedConsumer
 
             if (deviceTokens.Count > 0)
             {
-                var success = await _fcmService.SendMulticastAsync(
+                var result = await _fcmService.SendMulticastAsync(
                     deviceTokens,
                     title,
                     body,
                     data
                 );
+                // Issue #44: revoke rows FCM rejected permanently. Null key on
+                // the payload-token path (no registry row to blame) makes the
+                // call a no-op. Best-effort; never throws.
+                await _tokens.RevokeDeadTokensAsync(registrySubject, result.DeadTokens);
 
-                if (success)
+                if (result.Success)
                 {
                     Log.Information("✅ Push notification sent successfully for Order: {OrderId}", saleEvent.OrderId);
                 }
                 else
                 {
-                    // IFcmService swallows send errors and returns false; throwing
+                    // The send layer swallows per-token errors and reports
+                    // Success=false only when NO device was reached; throwing
                     // here lets the bus retry the delivery and eventually park it
                     // in the DLQ (docs/EVENTS.md failure policy) instead of acking.
                     throw new InvalidOperationException($"FCM push failed for Order {saleEvent.OrderId}");

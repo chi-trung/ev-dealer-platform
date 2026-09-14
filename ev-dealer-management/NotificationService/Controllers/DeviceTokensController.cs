@@ -19,9 +19,14 @@ namespace NotificationService.Controllers;
 /// ("anyone who guesses a subject can plant their own token there") and the
 /// interim X-Device-Registry-Key gate, which is deleted.
 ///
-/// Unchanged hard bounds: per-subject cap (MaxTokensPerSubject, 409) and
-/// masked GET previews — even your own subject never exports raw tokens,
-/// because responses pass through logs and browser history.
+/// Hard bounds: the per-subject cap (MaxTokensPerSubject) is enforced by
+/// EVICTION, not rejection — a registration at the cap evicts the
+/// least-recently-refreshed token and still returns 204 (Issue #44: shared
+/// dealer subjects used to wedge at the cap and silently drop push for real
+/// devices, and the frontend's PUT treats any non-2xx as fatal-to-that
+/// device). Masked GET previews stay unchanged — even your own subject never
+/// exports raw tokens, because responses pass through logs and browser
+/// history. DELETE still demands the exact raw token for the same reason.
 /// </summary>
 [ApiController]
 [Authorize]
@@ -80,10 +85,6 @@ public class DeviceTokensController : ControllerBase
         try
         {
             await _registry.RegisterAsync(key, request.Token, ct);
-        }
-        catch (DeviceTokenLimitExceededException ex)
-        {
-            return StatusCode(StatusCodes.Status409Conflict, new { message = ex.Message });
         }
         catch (ArgumentException ex)
         {
