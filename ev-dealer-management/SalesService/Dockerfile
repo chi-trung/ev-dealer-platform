@@ -27,8 +27,15 @@ RUN mkdir -p /app/data
 # always fails and the container reads "unhealthy" forever. Runs BEFORE the
 # publish COPY so code-only rebuilds reuse this cached layer instead of
 # re-downloading from Debian mirrors on every iteration.
+# Issue #49: libfontconfig1 + fonts-dejavu are necessary but NOT the whole
+# Linux story — libSkiaSharp.so/libHarfBuzzSharp.so themselves come from the
+# SkiaSharp.NativeAssets.Linux.NoDependencies + HarfBuzzSharp.NativeAssets.Linux
+# PackageReferences in SalesService.csproj (QuestPDF's net8 target ships only
+# Win32/macOS natives; CI proved a fonts-only image still throws). This layer
+# supplies what the native libs link at load (fontconfig) and the glyph coverage
+# for the template's Vietnamese diacritics (DejaVu = full Latin Extended set).
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl \
+    && apt-get install -y --no-install-recommends curl libfontconfig1 fonts-dejavu \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=publish /app/publish .

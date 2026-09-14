@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using QuestPDF.Fluent; // GeneratePdf() extension for QuotePdfDocument (Issue #49)
 using SalesService.DTOs;
 using SalesService.Models;
 using SalesService.Data;
@@ -316,6 +317,48 @@ namespace SalesService.Controllers
                 UpdatedAt = contract.UpdatedAt
             };
             return Ok(dto);
+        }
+
+        /// <summary>
+        /// Issue #49: render a quote as PDF server-side. The frontend "Tải PDF"
+        /// buttons (QuoteView/QuoteCreate) have called this route since before
+        /// the gateway epic, but SalesService never shipped it — QuotePdfDocument
+        /// and the DTO existed orphaned. Stateless: the payload carries the
+        /// fully-computed quote (customer/items/totals the browser already
+        /// assembled), so no DB read is involved and auth posture matches the
+        /// sibling anonymous quote/order/contract endpoints. Returns raw PDF
+        /// bytes with application/pdf so the blob download works unchanged.
+        /// Review (Issue #49): the render is caller-supplied CPU work, so the
+        /// item count is capped (a real quote is a handful of vehicles; 500 is
+        /// generous) and a 500 can never leak a stack trace — Development
+        /// mode's developer-exception page makes that a real exposure on an
+        /// anonymous route, so every render failure is logged and flattened.
+        /// </summary>
+        [HttpPost("generate-quote-pdf")]
+        [RequestSizeLimit(1_048_576)] // real quotes are ~20KB; 1MB caps the CPU-amplifier body
+        public IActionResult GenerateQuotePdf([FromBody] GenerateQuotePdfRequestDto dto)
+        {
+            if (dto is null) return BadRequest("A quote payload is required.");
+            // "quoteItems": null in the body replaces the list initializer with
+            // null; treat it as the empty list the document already renders.
+            dto.QuoteItems ??= new();
+            if (dto.QuoteItems.Count > 500)
+                return BadRequest($"Too many quote items ({dto.QuoteItems.Count}); the PDF renderer caps at 500.");
+            try
+            {
+                var bytes = new PdfDocuments.QuotePdfDocument(dto).GeneratePdf();
+                return File(bytes, "application/pdf", "BaoGiaXeDien.pdf");
+            }
+            catch (Exception ex)
+            {
+                // QuestPDF's real failure throws (license unset → bare
+                // System.Exception, native-asset missing → TypeInitialization
+                // /DllNotFound) are NOT InvalidOperationException — the review
+                // proved that catch was dead code. Anything escaping here is
+                // environmental, so 503 with a logged detail, never a 500.
+                _logger.LogError(ex, "PDF generation failed for quote payload");
+                return StatusCode(503, "PDF generation is not available right now.");
+            }
         }
     }
 }

@@ -17,6 +17,20 @@
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
     <PackageReference Include="QuestPDF" Version="2023.12.1" />
+    <!-- Issue #49: QuestPDF 2023.12 pulls SkiaSharp 2.88.6, whose net8.0
+         target ships ONLY Win32/macOS native assets (nuspec has no linux
+         dependency) — on Linux the loader can't find libSkiaSharp.so at all
+         (CI ubuntu runners proved it; Windows dev hosts never see this).
+         This package supplies runtimes/linux-x64/native/libSkiaSharp.so and
+         flows transitively to anything referencing SalesService, including
+         the test project. Version pinned to match QuestPDF's SkiaSharp.
+         Same story for HarfBuzzSharp (text shaping via SkiaSharp.HarfBuzz):
+         QuestPDF's own startup check names both packages explicitly.
+         HarfBuzzSharp has its own versioning scheme — 7.3.0 is the exact
+         version SkiaSharp.HarfBuzz 2.88.6 depends on (pin it precisely or
+         restore falls back to "best match" with a NU1603 warning). -->
+    <PackageReference Include="SkiaSharp.NativeAssets.Linux.NoDependencies" Version="2.88.6" />
+    <PackageReference Include="HarfBuzzSharp.NativeAssets.Linux" Version="7.3.0" />
   </ItemGroup>
 
 </Project>

@@ -18,6 +18,15 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
+      - name: Install SkiaSharp native dependency
+        # Issue #49: QuestPDF renders through SkiaSharp, whose native
+        # libSkiaSharp links libfontconfig. ubuntu-latest ships without it,
+        # so the PDF tests throw TypeInitializationException at
+        # SkiaApi.sk_compatpaint_new. Same requirement the SalesService
+        # Dockerfile satisfies with libfontconfig1 for the runtime image.
+        # (Dev-on-Windows was green the whole time — Windows has the font
+        # stack; only Linux runners/containers need the explicit install.)
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libfontconfig1
       - name: Build solution
         run: dotnet build DealerSystem.sln -clp:ErrorsOnly
       - name: Run unit tests
