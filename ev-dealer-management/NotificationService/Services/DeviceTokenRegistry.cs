@@ -84,9 +84,17 @@ public class DeviceTokenRegistry : IDeviceTokenRegistry
     public const int MaxTokensPerSubject = 20;
 
     // check-then-act races converge in practice after ONE retry (the re-read
-    // sees the winner's committed row and takes the refresh path); 2 is
-    // headroom for SQLITE_BUSY interleavings on the shared file.
-    private const int RaceRetries = 2;
+    // sees the winner's committed row and takes the refresh path). Headroom
+    // is 6 because the #44 write-skew fix made UpdatedAt a concurrency token:
+    // an UPDATE loser re-reads and re-submits, but with N simultaneous
+    // writers of the same row (Register_ConcurrentSameKeyToken fires 8) a
+    // re-read can collide with yet another commit right before SaveChanges —
+    // at 2 retries that residual chance was real (flake reproduced ~50% on a
+    // fast 8-core host), and a thrown exception breaks the documented
+    // idempotent-success contract in production too, not just in tests.
+    // The staggered jittered backoff below is what actually drains this
+    // contention; the higher cap is belt-and-braces.
+    private const int RaceRetries = 6;
 
     private readonly NotificationDbContext _db;
 
@@ -160,8 +168,14 @@ public class DeviceTokenRegistry : IDeviceTokenRegistry
                 // documented contract is idempotent success — discard the
                 // failed change set and re-run: the second read sees the
                 // winner's state and converges to a refresh.
+                // Jittered backoff, not an immediate re-run: retrying at once
+                // makes the SAME collision with another simultaneous writer
+                // likely (8 concurrent registrations of one token re-collided
+                // ~50% of runs on a fast host), so attempts would just burn
+                // the retry budget. Staggering drains the contention.
                 Log.Debug("Registry write raced on {Key} ({Error}); retrying", key, ex.GetType().Name);
                 _db.ChangeTracker.Clear();
+                await Task.Delay(TimeSpan.FromMilliseconds(3 * (attempt + 1) + Random.Shared.Next(8)), ct);
             }
         }
     }
