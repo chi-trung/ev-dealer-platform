@@ -27,8 +27,13 @@ RUN mkdir -p /app/data
 # always fails and the container reads "unhealthy" forever. Runs BEFORE the
 # publish COPY so code-only rebuilds reuse this cached layer instead of
 # re-downloading from Debian mirrors on every iteration.
+# Issue #49: libfontconfig1 + fonts-dejavu are QuestPDF's documented Linux
+# requirements — aspnet:8.0 has no fontconfig or fonts, so SkiaSharp would
+# throw (or render blank text) when generating a quote PDF in-container,
+# especially for the Vietnamese diacritics the template uses. DejaVu covers
+# the full Latin Extended set.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl \
+    && apt-get install -y --no-install-recommends curl libfontconfig1 fonts-dejavu \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=publish /app/publish .

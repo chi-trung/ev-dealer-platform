@@ -33,7 +33,9 @@ gateway is the single documented base URL.
    server-side work — the PDF endpoint uses
    `{ responseType: 'blob', timeout: 120000 }` because
    `generate-quote-pdf` renders server-side and the pre-W1 raw-axios
-   calls had no timeout at all.
+   calls had no timeout at all. (Issue #49: the route the buttons called
+   never existed until then — SalesService now ships
+   `POST /api/Sales/generate-quote-pdf` rendering `QuotePdfDocument`.)
 4. **Rejections are Errors** (with `.response` preserved). The old
    reporting instance rejected with plain strings; callers that logged
    or used `err.message` behave better now, not worse.

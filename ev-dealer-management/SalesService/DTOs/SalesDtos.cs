@@ -227,15 +227,23 @@ namespace SalesService.DTOs
         public DateTime CreatedAt { get; set; }
         public DateTime UpdatedAt { get; set; }
     }
+    // Issue #49: values are `object` (deserialized as JsonElement) because the
+    // frontend sends numbers inside these dicts (vehicleId, quantity, unitPrice,
+    // discountPercent, paymentInfo percentages). Dictionary<string,string> made
+    // System.Text.Json 400 every real payload — the route could never work even
+    // if it had existed. QuotePdfDocument renders values via .ToString().
     public class GenerateQuotePdfRequestDto
     {
-        public Dictionary<string, string> CustomerInfo { get; set; } = new();
-        public List<Dictionary<string, string>> QuoteItems { get; set; } = new();
-        public Dictionary<string, string> PaymentInfo { get; set; } = new();
-        public Dictionary<string, string> AdditionalInfo { get; set; } = new();
-        public string TotalCalculatedAmount { get; set; } = string.Empty;
-        public string DownPaymentCalculated { get; set; } = string.Empty;
-        public string MonthlyPaymentCalculated { get; set; } = string.Empty;
-        public string InstallmentTotalPaymentCalculated { get; set; } = string.Empty;
+        public Dictionary<string, object?> CustomerInfo { get; set; } = new();
+        public List<Dictionary<string, object?>> QuoteItems { get; set; } = new();
+        public Dictionary<string, object?> PaymentInfo { get; set; } = new();
+        public Dictionary<string, object?> AdditionalInfo { get; set; } = new();
+        // The frontend computes these as raw JS numbers (QuoteView calculateTotals),
+        // so they're widened to object? alongside the dicts for the same reason.
+        public object? TotalCalculatedAmount { get; set; }
+        public object? DownPaymentCalculated { get; set; }
+        public object? LoanAmountCalculated { get; set; }
+        public object? MonthlyPaymentCalculated { get; set; }
+        public object? InstallmentTotalPaymentCalculated { get; set; }
     }
 }

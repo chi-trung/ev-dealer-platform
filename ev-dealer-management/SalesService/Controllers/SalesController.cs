@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using QuestPDF.Fluent; // GeneratePdf() extension for QuotePdfDocument (Issue #49)
 using SalesService.DTOs;
 using SalesService.Models;
 using SalesService.Data;
@@ -316,6 +317,35 @@ namespace SalesService.Controllers
                 UpdatedAt = contract.UpdatedAt
             };
             return Ok(dto);
+        }
+
+        /// <summary>
+        /// Issue #49: render a quote as PDF server-side. The frontend "Tải PDF"
+        /// buttons (QuoteView/QuoteCreate) have called this route since before
+        /// the gateway epic, but SalesService never shipped it — QuotePdfDocument
+        /// and the DTO existed orphaned. Stateless: the payload carries the
+        /// fully-computed quote (customer/items/totals the browser already
+        /// assembled), so no DB read is involved and auth posture matches the
+        /// sibling anonymous quote/order/contract endpoints. Returns raw PDF
+        /// bytes with application/pdf so the blob download works unchanged.
+        /// </summary>
+        [HttpPost("generate-quote-pdf")]
+        public IActionResult GenerateQuotePdf([FromBody] GenerateQuotePdfRequestDto dto)
+        {
+            if (dto is null) return BadRequest("A quote payload is required.");
+            try
+            {
+                // License is set at process start in Program.cs with fail-soft;
+                // if it never initialized (headless Docker edge), generating now
+                // would throw — surface that as 503, not a 500 stack trace.
+                var bytes = new PdfDocuments.QuotePdfDocument(dto).GeneratePdf();
+                return File(bytes, "application/pdf", "BaoGiaXeDien.pdf");
+            }
+            catch (InvalidOperationException ex)
+            {
+                _logger.LogError(ex, "PDF generation unavailable (QuestPDF not initialized)");
+                return StatusCode(503, "PDF generation is not available right now.");
+            }
         }
     }
 }
