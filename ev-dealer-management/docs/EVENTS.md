@@ -162,7 +162,16 @@ Fan-out works as intended for `vehicle.reserved`: one publish, two queues
   `DeviceTokensAuthTests.cs` (Issue #36) pins the controller's authorization
   decision table (own/dealer/foreign/missing-claim × PUT/GET/DELETE, incl.
   prefix-shaped negatives that kill a StartsWith mutant of the ownership
-  rule). CI runs all nine inside the "Build .NET services" job.
+  rule); `DealerClaimLoginTests.cs` (Issue #41) pins the MINTING side of that
+  same `dealer` claim — it runs the real `UserServiceImpl.LoginAsync` and reads
+  the returned JWT's raw payload (base64url-decoded, so the assertion is
+  independent of any reader's inbound claim-mapping — this test project's
+  version-skewed `JwtSecurityTokenHandler` read-back empirically drops claims
+  the wire carries) to assert the `dealer`/`id`/`unique_name`/`role` claims are
+  present with the right values and that `dealer` is OMITTED (not empty) for a
+  no-dealer account, so a dropped claim block in Program.cs can no longer leave
+  the suite green while silently breaking #36 for real users. CI runs all ten
+  test files inside the "Build .NET services" job.
 
 ## Device-token registry (Issue #33)
 

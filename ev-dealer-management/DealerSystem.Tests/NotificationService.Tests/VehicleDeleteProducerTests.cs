@@ -8,6 +8,10 @@ using Xunit;
 // The service class is named VehicleService inside a VehicleService.*
 // namespace hierarchy, so the bare name resolves to the namespace (CS0118).
 using VehicleLifecycleService = global::VehicleService.Services.VehicleService;
+// UserService (referenced for Issue #41) declares a global `Dealer`; the bare
+// name here would bind to THAT one (Id/Name/Address only) and lose the
+// VehicleService model's Region/Contact/Email (CS0117). Alias to disambiguate.
+using VehicleDealer = VehicleService.Models.Dealer;
 
 namespace DealerSystem.Tests.NotificationService.Tests;
 
@@ -53,7 +57,7 @@ public class VehicleDeleteProducerTests : IDisposable
         int vehicleId;
         using (var db = new ApplicationDbContext(_options))
         {
-            var dealer = new Dealer { Id = 7, Name = "Probe Dealer", Region = "HN", Contact = "0", Email = "p@e.co", Address = "x" };
+            var dealer = new VehicleDealer { Id = 7, Name = "Probe Dealer", Region = "HN", Contact = "0", Email = "p@e.co", Address = "x" };
             var vehicle = new Vehicle
             {
                 Model = "VF8 probe", Type = "suv", Price = 1, BatteryCapacity = 1,
