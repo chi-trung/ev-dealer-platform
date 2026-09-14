@@ -71,6 +71,16 @@ const NotificationPreferences = () => {
   const [error, setError] = useState(null)
   const [success, setSuccess] = useState(false)
 
+  // ProtectedRoute's DEV-mode placeholder bearer ('dev-token-123') is not a
+  // JWT: the preferences endpoints are [Authorize] now (Issue #51), so a
+  // real network call with it would 401 and trip api.js's session-wipe +
+  // hard redirect — exactly what the DeviceToken registration client
+  // (src/firebase/notificationService.js) prunes. The login-free dev flow
+  // therefore previews with the page's own defaults, shows a notice, and
+  // the Save button is disabled (saving would lie there — see handleSave).
+  const isDevPlaceholder = () => localStorage.getItem('token') === 'dev-token-123'
+  const devPlaceholder = isDevPlaceholder()
+
   // Load preferences on mount
   useEffect(() => {
     loadPreferences()
@@ -81,6 +91,11 @@ const NotificationPreferences = () => {
       setLoading(true)
       setError(null)
 
+      if (devPlaceholder) {
+        // No real subject behind a placeholder token — skip the request.
+        setError('Chế độ dev không có phiên thật: đang hiển thị giá trị mặc định, thay đổi không được lưu.')
+        return
+      }
       const response = await notificationService.getNotificationPreferences()
       setPreferences(response.data)
     } catch (err) {
@@ -109,6 +124,8 @@ const NotificationPreferences = () => {
   }
 
   const handleSave = async () => {
+    if (devPlaceholder) return // button is disabled; belt-and-braces so a
+    // stray click never fires a request that would 401 + redirect.
     try {
       setSaving(true)
       setError(null)
@@ -116,8 +133,6 @@ const NotificationPreferences = () => {
 
       await notificationService.updateNotificationPreferences(preferences)
       setSuccess(true)
-
-      // Hide success message after 3 seconds
       setTimeout(() => setSuccess(false), 3000)
     } catch (err) {
       setError(err.message || 'Không thể lưu tùy chọn thông báo')
@@ -665,7 +680,7 @@ const NotificationPreferences = () => {
             size="large"
             startIcon={saving ? <CircularProgress size={20} /> : <SaveIcon />}
             onClick={handleSave}
-            disabled={saving}
+            disabled={saving || devPlaceholder}
             sx={{
               px: 6,
               py: 2,

@@ -114,14 +114,17 @@ public class NotificationPreferencesTests : IDisposable
     public async Task ConcurrentFirstSaves_SameKey_NoThrowLastWins()
     {
         // The UNIQUE(Key) loser must retry into the UPDATE path — the store
-        //'s documented contract is last-writer-wins, never a 500. With real
-        // SQLite file locking this exercises the SQLITE_CONSTRAINT /
-        // SQLITE_BUSY arms of IsTransientRace.
+        //'s documented contract is last-writer-wins, never a 500. Eight
+        // contenders (the #33 Register_ConcurrentSameKeyToken precedent) so
+        // several SELECTs land before any INSERT commits and the
+        // SQLITE_CONSTRAINT arm of IsTransientRace is near-certain;
+        // SQLITE_BUSY itself rarely surfaces (Microsoft.Data.Sqlite's 30s
+        // command timeout sets sqlite3_busy_timeout and absorbs waits).
         var a = NotificationPreferencesDefaults.Value with { Promotions = true };
         var b = NotificationPreferencesDefaults.Value with { Promotions = false, SystemAlerts = true };
-        var t1 = Task.Run(async () => await NewStore().PutAsync("user:5", a));
-        var t2 = Task.Run(async () => await NewStore().PutAsync("user:5", b));
-        await Task.WhenAll(t1, t2);
+        var tasks = Enumerable.Range(0, 8).Select(i =>
+            Task.Run(async () => await NewStore().PutAsync("user:5", i % 2 == 0 ? a : b))).ToArray();
+        await Task.WhenAll(tasks);
 
         var got = await NewStore().GetAsync("user:5");
         Assert.True(got == a || got == b);
@@ -135,10 +138,15 @@ public class NotificationPreferencesTests : IDisposable
     {
         public NotificationPreferencesDto? LastPut;
         public string? LastPutKey;
+        public string? LastGetKey;
         public NotificationPreferencesDto Current = NotificationPreferencesDefaults.Value;
 
         public Task<NotificationPreferencesDto> GetAsync(string key, CancellationToken ct = default)
-            => Task.FromResult(Current);
+        {
+            LastGetKey = key; // review-found gap: reads must use the claim-built
+            // key too — LastPutKey alone only pinned the write path.
+            return Task.FromResult(Current);
+        }
 
         public Task<NotificationPreferencesDto> PutAsync(string key, NotificationPreferencesDto prefs, CancellationToken ct = default)
         {
@@ -195,11 +203,12 @@ public class NotificationPreferencesTests : IDisposable
     [Fact]
     public async Task Get_ReturnsStoreDocument_InFrontendWireShape()
     {
-        var prefs = NotificationPreferencesDefaults.Value with { Deliveries = false };
+        var prefs = NotificationPreferencesDefaults.Value with { Deliveries = false, SystemAlerts = true };
         var store = new FakeStore { Current = prefs };
         var c = ControllerWith(store, ("id", "7"));
 
         var res = Assert.IsType<OkObjectResult>(await c.GetPreferences(default));
+        Assert.Equal("user:7", store.LastGetKey);
         // Pin the exact anonymous-shape JSON roundtrip: axios hands the page
         // response.data, and the page reads data.notificationTypes.deliveries.
         var json = System.Text.Json.JsonSerializer.Serialize(res.Value!);
@@ -207,6 +216,11 @@ public class NotificationPreferencesTests : IDisposable
         Assert.True(doc.RootElement.GetProperty("success").GetBoolean());
         Assert.False(doc.RootElement.GetProperty("data").GetProperty("notificationTypes").GetProperty("deliveries").GetBoolean());
         Assert.True(doc.RootElement.GetProperty("data").GetProperty("emailNotifications").GetBoolean());
+        // System=true against the defaults' all-false system+promotions pins
+        // the Shape() DTO->wire mapping (a System<->Promotions column swap
+        // could otherwise pass unnoticed).
+        Assert.True(doc.RootElement.GetProperty("data").GetProperty("notificationTypes").GetProperty("system").GetBoolean());
+        Assert.False(doc.RootElement.GetProperty("data").GetProperty("notificationTypes").GetProperty("promotions").GetBoolean());
     }
 
     // ---- controller: validation (the mute-by-omission guard) ---------------
@@ -218,16 +232,53 @@ public class NotificationPreferencesTests : IDisposable
         var c = ControllerWith(store, ("id", "7"));
 
         // notificationTypes.deliveries omitted — everything else present.
+        // MUST deserialize with Web defaults (case-INsensitive, what MVC
+        // sends on the wire): under the case-sensitive default options every
+        // camelCase key binds to null and the guard trips on its FIRST arm,
+        // so this would pass even with the deliveries check deleted (a
+        // vacuous pin — review finding on commit 805bfbe).
         var body = """
             {"emailNotifications":true,"smsNotifications":false,"inAppNotifications":true,
              "notificationTypes":{"orders":true,"payments":true,"system":false,"promotions":false}}
             """;
         var res = await c.PutPreferences(
-            System.Text.Json.JsonSerializer.Deserialize<NotificationController.PreferencesWireRequest>(body),
+            System.Text.Json.JsonSerializer
+                .Deserialize<NotificationController.PreferencesWireRequest>(
+                    body, new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web)),
             default);
 
         Assert.IsType<BadRequestObjectResult>(res);
         Assert.Null(store.LastPut); // rejected BEFORE the store was touched
+    }
+
+    [Fact]
+    public async Task Put_AllEightFlagsAsWireJson_StoredAndEchoed()
+    {
+        // Positive control for the test above: the SAME camelCase document
+        // with all eight flags present binds cleanly and is stored — proving
+        // the 400 in Put_MissingOneFlag fires on the deliveries arm
+        // specifically, not on deserialization artifacts.
+        var store = new FakeStore();
+        var c = ControllerWith(store, ("id", "7"));
+        var body = """
+            {"emailNotifications":true,"smsNotifications":false,"inAppNotifications":true,
+             "notificationTypes":{"orders":true,"deliveries":false,"payments":true,"system":false,"promotions":true}}
+            """;
+        var req = System.Text.Json.JsonSerializer
+            .Deserialize<NotificationController.PreferencesWireRequest>(
+                body, new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web));
+
+        Assert.IsType<OkObjectResult>(await c.PutPreferences(req!, default));
+        Assert.Equal("user:7", store.LastPutKey);
+        Assert.NotNull(store.LastPut);
+        Assert.True(store.LastPut!.EmailNotifications);
+        Assert.False(store.LastPut.SmsNotifications);
+        Assert.True(store.LastPut.InAppNotifications);
+        Assert.True(store.LastPut.Orders);
+        Assert.False(store.LastPut.Deliveries);
+        Assert.True(store.LastPut.Payments);
+        Assert.False(store.LastPut.SystemAlerts);
+        Assert.True(store.LastPut.Promotions);
     }
 
     [Fact]
