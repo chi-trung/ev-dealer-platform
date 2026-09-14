@@ -38,14 +38,15 @@ public class TestDriveScheduledConsumer
             // null), so fall back to the registry (Issue #33) and fan out to
             // all live tokens for the customer.
             List<string> deviceTokens;
+            string? registrySubject = null;
             if (!string.IsNullOrWhiteSpace(testDriveEvent.DeviceToken))
             {
                 deviceTokens = new List<string> { testDriveEvent.DeviceToken };
             }
             else
             {
-                var registered = await _tokens.GetTokensAsync(
-                    NotificationSubjects.Customer(testDriveEvent.CustomerId));
+                registrySubject = NotificationSubjects.Customer(testDriveEvent.CustomerId);
+                var registered = await _tokens.GetTokensAsync(registrySubject);
                 deviceTokens = registered.Count > 0 ? registered.ToList() : new List<string>();
             }
 
@@ -65,20 +66,25 @@ public class TestDriveScheduledConsumer
                 { "scheduledDate", testDriveEvent.ScheduledDate.ToString("yyyy-MM-dd HH:mm:ss") }
             };
 
-            var success = await _fcmService.SendMulticastAsync(
+            var result = await _fcmService.SendMulticastAsync(
                 deviceTokens,
                 title,
                 body,
                 data
             );
+            // Issue #44: revoke rows FCM rejected permanently. Null key on the
+            // payload-token path (no registry row to blame) makes the call a
+            // no-op. Best-effort; never throws.
+            await _tokens.RevokeDeadTokensAsync(registrySubject, result.DeadTokens);
 
-            if (success)
+            if (result.Success)
             {
                 Log.Information("Test drive confirmation push notification sent for Customer: {CustomerName}", testDriveEvent.CustomerName);
             }
             else
             {
-                // IFcmService swallows send errors and returns false; throwing
+                // The send layer swallows per-token errors and reports
+                // Success=false only when NO device was reached; throwing
                 // here lets the bus retry and eventually DLQ the delivery.
                 throw new InvalidOperationException($"FCM push failed for test drive of customer {testDriveEvent.CustomerName}");
             }

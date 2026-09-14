@@ -88,14 +88,17 @@ public class NotificationController : ControllerBase
     [HttpPost("send-multicast")]
     public async Task<IActionResult> SendMulticast([FromBody] SendMulticastRequest request)
     {
-        var success = await _fcmService.SendMulticastAsync(
+        // Raw caller-supplied tokens with no registry subject behind them, so
+        // the dead-token report is unused here (revocation is the consumers'
+        // job — Issue #44). Only Success matters for the HTTP outcome.
+        var result = await _fcmService.SendMulticastAsync(
             request.DeviceTokens,
             request.Title,
             request.Body,
             request.Data
         );
 
-        return success 
+        return result.Success
             ? Ok(new { message = $"Multicast notification sent to {request.DeviceTokens.Count} devices" })
             : BadRequest(new { message = "Failed to send multicast notification" });
     }

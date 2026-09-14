@@ -214,24 +214,115 @@ public class SalesPushConsumerTests : IDisposable
         Assert.Null(fcm.LastMulticastTokens);
     }
 
+    // ---- dead-token revocation wiring (Issue #44) ----------------------------
+
+    [Fact]
+    public async Task OrderStatusChanged_DeadTokenIsRevokedOnSuccessfulDelivery()
+    {
+        // The wedge this issue is about: a stale row stays in the shared
+        // mailbox forever unless someone revokes what FCM rejected. tok-a is
+        // reported dead even though the delivery overall succeeded (tok-b
+        // got it) — the revoke must run on the SUCCESS path, not only when
+        // the consumer is about to throw anyway.
+        await RegisterAsync(5, "tok-a", "tok-b");
+        var fcm = Fcm();
+        fcm.DeadTokens = new List<string> { "tok-a" };
+        var reg = Registry();
+
+        await new OrderStatusChangedConsumer(fcm, reg).HandleAsync(Json(StatusChanged()));
+
+        Assert.Equal(new[] { "tok-b" }, await reg.GetTokensAsync(NotificationSubjects.Customer(5)));
+    }
+
+    [Fact]
+    public async Task OrderStatusChanged_DeadTokenRevoked_BeforeTotalFailureThrow()
+    {
+        // Zero devices reached: the cleanup still happens (the row is dead
+        // regardless of why nothing landed), and the throw contract stands —
+        // the bus retries and eventually DLQs.
+        await RegisterAsync(5, "tok-a");
+        var fcm = Fcm();
+        fcm.Result = false;
+        fcm.DeadTokens = new List<string> { "tok-a" };
+        var reg = Registry();
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            new OrderStatusChangedConsumer(fcm, reg).HandleAsync(Json(StatusChanged())));
+
+        Assert.Empty(await reg.GetTokensAsync(NotificationSubjects.Customer(5)));
+    }
+
+    [Fact]
+    public async Task OrderStatusChanged_TransientFailure_KeepsEveryRow()
+    {
+        // The asymmetry that matters: a send that failed for transient
+        // reasons reports NO dead tokens, so every row must stay. Revoking
+        // here would mass-unregister the fleet during an outage.
+        await RegisterAsync(5, "tok-a", "tok-b");
+        var fcm = Fcm();
+        fcm.Result = false; // DeadTokens stays empty = "we don't know"
+        var reg = Registry();
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            new OrderStatusChangedConsumer(fcm, reg).HandleAsync(Json(StatusChanged())));
+
+        Assert.Equal(2, (await reg.GetTokensAsync(NotificationSubjects.Customer(5))).Count);
+    }
+
+    [Fact]
+    public async Task SaleCompleted_PayloadTokenPath_RevokeSkipped()
+    {
+        // Payload token wins → registrySubject is null → a dead report about
+        // the in-band token must NOT touch the customer's registry rows.
+        // tok-payload is ALSO a registered row (another device, or a stale
+        // duplicate string): with the subject wrongly passed on this path,
+        // that row would be revoked while the registry lookup never even ran.
+        await RegisterAsync(5, "tok-payload", "tok-registry");
+        var fcm = Fcm();
+        fcm.DeadTokens = new List<string> { "tok-payload" };
+        var reg = Registry();
+
+        await new SaleCompletedConsumer(fcm, reg).HandleAsync(Json(Sale("tok-payload")));
+
+        Assert.Equal(new[] { "tok-payload", "tok-registry" },
+            (await reg.GetTokensAsync(NotificationSubjects.Customer(5))).OrderBy(t => t).ToList());
+    }
+
+    [Fact]
+    public async Task SaleCompleted_RegistryPath_DeadTokenIsRevoked()
+    {
+        // Same wiring check for the payload-token-wins consumer's registry
+        // branch: revoke runs when the subject actually supplied the tokens.
+        await RegisterAsync(5, "tok-a", "tok-b");
+        var fcm = Fcm();
+        fcm.DeadTokens = new List<string> { "tok-b" };
+        var reg = Registry();
+
+        await new SaleCompletedConsumer(fcm, reg).HandleAsync(Json(Sale(deviceToken: null)));
+
+        Assert.Equal(new[] { "tok-a" }, await reg.GetTokensAsync(NotificationSubjects.Customer(5)));
+    }
+
     /// <summary>Records the last multicast attempt and returns a canned result.
     /// All #37 push paths fan out via SendMulticastAsync (payload tokens ride
-    /// the same list), so the remaining IFcmService methods are not reached.</summary>
+    /// the same list), so the remaining IFcmService methods are not reached.
+    /// DeadTokens (Issue #44) is canned per-test to drive the revoke path.</summary>
     private sealed class RecordingFcm : IFcmService
     {
         public bool Result { get; set; } = true;
+        public List<string> DeadTokens { get; set; } = new();
         public List<string>? LastMulticastTokens { get; private set; }
         public string? LastMulticastTitle { get; private set; }
         public string? LastMulticastBody { get; private set; }
         public Dictionary<string, string>? LastMulticastData { get; private set; }
 
-        public Task<bool> SendMulticastAsync(List<string> deviceTokens, string title, string body, Dictionary<string, string>? data = null)
+        public Task<MulticastResult> SendMulticastAsync(List<string> deviceTokens, string title, string body, Dictionary<string, string>? data = null)
         {
             LastMulticastTokens = deviceTokens;
             LastMulticastTitle = title;
             LastMulticastBody = body;
             LastMulticastData = data;
-            return Task.FromResult(Result);
+            return Task.FromResult(new MulticastResult(Result, DeadTokens));
         }
 
         public Task<bool> SendNotificationAsync(string deviceToken, string title, string body, Dictionary<string, string>? data = null)

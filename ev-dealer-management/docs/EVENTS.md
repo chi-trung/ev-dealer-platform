@@ -170,8 +170,13 @@ Fan-out works as intended for `vehicle.reserved`: one publish, two queues
   the wire carries) to assert the `dealer`/`id`/`unique_name`/`role` claims are
   present with the right values and that `dealer` is OMITTED (not empty) for a
   no-dealer account, so a dropped claim block in Program.cs can no longer leave
-  the suite green while silently breaking #36 for real users. CI runs all ten
-  test files inside the "Build .NET services" job.
+  the suite green while silently breaking #36 for real users;
+  `FirebaseMulticastClassifierTests.cs` (Issue #44) pins the whole
+  permanently-dead policy table — every `MessagingErrorCode` member plus the
+  null case — against `FirebaseFcmService.IsPermanentlyDead`, with a
+  completeness guard that fails if the SDK enum ever grows a member the policy
+  never weighed. CI runs all eleven test files inside the "Build .NET services"
+  job.
 
 ## Device-token registry (Issue #33)
 
@@ -182,8 +187,9 @@ NotificationService owns a one-table SQLite store (`Models/DeviceToken.cs`,
 
 - `PUT` `{"token": "…"}` — register/upsert (idempotent; refreshes `UpdatedAt`;
   concurrent duplicate registrations are absorbed by the UNIQUE index + one
-  retry, so the endpoint never 500s). 409 once the subject holds
-  `MaxTokensPerSubject` (20) tokens.
+  retry, so the endpoint never 500s). Always 204 for an authorized caller:
+  at the `MaxTokensPerSubject` (20) cap a NEW token **evicts** rather than
+  being rejected (Issue #44, below), so the 409 that used to live here is gone.
 - `GET` — token COUNT + masked previews for the subject (registration UI
   check, ops probe). Raw tokens are deliberately not exported: whoever can
   read them can revoke the devices and enumerate device counts per customer.
@@ -235,6 +241,48 @@ restarts. It is fail-soft **end-to-end**: if `EnsureCreated` throws at boot the
 service still serves, and a registry that dies at *read* time (file corrupted
 mid-run) logs an error and returns empty — consumers degrade to log-only
 instead of requeueing healthy events into retry→DLQ churn.
+
+### Cap eviction and dead-token revocation (Issue #44)
+
+Two mechanisms keep a subject's mailbox from clogging with tokens that no
+longer reach a device. Both are needed because they fail differently: eviction
+bounds the store even when FCM never reports anything wrong (a staff device
+that was wiped but never re-logs-out holds its row), and revocation removes a
+stale row long before it becomes the LRU victim.
+
+- **LRU cap eviction.** A `PUT` at the cap no longer 409s. A NEW token evicts
+  the least-recently-refreshed row(s) (`UpdatedAt` ascending) in the same
+  transaction as its own insert and always lands, so the 21st login of a real
+  device on a shared `dealer:<id>` subject can no longer be locked out by 20
+  accumulated stale tokens. The cap stays a cap (exactly
+  `MaxTokensPerSubject` rows), the check re-runs on every retry attempt (a
+  failed save rolls back its eviction uncommitted, so re-evaluating is what
+  keeps the bound exact), and refreshing an EXISTING token never evicts — an
+  active device can always re-register.
+- **Per-token revocation on permanent rejection.**
+  `IFcmService.SendMulticastAsync` returns a `MulticastResult`
+  (`Success` + `DeadTokens`) instead of a bare `bool`. FirebaseAdmin reports
+  failures per token; a token FCM rejected with `UNREGISTERED` (unsubscribed /
+  expired) or `INVALID_ARGUMENT` (stale web-push keys) is echoed back in
+  `DeadTokens` and the consumers revoke those registry rows via
+  `DeviceTokenRegistryExtensions.RevokeDeadTokensAsync`. Classification lives
+  in the one pure function `FirebaseFcmService.IsPermanentlyDead` (the SDK's
+  response types aren't publicly constructible). Every other code — transient
+  or config-side (`UNAVAILABLE`, `INTERNAL`, `QUOTA_EXCEEDED`,
+  `SENDER_ID_MISMATCH`, `THIRD_PARTY_AUTH_ERROR`, null) — keeps the row: a
+  wrong guess here mass-unregisters live devices during an outage. The revoke
+  runs before the consumer decides to throw, is best-effort, and never throws
+  (rethrowing would RE-PUSH a notification that already reached other
+  devices). Partial delivery now ACKS: at least one device got the message, so
+  requeuing would duplicate it; only zero-device acceptance still throws for
+  the retry→DLQ policy above.
+
+Consumers on the payload-token-wins path pass the subject they looked tokens
+up *from* (null when the payload supplied the token), so a dead in-band token
+never touches registered rows. Masked `GET` previews are unchanged, and
+`DELETE` still demands the exact raw token — accepting the masked preview would
+reopen the credential-export hole Issue #36 closed.
+
 
 Remaining token gap: no *customer*-subject tokens are registered yet — the
 portal is staff-only. `dealer:<id>` is now a live lookup key (Issue #38 fans
