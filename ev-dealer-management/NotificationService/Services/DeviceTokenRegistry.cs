@@ -28,7 +28,8 @@ public interface IDeviceTokenRegistry
 
     /// <summary>Remove one token (browser unregistration / logout).
     /// Returns false if it wasn't registered — including when a concurrent
-    /// revoke removed it first.</summary>
+    /// revoke removed, or a concurrent refresh moved, the row between our
+    /// read and save.</summary>
     Task<bool> RevokeAsync(string key, string token, CancellationToken ct = default);
 }
 
@@ -125,6 +126,12 @@ public class DeviceTokenRegistry : IDeviceTokenRegistry
                     // same order GetTokensAsync returns) until one more fits.
                     // Refresh of an EXISTING token never lands here, so an
                     // active device can always re-register even at the cap.
+                    // The victim is read before this transaction opens, so
+                    // UpdatedAt is a concurrency token (NotificationDbContext):
+                    // if a refresh or revoke lands on a victim in between, the
+                    // DELETE matches 0 rows and the retry re-picks against
+                    // fresh data — a just-refreshed device is never evicted
+                    // behind its own 204 (Issue #44 review).
                     var live = await _db.DeviceTokens.CountAsync(t => t.Key == key, ct);
                     if (live >= MaxTokensPerSubject)
                     {

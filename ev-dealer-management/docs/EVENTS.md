@@ -258,7 +258,11 @@ stale row long before it becomes the LRU victim.
   `MaxTokensPerSubject` rows), the check re-runs on every retry attempt (a
   failed save rolls back its eviction uncommitted, so re-evaluating is what
   keeps the bound exact), and refreshing an EXISTING token never evicts — an
-  active device can always re-register.
+  active device can always re-register. Because the victim list is read before
+  the insert/evict transaction opens, `UpdatedAt` is an EF concurrency token:
+  a refresh that lands on a victim in between makes the DELETE match 0 rows,
+  so the eviction aborts and retries against fresh data instead of silently
+  deleting a device that just got its 204 (Issue #44 review).
 - **Per-token revocation on permanent rejection.**
   `IFcmService.SendMulticastAsync` returns a `MulticastResult`
   (`Success` + `DeadTokens`) instead of a bare `bool`. FirebaseAdmin reports

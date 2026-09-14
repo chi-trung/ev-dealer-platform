@@ -44,17 +44,23 @@ public class FirebaseMulticastClassifierTests
     public void MessagingErrorCodeEnum_IsFullyCoveredByThePolicy()
     {
         // The Theory above lists every member by hand; this pins that the
-        // list stays exhaustive: a FirebaseAdmin upgrade that adds a code
-        // fails HERE first, forcing an explicit dead/keep decision instead
-        // of an unlisted member silently defaulting to keep.
+        // list stays exhaustive in BOTH directions: a FirebaseAdmin upgrade
+        // that adds a code (8th member) or drops one fails HERE first,
+        // forcing an explicit dead/keep decision instead of an unlisted
+        // member silently defaulting to keep. A length check alone cannot
+        // see growth (>= 7 stays true at 8 members) — so compare the actual
+        // enum surface against the hand-listed set as a symmetric difference.
         var listed = (MessagingErrorCode[])Enum.GetValues(typeof(MessagingErrorCode));
-        foreach (var code in listed)
+        var pinned = new HashSet<MessagingErrorCode>
         {
-            // Trivially true per call — the point is this loop enumerates all
-            // members the classifier must have an opinion on.
-            _ = FirebaseFcmService.IsPermanentlyDead(code);
-        }
-        Assert.True(listed.Length >= 7,
-            "FirebaseAdmin shrank MessagingErrorCode; prune the policy test's cases");
+            MessagingErrorCode.Unregistered, MessagingErrorCode.InvalidArgument,
+            MessagingErrorCode.SenderIdMismatch, MessagingErrorCode.QuotaExceeded,
+            MessagingErrorCode.Internal, MessagingErrorCode.Unavailable,
+            MessagingErrorCode.ThirdPartyAuthError,
+        };
+        var drift = listed.Where(c => !pinned.Contains(c))
+            .Concat(pinned.Where(c => !listed.Contains(c)))
+            .ToList();
+        Assert.Empty(drift);
     }
 }

@@ -307,6 +307,49 @@ public class DeviceTokenRegistryTests : IDisposable
     }
 
     [Fact]
+    public async Task Register_VictimRefreshedAfterVictimScan_RetrySparesItAndEvictsTrueLRU()
+    {
+        // Issue #44 review, the write-skew direction: the victim list is read
+        // BEFORE SaveChangesAsync opens its transaction, so a refresh can land
+        // on the victim in between — and the refreshed device just got its 204
+        // and believes it is registered. The UpdatedAt concurrency token makes
+        // the DELETE match 0 rows, aborting (and rolling back) the eviction,
+        // and the retry re-scans to evict the NOW-oldest row instead. Without
+        // the token, tok-0 would be silently deleted behind its own refresh.
+        var reg = NewRegistry();
+        for (var i = 0; i < DeviceTokenRegistry.MaxTokensPerSubject; i++)
+            await reg.RegisterAsync("customer:7", $"tok-{i}");
+        await using (var db = New())
+        {
+            // Deterministic LRU ladder: tok-0 is attempt 0's victim, tok-1 is
+            // the guaranteed next-oldest for the retry (registration times
+            // would otherwise tie at clock resolution).
+            var stale = await db.DeviceTokens.SingleAsync(t => t.Token == "tok-0");
+            stale.UpdatedAt = new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+            var next = await db.DeviceTokens.SingleAsync(t => t.Token == "tok-1");
+            next.UpdatedAt = new DateTime(2021, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+            await db.SaveChangesAsync(); // attempt 0 reads tok-0 as the victim
+        }
+
+        await using var trap = new TrapDbContext(Options, async () =>
+        {
+            if (_trapArmed) return; // fire exactly once, between scan and save
+            _trapArmed = true;
+            await using var refreshingDevice = New();
+            var v = await refreshingDevice.DeviceTokens.SingleAsync(t => t.Token == "tok-0");
+            v.UpdatedAt = DateTime.UtcNow; // commits before our save opens
+            await refreshingDevice.SaveChangesAsync();
+        });
+        await new DeviceTokenRegistry(trap).RegisterAsync("customer:7", "tok-new");
+
+        var live = await NewRegistry().GetTokensAsync("customer:7");
+        Assert.Equal(DeviceTokenRegistry.MaxTokensPerSubject, live.Count); // cap still exact
+        Assert.Contains("tok-0", live);   // the refreshed device survived the race
+        Assert.Contains("tok-new", live); // and the new token still landed
+        Assert.DoesNotContain("tok-1", live); // retry evicted the true oldest
+    }
+
+    [Fact]
     public async Task GetTokens_DoesNotThrowWhenRegistryDiesMidRun()
     {
         // Fail-soft is promised to the consumers (a dead DB must not requeue
