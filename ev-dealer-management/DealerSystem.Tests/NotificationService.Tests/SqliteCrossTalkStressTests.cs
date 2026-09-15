@@ -6,29 +6,33 @@ using Xunit;
 
 namespace DealerSystem.Tests.NotificationService.Tests;
 
-// Issue #58 lifecycle canary. Eleven real classes in this assembly Dispose
-// with SqliteConnection.ClearAllPools() — a PROCESS-GLOBAL pool reset — and
-// that is the race the [Collection("sqlite")] fix serializes (see
-// SqliteTestCollection.cs for the full picture).
+// Issue #58 lifecycle canary — what it IS, and two things it is NOT.
 //
-// Measured history, in order:
-// 1. 8 UNCOLLECTED copies of this cycle x 120 iterations: 0 failures. The
-//    PR #57 race is cold-start/one-in-many-runs, so a steady-state hammer
-//    is NOT a reproducer and is not sold as one.
-// 2. Running the REAL suite on unfixed main (d9abc78) did reproduce it
-//    naturally: 1 of 20 runs died in PreferenceFanoutConsumerTests.Dispose
-//    with IOException "being used by another process" — the exact PR #57
-//    signature. That is the before-fix evidence; it needed no canary.
-// 3. The uncollected version then became a liability: a collection only
-//    serializes its MEMBERS, so an uncollected class calling ClearAllPools
-//    can still drop the pooled connections of a collected class mid-run —
-//    i.e. these very tests would have re-opened the race #58 fixes.
+// IS: a repeated end-to-end check of the pattern every real SQLite class
+// depends on — temp file db + EnsureCreated + pooled write/read + the
+// process-global ClearAllPools + the File.Delete that only succeeds once
+// the clear really released the handle. 240 lifetimes per suite run catch
+// a regression in that release-and-delete mechanism itself.
 //
-// So they are [Collection("sqlite")] like every other clearer. Collected,
-// each cycle is a pure lifecycle assertion: file db + EnsureCreated +
-// pooled write/read + the global clear + the delete that only succeeds if
-// the clear really released the handle. If anyone un-collects a clearer in
-// the future, this file is the one that starts failing.
+// NOT a race reproducer: run UNCOLLECTED before the fix, 8 copies x 120
+// cycles = 960 iterations, 0 failures. The race needs the real suite's
+// class schedule; on unfixed main the REAL suite reproduced it naturally
+// (1 of 20 runs: PreferenceFanoutConsumerTests.Dispose, IOException
+// "being used by another process" — the PR #57 signature), and that is
+// the before-fix evidence. No synthetic loop earns it.
+//
+// NOT a collection-membership tripwire either, which an earlier comment
+// here wrongly claimed (the #58 review round, via TRX timeline): each
+// cycle uses a unique-Guid file and deletes it right after its OWN clear,
+// so another class's clear can only help, never hurt — and
+// DisableParallelization puts this collection in an exclusive phase, so
+// these cycles never co-run with an uncollected offender anyway. Two
+// uncollected clearest WOULD race each other in the parallel burst phase
+// (that is how main flaked: all clearest were uncollected together); one
+// uncollected clearer is harmless only as long as the collection keeps
+// DisableParallelization — another reason the membership rule is kept
+// strict. Membership of every ClearAllPools caller is enforced only by
+// grep (see SqliteTestCollection.cs).
 
 [Collection("sqlite")]
 public abstract class CrossTalkHammerBase

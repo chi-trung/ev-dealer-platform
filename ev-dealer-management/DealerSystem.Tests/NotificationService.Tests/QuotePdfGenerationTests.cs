@@ -163,9 +163,12 @@ public class QuotePdfGenerationTests
         // byte and the raw-bytes determinism assertion below flakes ~1 in
         // 20 runs (caught on d9abc78). Mask every date-shaped token — PDF
         // `D:` literals and ISO8601 stamps — so equality is about
-        // RENDERING, not about wall-clock luck. Content bytes are
-        // untouched by the mask, so the contrast assertion still proves
-        // the customer name reaches the page.
+        // RENDERING, not about wall-clock luck. The mask touches nothing
+        // but date tokens (name glyphs are font-subset/compressed bytes,
+        // never date-shaped), so the NotEqual contrast below — compared
+        // ON MASKED BYTES, like everything here — still proves the
+        // customer name reaches the page: a rendered-name difference is a
+        // content difference, and content survives masking untouched.
         var raw = System.Text.Encoding.Latin1.GetString(doc.GeneratePdf());
         var masked = System.Text.RegularExpressions.Regex.Replace(raw, @"D:\d{6,14}[^\)\s]*", "D:MASKED");
         masked = System.Text.RegularExpressions.Regex.Replace(masked, @"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}", "MASKED");
