@@ -1,3 +1,4 @@
+using Serilog;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using System.Text.Json.Serialization;
@@ -6,227 +7,251 @@ using System.Text;
 using MailKit.Security;
 using System.Linq;
 
-var builder = WebApplication.CreateBuilder(args);
+// Issue #63: Serilog bootstrap — the convention NotificationService has
+// run since well before this repo’s CI era: sinks configured from
+// appsettings.json, console startup failures also land as Fatal in the
+// daily-rolling file (mounted at /app/Logs), CloseAndFlush on exit.
+Log.Logger = new LoggerConfiguration()
+    .ReadFrom.Configuration(new ConfigurationBuilder()
+        .AddJsonFile("appsettings.json")
+        .Build())
+    .CreateLogger();
 
-// Configuration sections
-builder.Configuration.AddJsonFile("appsettings.json", optional: false, reloadOnChange: true)
-                   .AddJsonFile("appsettings.Development.json", optional: true, reloadOnChange: true)
-                   .AddEnvironmentVariables();
-
-// Add services
-builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
-builder.Services.AddHealthChecks();
-builder.Services.AddAuthorization();
-builder.Services.AddAuthentication();
-
-// CORS
-builder.Services.AddCors(options =>
+try
 {
-    options.AddPolicy("AllowFrontend", policy =>
+    Log.Information("Starting UserService...");
+
+    var builder = WebApplication.CreateBuilder(args);
+    builder.Host.UseSerilog(); // Issue #63: route all ILogger<T> through the static Serilog logger above
+    
+    // Configuration sections
+    builder.Configuration.AddJsonFile("appsettings.json", optional: false, reloadOnChange: true)
+                       .AddJsonFile("appsettings.Development.json", optional: true, reloadOnChange: true)
+                       .AddEnvironmentVariables();
+    
+    // Add services
+    builder.Services.AddEndpointsApiExplorer();
+    builder.Services.AddSwaggerGen();
+    builder.Services.AddHealthChecks();
+    builder.Services.AddAuthorization();
+    builder.Services.AddAuthentication();
+    
+    // CORS
+    builder.Services.AddCors(options =>
     {
-        policy.WithOrigins("http://localhost:5173", "http://localhost:3000")
-              .AllowAnyMethod()
-              .AllowAnyHeader()
-              .AllowCredentials();
+        options.AddPolicy("AllowFrontend", policy =>
+        {
+            policy.WithOrigins("http://localhost:5173", "http://localhost:3000")
+                  .AllowAnyMethod()
+                  .AllowAnyHeader()
+                  .AllowCredentials();
+        });
     });
-});
-
-// DbContext - using SQLite for simplicity
-builder.Services.AddDbContext<UserDbContext>(options =>
-    options.UseSqlite(builder.Configuration.GetConnectionString("DefaultConnection") ?? "Data Source=users.db"));
-
-// Authentication - JWT
-var jwtSection = builder.Configuration.GetSection("Jwt");
-var jwtKey = jwtSection.GetValue<string>("Key") ?? "ReplaceThisWithASecretKeyForDevelopment";
-var keyBytes = Encoding.UTF8.GetBytes(jwtKey);
-
-builder.Services.AddAuthentication(options =>
-{
-    options.DefaultAuthenticateScheme = "JwtBearer";
-    options.DefaultChallengeScheme = "JwtBearer";
-})
-.AddJwtBearer("JwtBearer", options =>
-{
-    options.TokenValidationParameters = new TokenValidationParameters
+    
+    // DbContext - using SQLite for simplicity
+    builder.Services.AddDbContext<UserDbContext>(options =>
+        options.UseSqlite(builder.Configuration.GetConnectionString("DefaultConnection") ?? "Data Source=users.db"));
+    
+    // Authentication - JWT
+    var jwtSection = builder.Configuration.GetSection("Jwt");
+    var jwtKey = jwtSection.GetValue<string>("Key") ?? "ReplaceThisWithASecretKeyForDevelopment";
+    var keyBytes = Encoding.UTF8.GetBytes(jwtKey);
+    
+    builder.Services.AddAuthentication(options =>
     {
-        ValidateIssuer = true,
-        ValidateAudience = true,
-        ValidateLifetime = true,
-        ValidateIssuerSigningKey = true,
-        ValidIssuer = jwtSection.GetValue<string>("Issuer") ?? "evm.local",
-        ValidAudience = jwtSection.GetValue<string>("Audience") ?? "evm.local",
-        IssuerSigningKey = new SymmetricSecurityKey(keyBytes)
-    };
-});
-
-// Add minimal services
-builder.Services.AddScoped<IUserService, UserServiceImpl>();
-builder.Services.AddScoped<IEmailService, EmailService>();
-builder.Services.AddLogging();
-
-
-var app = builder.Build();
-
-// Apply migrations and seed data at startup
-using (var scope = app.Services.CreateScope())
-{
-    var db = scope.ServiceProvider.GetRequiredService<UserDbContext>();
-    db.Database.Migrate();
-
-    // Seed Dealers if empty
-    if (!db.Dealers.Any())
+        options.DefaultAuthenticateScheme = "JwtBearer";
+        options.DefaultChallengeScheme = "JwtBearer";
+    })
+    .AddJwtBearer("JwtBearer", options =>
     {
-        db.Dealers.AddRange(
-            new Dealer { Name = "VinFast Ocean Park", Address = "Vinhomes Ocean Park, Gia Lam, Ha Noi" },
-            new Dealer { Name = "VinFast Times City", Address = "458 Minh Khai, Hai Ba Trung, Ha Noi" },
-            new Dealer { Name = "VinFast Landmark 81", Address = "Vinhomes Central Park, Binh Thanh, TP.HCM" }
-        );
-        db.SaveChanges();
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidateAudience = true,
+            ValidateLifetime = true,
+            ValidateIssuerSigningKey = true,
+            ValidIssuer = jwtSection.GetValue<string>("Issuer") ?? "evm.local",
+            ValidAudience = jwtSection.GetValue<string>("Audience") ?? "evm.local",
+            IssuerSigningKey = new SymmetricSecurityKey(keyBytes)
+        };
+    });
+    
+    // Add minimal services
+    builder.Services.AddScoped<IUserService, UserServiceImpl>();
+    builder.Services.AddScoped<IEmailService, EmailService>();
+    builder.Services.AddLogging();
+    
+    
+    var app = builder.Build();
+    
+    // Apply migrations and seed data at startup
+    using (var scope = app.Services.CreateScope())
+    {
+        var db = scope.ServiceProvider.GetRequiredService<UserDbContext>();
+        db.Database.Migrate();
+    
+        // Seed Dealers if empty
+        if (!db.Dealers.Any())
+        {
+            db.Dealers.AddRange(
+                new Dealer { Name = "VinFast Ocean Park", Address = "Vinhomes Ocean Park, Gia Lam, Ha Noi" },
+                new Dealer { Name = "VinFast Times City", Address = "458 Minh Khai, Hai Ba Trung, Ha Noi" },
+                new Dealer { Name = "VinFast Landmark 81", Address = "Vinhomes Central Park, Binh Thanh, TP.HCM" }
+            );
+            db.SaveChanges();
+        }
     }
+    
+    // Configure middleware
+    if (app.Environment.IsDevelopment())
+    {
+        app.UseSwagger();
+        app.UseSwaggerUI();
+    }
+    
+    app.UseHttpsRedirection();
+    app.UseCors("AllowFrontend");
+    app.UseAuthentication();
+    app.UseAuthorization();
+    
+    // Liveness probe for the API gateway aggregate /health (docs/GATEWAY.md).
+    app.MapHealthChecks("/health");
+    
+    app.MapPost("/api/auth/register", async (RegisterRequest req, IUserService userService) =>
+    {
+        var result = await userService.RegisterAsync(req);
+        return result.Success ? Results.Created($"/api/users/{result.UserId}", result) : Results.BadRequest(result);
+    });
+    
+    app.MapPost("/api/auth/login", async (LoginRequest req, IUserService userService) =>
+    {
+        var result = await userService.LoginAsync(req);
+        return result.Success ? Results.Ok(result) : Results.BadRequest(result);
+    });
+    
+    app.MapPost("/api/auth/forgot-password", async ([FromBody] ForgotPasswordRequest req, IUserService userService) =>
+    {
+        var result = await userService.ForgotPasswordAsync(req);
+        return Results.Ok(result);
+    });
+    
+    app.MapPost("/api/auth/reset-password", async ([FromBody] ResetPasswordRequest req, IUserService userService) =>
+    {
+        var result = await userService.ResetPasswordAsync(req);
+        return result.Success ? Results.Ok(result) : Results.BadRequest(result);
+    });
+    
+    // Issue #50: authenticated in-session password change (Settings page posts
+    // {currentPassword, newPassword} with the login JWT attached by services/api.js).
+    // Unlike reset-password, no email token is involved: the current password IS
+    // the proof of ownership, and a wrong one is a plain 400 — the same shape the
+    // login endpoint uses so the frontend toast wording stays consistent.
+    app.MapPost("/api/auth/change-password", [Microsoft.AspNetCore.Authorization.Authorize] async (System.Security.Claims.ClaimsPrincipal user, ChangePasswordRequest req, IUserService userService) =>
+    {
+        var userIdClaim = user.FindFirst("id")?.Value;
+        if (!int.TryParse(userIdClaim, out var userId))
+            return Results.Unauthorized();
+    
+        var result = await userService.ChangePasswordAsync(userId, req);
+        return result.Success ? Results.Ok(result) : Results.BadRequest(result);
+    });
+    
+    app.MapGet("/api/users/me", [Microsoft.AspNetCore.Authorization.Authorize] async (System.Security.Claims.ClaimsPrincipal user, IUserService userService) =>
+    {
+        var userIdClaim = user.FindFirst("id")?.Value;
+        if (!int.TryParse(userIdClaim, out var userId))
+            return Results.Unauthorized();
+    
+        var result = await userService.GetUserByIdAsync(userId);
+        return result.Success ? Results.Ok(result.User) : Results.NotFound(result.Message);
+    });
+    
+    // User management endpoints - Admin only
+    app.MapGet("/api/users", [Microsoft.AspNetCore.Authorization.Authorize(Roles = "Admin")] async (IUserService userService) =>
+    {
+        var result = await userService.GetUsersAsync();
+        return result.Success ? Results.Ok(result) : Results.BadRequest(result);
+    });
+    
+    // New endpoint for Admin to create approved users
+    app.MapPost("/api/admin/users", [Microsoft.AspNetCore.Authorization.Authorize(Roles = "Admin")] async (RegisterRequest req, IUserService userService) =>
+    {
+        var result = await userService.CreateApprovedUserAsync(req);
+        return result.Success ? Results.Created($"/api/users/{result.UserId}", result) : Results.BadRequest(result);
+    });
+    
+    app.MapGet("/api/users/{id:int}", [Microsoft.AspNetCore.Authorization.Authorize] async (int id, System.Security.Claims.ClaimsPrincipal user, IUserService userService) =>
+    {
+        var currentUserRole = user.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value ?? "";
+        var currentUserIdClaim = user.FindFirst("id")?.Value;
+        if (!int.TryParse(currentUserIdClaim, out var currentUserId))
+            return Results.Unauthorized();
+    
+        if (currentUserRole != "Admin" && currentUserId != id)
+            return Results.Forbid();
+    
+        var result = await userService.GetUserByIdAsync(id);
+        return result.Success ? Results.Ok(result) : Results.NotFound(result.Message);
+    });
+    
+    app.MapPut("/api/users/{id:int}", [Microsoft.AspNetCore.Authorization.Authorize] async (int id, UpdateUserRequest request, System.Security.Claims.ClaimsPrincipal user, IUserService userService) =>
+    {
+        var currentUserRole = user.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value ?? "";
+        var currentUserIdClaim = user.FindFirst("id")?.Value;
+        if (!int.TryParse(currentUserIdClaim, out var currentUserId))
+            return Results.Unauthorized();
+    
+        var result = await userService.UpdateUserAsync(id, request, currentUserRole, currentUserId);
+        return result.Success ? Results.Ok(result) : Results.BadRequest(result);
+    });
+    
+    app.MapDelete("/api/users/{id:int}", [Microsoft.AspNetCore.Authorization.Authorize(Roles = "Admin")] async (int id, System.Security.Claims.ClaimsPrincipal user, IUserService userService) =>
+    {
+        var currentUserRole = user.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value ?? "";
+    
+        var result = await userService.DeleteUserAsync(id, currentUserRole);
+        return result.Success ? Results.Ok(result) : Results.BadRequest(result);
+    });
+    
+    app.MapPut("/api/users/{id:int}/role", [Microsoft.AspNetCore.Authorization.Authorize(Roles = "Admin")] async (int id, ChangeRoleRequest request, IUserService userService) =>
+    {
+        var result = await userService.ChangeUserRoleAsync(id, request);
+        return result.Success ? Results.Ok(result) : Results.BadRequest(result);
+    });
+    
+    app.MapPut("/api/users/{id:int}/approve", [Microsoft.AspNetCore.Authorization.Authorize(Roles = "Admin")] async (int id, IUserService userService) =>
+    {
+        var result = await userService.ApproveUserAsync(id);
+        return result.Success ? Results.Ok(result) : Results.BadRequest(result);
+    });
+    
+    // Dealer endpoint
+    app.MapGet("/api/dealers", async (UserDbContext db) =>
+    {
+        var dealers = await db.Dealers.ToListAsync();
+        return Results.Ok(dealers);
+    });
+    
+    // Internal endpoint for ReportingService to get users (no auth required for internal service calls)
+    app.MapGet("/api/internal/users", async (UserDbContext db) =>
+    {
+        var users = await db.Users
+            .Select(u => new UserDto(u.Id, u.Username, u.Email, u.FullName, u.Role, u.IsActive, u.DealerId, u.CreatedAt, u.UpdatedAt))
+            .ToListAsync();
+        return Results.Ok(users);
+    });
+    
+    
+    app.Run();
 }
-
-// Configure middleware
-if (app.Environment.IsDevelopment())
+catch (Exception ex)
 {
-    app.UseSwagger();
-    app.UseSwaggerUI();
+    Log.Fatal(ex, "UserService failed to start");
 }
-
-app.UseHttpsRedirection();
-app.UseCors("AllowFrontend");
-app.UseAuthentication();
-app.UseAuthorization();
-
-// Liveness probe for the API gateway aggregate /health (docs/GATEWAY.md).
-app.MapHealthChecks("/health");
-
-app.MapPost("/api/auth/register", async (RegisterRequest req, IUserService userService) =>
+finally
 {
-    var result = await userService.RegisterAsync(req);
-    return result.Success ? Results.Created($"/api/users/{result.UserId}", result) : Results.BadRequest(result);
-});
-
-app.MapPost("/api/auth/login", async (LoginRequest req, IUserService userService) =>
-{
-    var result = await userService.LoginAsync(req);
-    return result.Success ? Results.Ok(result) : Results.BadRequest(result);
-});
-
-app.MapPost("/api/auth/forgot-password", async ([FromBody] ForgotPasswordRequest req, IUserService userService) =>
-{
-    var result = await userService.ForgotPasswordAsync(req);
-    return Results.Ok(result);
-});
-
-app.MapPost("/api/auth/reset-password", async ([FromBody] ResetPasswordRequest req, IUserService userService) =>
-{
-    var result = await userService.ResetPasswordAsync(req);
-    return result.Success ? Results.Ok(result) : Results.BadRequest(result);
-});
-
-// Issue #50: authenticated in-session password change (Settings page posts
-// {currentPassword, newPassword} with the login JWT attached by services/api.js).
-// Unlike reset-password, no email token is involved: the current password IS
-// the proof of ownership, and a wrong one is a plain 400 — the same shape the
-// login endpoint uses so the frontend toast wording stays consistent.
-app.MapPost("/api/auth/change-password", [Microsoft.AspNetCore.Authorization.Authorize] async (System.Security.Claims.ClaimsPrincipal user, ChangePasswordRequest req, IUserService userService) =>
-{
-    var userIdClaim = user.FindFirst("id")?.Value;
-    if (!int.TryParse(userIdClaim, out var userId))
-        return Results.Unauthorized();
-
-    var result = await userService.ChangePasswordAsync(userId, req);
-    return result.Success ? Results.Ok(result) : Results.BadRequest(result);
-});
-
-app.MapGet("/api/users/me", [Microsoft.AspNetCore.Authorization.Authorize] async (System.Security.Claims.ClaimsPrincipal user, IUserService userService) =>
-{
-    var userIdClaim = user.FindFirst("id")?.Value;
-    if (!int.TryParse(userIdClaim, out var userId))
-        return Results.Unauthorized();
-
-    var result = await userService.GetUserByIdAsync(userId);
-    return result.Success ? Results.Ok(result.User) : Results.NotFound(result.Message);
-});
-
-// User management endpoints - Admin only
-app.MapGet("/api/users", [Microsoft.AspNetCore.Authorization.Authorize(Roles = "Admin")] async (IUserService userService) =>
-{
-    var result = await userService.GetUsersAsync();
-    return result.Success ? Results.Ok(result) : Results.BadRequest(result);
-});
-
-// New endpoint for Admin to create approved users
-app.MapPost("/api/admin/users", [Microsoft.AspNetCore.Authorization.Authorize(Roles = "Admin")] async (RegisterRequest req, IUserService userService) =>
-{
-    var result = await userService.CreateApprovedUserAsync(req);
-    return result.Success ? Results.Created($"/api/users/{result.UserId}", result) : Results.BadRequest(result);
-});
-
-app.MapGet("/api/users/{id:int}", [Microsoft.AspNetCore.Authorization.Authorize] async (int id, System.Security.Claims.ClaimsPrincipal user, IUserService userService) =>
-{
-    var currentUserRole = user.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value ?? "";
-    var currentUserIdClaim = user.FindFirst("id")?.Value;
-    if (!int.TryParse(currentUserIdClaim, out var currentUserId))
-        return Results.Unauthorized();
-
-    if (currentUserRole != "Admin" && currentUserId != id)
-        return Results.Forbid();
-
-    var result = await userService.GetUserByIdAsync(id);
-    return result.Success ? Results.Ok(result) : Results.NotFound(result.Message);
-});
-
-app.MapPut("/api/users/{id:int}", [Microsoft.AspNetCore.Authorization.Authorize] async (int id, UpdateUserRequest request, System.Security.Claims.ClaimsPrincipal user, IUserService userService) =>
-{
-    var currentUserRole = user.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value ?? "";
-    var currentUserIdClaim = user.FindFirst("id")?.Value;
-    if (!int.TryParse(currentUserIdClaim, out var currentUserId))
-        return Results.Unauthorized();
-
-    var result = await userService.UpdateUserAsync(id, request, currentUserRole, currentUserId);
-    return result.Success ? Results.Ok(result) : Results.BadRequest(result);
-});
-
-app.MapDelete("/api/users/{id:int}", [Microsoft.AspNetCore.Authorization.Authorize(Roles = "Admin")] async (int id, System.Security.Claims.ClaimsPrincipal user, IUserService userService) =>
-{
-    var currentUserRole = user.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value ?? "";
-
-    var result = await userService.DeleteUserAsync(id, currentUserRole);
-    return result.Success ? Results.Ok(result) : Results.BadRequest(result);
-});
-
-app.MapPut("/api/users/{id:int}/role", [Microsoft.AspNetCore.Authorization.Authorize(Roles = "Admin")] async (int id, ChangeRoleRequest request, IUserService userService) =>
-{
-    var result = await userService.ChangeUserRoleAsync(id, request);
-    return result.Success ? Results.Ok(result) : Results.BadRequest(result);
-});
-
-app.MapPut("/api/users/{id:int}/approve", [Microsoft.AspNetCore.Authorization.Authorize(Roles = "Admin")] async (int id, IUserService userService) =>
-{
-    var result = await userService.ApproveUserAsync(id);
-    return result.Success ? Results.Ok(result) : Results.BadRequest(result);
-});
-
-// Dealer endpoint
-app.MapGet("/api/dealers", async (UserDbContext db) =>
-{
-    var dealers = await db.Dealers.ToListAsync();
-    return Results.Ok(dealers);
-});
-
-// Internal endpoint for ReportingService to get users (no auth required for internal service calls)
-app.MapGet("/api/internal/users", async (UserDbContext db) =>
-{
-    var users = await db.Users
-        .Select(u => new UserDto(u.Id, u.Username, u.Email, u.FullName, u.Role, u.IsActive, u.DealerId, u.CreatedAt, u.UpdatedAt))
-        .ToListAsync();
-    return Results.Ok(users);
-});
-
-
-app.Run();
+    Log.CloseAndFlush();
+}
 
 // DTOs and minimal implementations
 public record RegisterRequest(string Username, string Email, string FullName, string Password, string Role, int? DealerId);
