@@ -100,22 +100,21 @@ User → Frontend → SalesService.CreateOrder() → RabbitMQ → NotificationSe
 - [x] VehicleService `/reserve` endpoint + publish event
 - [x] Frontend UI Form đặt xe (gọi VehicleService)
 
-### ⏳ TODO:
-1. **Check SalesService publish event chưa**
-   - Nếu chưa → Thêm code publish `sales.completed`
-   - Update `SaleCompletedEvent` DTO có `DeviceToken`
+### ✅ ĐÃ LÀM XONG (cập nhật sau này — đối chiếu code hiện tại):
+1. ✅ **SalesService đã publish event**
+   - `OrdersController.cs` publish `order.created` + `sales.completed` sau khi lưu order (`POST /api/orders/complete`)
+   - `SaleCompletedEvent` DTO đã có `DeviceToken` (+ `CustomerId` cho registry fallback, Issue #37)
 
-2. **Check CustomerService có TestDrive endpoint chưa**
-   - Nếu chưa → Tạo endpoint
-   - Publish `testdrive.scheduled` event
+2. ✅ **CustomerService đã có TestDrive endpoint**
+   - `TestDrivesController.cs`: `POST /api/TestDrives`
+   - `TestDriveService.cs` publish `TestDriveScheduledEvent` lên queue `testdrive.scheduled`
 
-3. **Tạo 2 UI forms khác (Optional - nếu cần demo đầy đủ):**
-   - Form tạo Order (SalesService) - Cho khách mua xe
-   - Form đặt TestDrive (CustomerService) - Cho khách lái thử
+3. ✅ **2 UI forms đã tạo:**
+   - `OrderCreateFromQuote.jsx` — form tạo Order (SalesService) - Cho khách mua xe
+   - `TestDriveForm.jsx` — form đặt TestDrive (CustomerService) - Cho khách lái thử
 
-4. **Documentation:**
-   - Ghi rõ use case của mỗi endpoint
-   - Dealer đặt xe vs Customer mua xe
+4. ✅ **Documentation:** `docs/EVENTS.md` ghi rõ use case từng event
+   (`vehicle.reserved` = dealer đặt xe từ hãng, `sales.completed` = khách mua xe, `testdrive.scheduled` = lái thử)
 
 ---
 
@@ -145,9 +144,11 @@ User → Frontend → SalesService.CreateOrder() → RabbitMQ → NotificationSe
 | Use Case | User | Service | Endpoint | Event | Notification |
 |----------|------|---------|----------|-------|--------------|
 | Dealer đặt xe từ hãng | Dealer Staff | VehicleService | POST /vehicles/{id}/reserve | vehicle.reserved | ✅ DONE |
-| Khách mua xe | Customer | SalesService | POST /sales/orders | sales.completed | ⏳ TODO |
-| Khách đặt lái thử | Customer | CustomerService | POST /testdrive | testdrive.scheduled | ⏳ TODO |
+| Khách mua xe | Customer | SalesService | POST /api/orders/complete | sales.completed | ✅ DONE |
+| Khách đặt lái thử | Customer | CustomerService | POST /api/TestDrives | testdrive.scheduled | ✅ DONE |
 
 ---
 
 **QUYẾT ĐỊNH: Giữ nguyên code VehicleService đã làm, chỉ cần bổ sung SalesService!**
+
+*(Cập nhật sau này: đã bổ sung xong — SalesService lẫn CustomerService đều đã publish event, xem mục ĐÃ LÀM XONG phía trên.)*

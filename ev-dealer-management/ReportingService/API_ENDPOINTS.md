@@ -11,7 +11,7 @@ cd ReportingService
 dotnet run
 ```
 
-Ứng dụng sẽ chạy trên: **https://localhost:5214** (hoặc cổng được cấu hình trong appsettings.json)
+Ứng dụng sẽ chạy trên: **http://localhost:5208** (http profile trong launchSettings.json; bản Docker map `5208:80`; nếu chạy profile https sẽ ở `https://localhost:7245`)
 
 ## 📚 API Endpoints
 
@@ -25,19 +25,19 @@ Lấy tất cả dữ liệu tổng hợp doanh số với các bộ lọc tùy 
 
 - `fromDate` (optional): Lọc từ ngày (DateTime)
 - `toDate` (optional): Lọc đến ngày (DateTime)
-- `dealerId` (optional): Lọc theo ID đại lý (Guid)
+- `dealerId` (optional): Lọc theo ID đại lý (int)
 
 **Example:**
 
 ```bash
 # Lấy tất cả doanh số
-curl -X GET "https://localhost:5214/api/reports/sales-summary"
+curl -X GET "http://localhost:5208/api/reports/sales-summary"
 
 # Lấy doanh số trong khoảng thời gian
-curl -X GET "https://localhost:5214/api/reports/sales-summary?fromDate=2025-01-01&toDate=2025-01-31"
+curl -X GET "http://localhost:5208/api/reports/sales-summary?fromDate=2025-01-01&toDate=2025-01-31"
 
 # Lấy doanh số của một đại lý cụ thể
-curl -X GET "https://localhost:5214/api/reports/sales-summary?dealerId=550e8400-e29b-41d4-a716-446655440000"
+curl -X GET "http://localhost:5208/api/reports/sales-summary?dealerId=1"
 ```
 
 **Response (200 OK):**
@@ -50,10 +50,10 @@ curl -X GET "https://localhost:5214/api/reports/sales-summary?dealerId=550e8400-
     {
       "id": "550e8400-e29b-41d4-a716-446655440001",
       "date": "2025-01-15T00:00:00Z",
-      "dealerId": "550e8400-e29b-41d4-a716-446655440000",
+      "dealerId": 1,
       "dealerName": "Dealer Hà Nội",
       "region": "Miền Bắc",
-      "salespersonId": "550e8400-e29b-41d4-a716-446655440002",
+      "salespersonId": 2,
       "salespersonName": "Nguyễn Văn A",
       "totalOrders": 5,
       "totalRevenue": 1500000000,
@@ -76,7 +76,7 @@ Lấy chi tiết một doanh số cụ thể theo ID.
 **Example:**
 
 ```bash
-curl -X GET "https://localhost:5214/api/reports/sales-summary/550e8400-e29b-41d4-a716-446655440001"
+curl -X GET "http://localhost:5208/api/reports/sales-summary/550e8400-e29b-41d4-a716-446655440001"
 ```
 
 **Response (200 OK):**
@@ -87,10 +87,10 @@ curl -X GET "https://localhost:5214/api/reports/sales-summary/550e8400-e29b-41d4
   "data": {
     "id": "550e8400-e29b-41d4-a716-446655440001",
     "date": "2025-01-15T00:00:00Z",
-    "dealerId": "550e8400-e29b-41d4-a716-446655440000",
+    "dealerId": 1,
     "dealerName": "Dealer Hà Nội",
     "region": "Miền Bắc",
-    "salespersonId": "550e8400-e29b-41d4-a716-446655440002",
+    "salespersonId": 2,
     "salespersonName": "Nguyễn Văn A",
     "totalOrders": 5,
     "totalRevenue": 1500000000,
@@ -118,10 +118,10 @@ Thêm một dữ liệu tổng hợp doanh số mới (dùng cho test).
 ```json
 {
   "date": "2025-01-15T00:00:00Z",
-  "dealerId": "550e8400-e29b-41d4-a716-446655440000",
+  "dealerId": 1,
   "dealerName": "Dealer Hà Nội",
   "region": "Miền Bắc",
-  "salespersonId": "550e8400-e29b-41d4-a716-446655440002",
+  "salespersonId": 2,
   "salespersonName": "Nguyễn Văn A",
   "totalOrders": 5,
   "totalRevenue": 1500000000
@@ -133,15 +133,16 @@ Thêm một dữ liệu tổng hợp doanh số mới (dùng cho test).
 ```powershell
 $body = @{
     date = "2025-01-15T00:00:00Z"
-    dealerId = "550e8400-e29b-41d4-a716-446655440000"
+    dealerId = 1
     dealerName = "Dealer Hà Nội"
-    salespersonId = "550e8400-e29b-41d4-a716-446655440002"
+    region = "Miền Bắc"
+    salespersonId = 2
     salespersonName = "Nguyễn Văn A"
     totalOrders = 5
     totalRevenue = 1500000000
 } | ConvertTo-Json
 
-curl -X POST "https://localhost:5214/api/reports/sales-summary" `
+curl -X POST "http://localhost:5208/api/reports/sales-summary" `
   -ContentType "application/json" `
   -Body $body
 ```
@@ -154,10 +155,10 @@ curl -X POST "https://localhost:5214/api/reports/sales-summary" `
   "data": {
     "id": "550e8400-e29b-41d4-a716-446655440001",
     "date": "2025-01-15T00:00:00Z",
-    "dealerId": "550e8400-e29b-41d4-a716-446655440000",
+    "dealerId": 1,
     "dealerName": "Dealer Hà Nội",
     "region": "Miền Bắc",
-    "salespersonId": "550e8400-e29b-41d4-a716-446655440002",
+    "salespersonId": 2,
     "salespersonName": "Nguyễn Văn A",
     "totalOrders": 5,
     "totalRevenue": 1500000000,
@@ -176,20 +177,20 @@ Lấy tất cả dữ liệu tổng hợp tồn kho với các bộ lọc tùy c
 
 **Query Parameters:**
 
-- `dealerId` (optional): Lọc theo ID đại lý (Guid)
-- `vehicleId` (optional): Lọc theo ID xe (Guid)
+- `dealerId` (optional): Lọc theo ID đại lý (int)
+- `vehicleId` (optional): Lọc theo ID xe (int)
 
 **Example:**
 
 ```bash
 # Lấy tất cả tồn kho
-curl -X GET "https://localhost:5214/api/reports/inventory-summary"
+curl -X GET "http://localhost:5208/api/reports/inventory-summary"
 
 # Lấy tồn kho của một đại lý
-curl -X GET "https://localhost:5214/api/reports/inventory-summary?dealerId=550e8400-e29b-41d4-a716-446655440000"
+curl -X GET "http://localhost:5208/api/reports/inventory-summary?dealerId=1"
 
 # Lấy tồn kho của một loại xe
-curl -X GET "https://localhost:5214/api/reports/inventory-summary?vehicleId=550e8400-e29b-41d4-a716-446655440003"
+curl -X GET "http://localhost:5208/api/reports/inventory-summary?vehicleId=3"
 ```
 
 **Response (200 OK):**
@@ -201,9 +202,9 @@ curl -X GET "https://localhost:5214/api/reports/inventory-summary?vehicleId=550e
   "data": [
     {
       "id": "550e8400-e29b-41d4-a716-446655440010",
-      "vehicleId": "550e8400-e29b-41d4-a716-446655440003",
+      "vehicleId": 3,
       "vehicleName": "Tesla Model 3",
-      "dealerId": "550e8400-e29b-41d4-a716-446655440000",
+      "dealerId": 1,
       "dealerName": "Dealer Hà Nội",
       "stockCount": 15,
       "lastUpdatedAt": "2025-01-15T10:30:00Z"
@@ -225,7 +226,7 @@ Lấy chi tiết một tồn kho cụ thể theo ID.
 **Example:**
 
 ```bash
-curl -X GET "https://localhost:5214/api/reports/inventory-summary/550e8400-e29b-41d4-a716-446655440010"
+curl -X GET "http://localhost:5208/api/reports/inventory-summary/550e8400-e29b-41d4-a716-446655440010"
 ```
 
 **Response (200 OK):**
@@ -235,9 +236,9 @@ curl -X GET "https://localhost:5214/api/reports/inventory-summary/550e8400-e29b-
   "success": true,
   "data": {
     "id": "550e8400-e29b-41d4-a716-446655440010",
-    "vehicleId": "550e8400-e29b-41d4-a716-446655440003",
+    "vehicleId": 3,
     "vehicleName": "Tesla Model 3",
-    "dealerId": "550e8400-e29b-41d4-a716-446655440000",
+    "dealerId": 1,
     "dealerName": "Dealer Hà Nội",
     "stockCount": 15,
     "lastUpdatedAt": "2025-01-15T10:30:00Z"
@@ -255,10 +256,11 @@ Thêm một dữ liệu tồn kho mới (dùng cho test).
 
 ```json
 {
-  "vehicleId": "550e8400-e29b-41d4-a716-446655440003",
+  "vehicleId": 3,
   "vehicleName": "Tesla Model 3",
-  "dealerId": "550e8400-e29b-41d4-a716-446655440000",
+  "dealerId": 1,
   "dealerName": "Dealer Hà Nội",
+  "region": "Miền Bắc",
   "stockCount": 15
 }
 ```
@@ -267,14 +269,15 @@ Thêm một dữ liệu tồn kho mới (dùng cho test).
 
 ```powershell
 $body = @{
-    vehicleId = "550e8400-e29b-41d4-a716-446655440003"
+    vehicleId = 3
     vehicleName = "Tesla Model 3"
-    dealerId = "550e8400-e29b-41d4-a716-446655440000"
+    dealerId = 1
     dealerName = "Dealer Hà Nội"
+    region = "Miền Bắc"
     stockCount = 15
 } | ConvertTo-Json
 
-curl -X POST "https://localhost:5214/api/reports/inventory-summary" `
+curl -X POST "http://localhost:5208/api/reports/inventory-summary" `
   -ContentType "application/json" `
   -Body $body
 ```
@@ -286,9 +289,9 @@ curl -X POST "https://localhost:5214/api/reports/inventory-summary" `
   "success": true,
   "data": {
     "id": "550e8400-e29b-41d4-a716-446655440010",
-    "vehicleId": "550e8400-e29b-41d4-a716-446655440003",
+    "vehicleId": 3,
     "vehicleName": "Tesla Model 3",
-    "dealerId": "550e8400-e29b-41d4-a716-446655440000",
+    "dealerId": 1,
     "dealerName": "Dealer Hà Nội",
     "stockCount": 15,
     "lastUpdatedAt": "2025-01-15T10:30:00Z"
@@ -313,8 +316,8 @@ Lấy tổng hợp metrics báo cáo.
 **Example:**
 
 ```bash
-curl -X GET "https://localhost:5214/api/reports/summary"
-curl -X GET "https://localhost:5214/api/reports/summary?from=2025-01-01&to=2025-01-31"
+curl -X GET "http://localhost:5208/api/reports/summary"
+curl -X GET "http://localhost:5208/api/reports/summary?from=2025-01-01&to=2025-01-31"
 ```
 
 **Response (200 OK):**
@@ -348,8 +351,8 @@ Lấy doanh số group theo Region (Miền Bắc, Miền Trung, Miền Nam).
 **Example:**
 
 ```bash
-curl -X GET "https://localhost:5214/api/reports/sales-by-region"
-curl -X GET "https://localhost:5214/api/reports/sales-by-region?from=2025-01-01&to=2025-01-31"
+curl -X GET "http://localhost:5208/api/reports/sales-by-region"
+curl -X GET "http://localhost:5208/api/reports/sales-by-region?from=2025-01-01&to=2025-01-31"
 ```
 
 **Response (200 OK):**
@@ -388,7 +391,7 @@ Lấy tỷ trọng doanh số theo Region (cho donut chart).
 **Example:**
 
 ```bash
-curl -X GET "https://localhost:5214/api/reports/sales-proportion"
+curl -X GET "http://localhost:5208/api/reports/sales-proportion"
 ```
 
 **Response (200 OK):**
@@ -426,7 +429,7 @@ curl -X GET "https://localhost:5214/api/reports/sales-proportion"
 Khi ứng dụng chạy, bạn có thể truy cập Swagger UI tại:
 
 ```
-https://localhost:5214/swagger/index.html
+http://localhost:5208/swagger/index.html
 ```
 
 Từ đó, bạn có thể:
@@ -442,13 +445,14 @@ Từ đó, bạn có thể:
 ### Tạo một bản ghi doanh số
 
 ```bash
-curl -X POST "https://localhost:5214/api/reports/sales-summary" \
+curl -X POST "http://localhost:5208/api/reports/sales-summary" \
   -H "Content-Type: application/json" \
   -d '{
     "date": "2025-01-15T00:00:00Z",
-    "dealerId": "550e8400-e29b-41d4-a716-446655440000",
+    "dealerId": 1,
     "dealerName": "Dealer Hà Nội",
-    "salespersonId": "550e8400-e29b-41d4-a716-446655440002",
+    "region": "Miền Bắc",
+    "salespersonId": 2,
     "salespersonName": "Nguyễn Văn A",
     "totalOrders": 5,
     "totalRevenue": 1500000000
@@ -458,13 +462,13 @@ curl -X POST "https://localhost:5214/api/reports/sales-summary" \
 ### Lấy doanh số của tháng 1
 
 ```bash
-curl -X GET "https://localhost:5214/api/reports/sales-summary?fromDate=2025-01-01&toDate=2025-01-31"
+curl -X GET "http://localhost:5208/api/reports/sales-summary?fromDate=2025-01-01&toDate=2025-01-31"
 ```
 
 ### Lấy tồn kho của Dealer Hà Nội
 
 ```bash
-curl -X GET "https://localhost:5214/api/reports/inventory-summary?dealerId=550e8400-e29b-41d4-a716-446655440000"
+curl -X GET "http://localhost:5208/api/reports/inventory-summary?dealerId=1"
 ```
 
 ---

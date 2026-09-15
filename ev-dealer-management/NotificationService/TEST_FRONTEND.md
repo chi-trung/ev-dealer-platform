@@ -208,10 +208,10 @@ docker ps | findstr rabbitmq
 ## 🚀 Next Steps (Sau Khi Test Xong)
 
 1. ✅ Test frontend đặt xe → Notification
-2. 🔜 Tích hợp SalesService (order confirmation email)
-3. 🔜 Test drive scheduling (CustomerService)
-4. 🔜 API Gateway routing
-5. 🔜 Docker Compose full stack
+2. ✅ Tích hợp SalesService — SaleCompletedEvent đã publish (`SalesService/Controllers/OrdersController.cs`) và NotificationService đã push FCM (`Consumers/SaleCompletedConsumer.cs`); email xác nhận order vẫn **chưa implement**
+3. ✅ Test drive scheduling — CustomerService đã publish TestDriveScheduledEvent (`Services/TestDriveService.cs`), NotificationService gửi push FCM (`Consumers/TestDriveScheduledConsumer.cs`); email xác nhận **chưa implement**
+4. ✅ API Gateway routing — `APIGatewayService/ocelot.json` đã có `/api/Notification/*`, `/api/notifications/*`, `/api/DeviceTokens/*` → NotificationService (port 5051)
+5. ✅ Docker Compose full stack — `docker-compose.yml` đã có đủ 7 services + RabbitMQ
 
 ---
 

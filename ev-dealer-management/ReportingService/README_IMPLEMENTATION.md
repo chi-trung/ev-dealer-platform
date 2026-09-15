@@ -19,17 +19,17 @@
 - `IVehicleDataService` / `VehicleDataService`: Fetch dữ liệu từ VehicleService
 - `IReportService` / `ReportService`: Business logic để tạo các báo cáo
 
-### 3. Endpoints mới
-- `GET /api/reports/dealer-sales`: Báo cáo doanh số đại lý
-- `GET /api/reports/dealer-debt`: Báo cáo công nợ đại lý
-- `GET /api/reports/total-sales-dashboard`: Dashboard doanh số tổng
-- `GET /api/reports/inventory-analysis`: Phân tích tồn kho
-- `GET /api/reports/demand-forecast`: AI dự báo nhu cầu (đã có, được enhance)
+### 3. Endpoints (đối chiếu Program.cs hiện tại)
+- `GET /api/reports/sales-by-dealer`: Báo cáo doanh số đại lý (params: `dealerId`, `period`, `fromDate`, `toDate`)
+- `GET /api/reports/debt-report`: Báo cáo công nợ đại lý (params: `dealerId`)
+- `GET /api/reports/inventory-trends`: Phân tích tồn kho / inventory turnover
+- `GET /api/reports/sales-by-region` + `GET /api/reports/sales-proportion` + `GET /api/reports/summary` + `GET /api/reports/top-vehicles`: các endpoint mà dashboard doanh số tổng thực dùng (method `GetTotalSalesDashboardAsync` có trong `ReportService` nhưng chưa được map thành route)
+- `GET /api/reports/debt-summary`, `GET /api/reports/sales-by-staff`, `POST /api/reports/export`, `POST /api/reports/synchronize-data`, `GET/POST /api/reports/sales-summary`, `GET/POST /api/reports/inventory-summary`
+- `GET /api/reports/demand-forecast`: AI dự báo nhu cầu
 
 ### 4. Cập nhật Services khác
-- **SalesService**: Thêm endpoint `GET /api/sales/orders` với filters
-- **SalesService**: Cập nhật `GET /api/payments` để hỗ trợ filters
-- **APIGatewayService**: Thêm routes cho reporting và sales endpoints
+- **SalesService**: `GET /api/Orders` và `GET /api/payments` — ReportingService gửi kèm query params `fromDate`/`toDate`/`dealerId`/`orderId` khi gọi, nhưng controller hiện chưa nhận filter (signature không có tham số, trả toàn bộ dữ liệu)
+- **APIGatewayService**: Route rewrite `localhost:5208` → `reportingservice:80` (khai báo trong docker-compose.yml)
 
 ### 5. Apache NiFi Integration
 - `nifi-flow.json`: Template flow cho NiFi
@@ -47,7 +47,7 @@
    - Orders: Thông tin đơn hàng
    - Payments: Thông tin thanh toán
 
-2. **VehicleService** (Port 5002)
+2. **VehicleService** (Port 5068)
    - Vehicles: Thông tin xe và tồn kho
    - Dealers: Thông tin đại lý
 
@@ -88,19 +88,20 @@ cd ev-dealer-management
 ### 2. Test endpoints
 ```bash
 # Báo cáo doanh số đại lý
-curl "http://localhost:5214/api/reports/dealer-sales?dealerId=1&period=month"
+curl "http://localhost:5208/api/reports/sales-by-dealer?dealerId=1&period=month"
 
 # Báo cáo công nợ
-curl "http://localhost:5214/api/reports/dealer-debt?dealerId=1"
+curl "http://localhost:5208/api/reports/debt-report?dealerId=1"
 
-# Dashboard doanh số tổng
-curl "http://localhost:5214/api/reports/total-sales-dashboard"
+# Doanh số theo vùng (dùng cho dashboard)
+curl "http://localhost:5208/api/reports/sales-by-region"
+curl "http://localhost:5208/api/reports/sales-proportion"
 
 # Phân tích tồn kho
-curl "http://localhost:5214/api/reports/inventory-analysis"
+curl "http://localhost:5208/api/reports/inventory-trends"
 
 # AI dự báo
-curl "http://localhost:5214/api/reports/demand-forecast"
+curl "http://localhost:5208/api/reports/demand-forecast"
 ```
 
 ### 3. Cấu hình Apache NiFi (Optional)
@@ -113,17 +114,18 @@ Xem file `NIFI_INTEGRATION.md` để biết cách cấu hình NiFi flows để t
 - `SalesDataService.GetPaymentsAsync` parse `orderId` bằng `GetInt32()` — payload int trên wire khớp trực tiếp, không còn JsonException bị swallow thành rỗng
 - Không cần mapping table
 
-### 2. Customer Name
-- Trong `DebtFromCustomerDto`, `CustomerName` hiện tại là "Customer" (hardcoded)
-- **Cần fix**: Fetch từ CustomerService để lấy tên thật
+### 2. Customer Name — ĐÃ XỬ LÝ
+- `ReportService.GetDealerDebtReportAsync` fetch danh sách khách hàng qua `CustomerDataService` và dựng `customerNameMap` (`allCustomers.ToDictionary(c => c.Id, c => c.Name)`)
+- `CustomerName = customerNameMap.GetValueOrDefault(o.CustomerId, $"Khách hàng {o.CustomerId}")` — tên thật từ CustomerService, chỉ fallback khi không tra được
 
 ### 3. Dealer Purchase Orders
 - Logic tính "debt to manufacturer" hiện tại giả định tất cả orders là dealer purchases
 - **Cần fix**: Tạo bảng riêng cho dealer purchases từ manufacturer
 
-### 4. Region Mapping
-- Region được lấy từ dealer name mapping (hardcoded)
-- **Cần fix**: Thêm field Region vào Dealer model
+### 4. Region Mapping — ĐÃ XỬ LÝ
+- Dealer model của VehicleService đã có field `Region` (`VehicleService/Models/Dealer.cs`), DealerDto cũng expose `Region`
+- `DataSynchronizationService` dựng `dealerRegionMap` từ `dealer.Region` thật khi sync SalesSummaries/InventorySummaries; `ReportService.GetInventoryAnalysisAsync` dùng `dealer?.Region ?? "Unknown"`; `VehicleDataService` parse thuộc tính `region` từ JSON
+- `EnsureRegionDataAsync` trong Program.cs chỉ còn là backfill fallback cho record cũ chưa có Region (map theo tên dealer hardcoded)
 
 ## Performance Considerations
 

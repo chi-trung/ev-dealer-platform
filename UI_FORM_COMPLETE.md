@@ -13,23 +13,24 @@
 ### Bước 1: Start All Services
 
 ```powershell
-# Terminal 1 - RabbitMQ
-docker start rabbitmq
+# Terminal 1 - RabbitMQ (container name: evm_rabbitmq)
+cd ev-dealer-management
+docker compose up -d rabbitmq
 
 # Terminal 2 - VehicleService (port 5068)
-cd D:\Nam_3\ev-dealer-management\ev-dealer-management\VehicleService
+cd ev-dealer-management\VehicleService
 dotnet run
 
 # Terminal 3 - NotificationService (port 5051)
-cd D:\Nam_3\ev-dealer-management\ev-dealer-management\NotificationService
+cd ev-dealer-management\NotificationService
 dotnet run
 
 # Terminal 4 - UserService (port 7001) - Nếu cần login
-cd D:\Nam_3\ev-dealer-management\ev-dealer-management\UserService
+cd ev-dealer-management\UserService
 dotnet run
 
-# Terminal 5 - Frontend
-cd D:\Nam_3\ev-dealer-management\ev-dealer-frontend
+# Terminal 5 - Frontend (port 5173)
+cd ev-dealer-frontend
 npm run dev
 ```
 
@@ -122,7 +123,7 @@ npm run dev
 ### ❌ "Cannot find module ReservationDialog"
 **Fix:**
 ```bash
-cd D:\Nam_3\ev-dealer-management\ev-dealer-frontend
+cd ev-dealer-frontend
 # Restart dev server
 npm run dev
 ```
@@ -237,9 +238,9 @@ npm run dev
 
 **Next Steps (Optional):**
 - [ ] Add notification history page
-- [ ] Support multiple device tokens per user
+- [x] Support multiple device tokens per user — `DeviceTokenRegistry` lưu danh sách token theo key (`GetTokensAsync` trả `IReadOnlyList<string>`), API từ Issue #33/#36
 - [ ] Email/SMS notifications (ngoài push)
-- [ ] Notification preferences settings
+- [x] Notification preferences settings — `NotificationPreferencesEndpoint.cs` (GET/PUT `preferences`) + trang `NotificationPreferences.jsx`
 - [ ] Analytics tracking
 
 ---

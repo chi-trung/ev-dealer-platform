@@ -157,21 +157,23 @@ http://localhost:15672
 ### 1️⃣ Test Frontend (Bây Giờ) ✅
 Chạy `start-all.ps1` và test đặt xe
 
-### 2️⃣ Tích Hợp SalesService (Tiếp Theo)
-- Thêm RabbitMQ vào SalesService
-- Publish SaleCompletedEvent
-- Gửi email xác nhận order
+### 2️⃣ Tích Hợp SalesService ✅ (đã xong)
+- ✅ SalesService đã có RabbitMQ producer (`Services/RabbitMQMessagePublisher.cs`, đăng ký trong `Program.cs`)
+- ✅ Publish SaleCompletedEvent khi order hoàn tất (`Controllers/OrdersController.cs`), cùng OrderCreated / QuoteCreated / ContractCreated / PaymentReceived
+- ✅ NotificationService consume `sales.completed` → gửi push FCM (`Consumers/SaleCompletedConsumer.cs`)
+- ⏳ Gửi email xác nhận order: **chưa implement** (NotificationService không có code gửi email)
 - Xem: INTEGRATION_PLAN.md Phase 2
 
-### 3️⃣ Test Drive Notifications
-- CustomerService publish TestDriveScheduledEvent
-- NotificationService gửi email xác nhận test drive
+### 3️⃣ Test Drive Notifications ✅ (một phần)
+- ✅ CustomerService đã publish TestDriveScheduledEvent (`Services/TestDriveService.cs`)
+- ✅ NotificationService đã gửi push FCM xác nhận lịch hẹn (`Consumers/TestDriveScheduledConsumer.cs`)
+- ⏳ Gửi email xác nhận test drive: **chưa implement**
 
-### 4️⃣ API Gateway
-- Thêm routes cho NotificationService vào Ocelot
+### 4️⃣ API Gateway ✅ (đã xong)
+- ✅ Ocelot đã có routes cho NotificationService trong `APIGatewayService/ocelot.json`: `/api/Notification/{everything}`, `/api/notifications/{everything}`, `/api/DeviceTokens/{everything}`, `/api/health/notification` → NotificationService (port 5051)
 
-### 5️⃣ Docker Compose
-- Deploy full stack lên Docker
+### 5️⃣ Docker Compose ✅ (đã xong)
+- ✅ Full stack đã có trong `docker-compose.yml`: apigateway, userservice, vehicleservice, salesservice, customerservice, reportingservice, notificationservice + rabbitmq
 
 ---
 
