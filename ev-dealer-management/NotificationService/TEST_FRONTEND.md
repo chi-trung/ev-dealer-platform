@@ -1,33 +1,38 @@
 # 🎯 TEST FRONTEND - Đặt Xe Có Thông Báo
 
+> **Cập nhật 2026-09 (docs sweep #52):** bản cũ mô tả nhận SMS Twilio sau khi
+> đặt xe — **không có SMS trong hệ thống này**. Luồng thật: reservation →
+> RabbitMQ → NotificationService → **FCM push** tới thiết bị đã đăng ký token.
+
 ## 📋 Chuẩn Bị
 
-### 1️⃣ Start Backend Services (3 Terminal)
+### 1️⃣ Start Backend Services
 
-**Terminal 1 - RabbitMQ:**
+**Cách gọn nhất — compose** (từ `ev-dealer-management/`):
+
 ```powershell
-docker start rabbitmq
-# Hoặc nếu chưa có container:
-docker run -d --name rabbitmq -p 5672:5672 -p 15672:15672 rabbitmq:4-management
+docker compose up -d rabbitmq notificationservice vehicleservice
 ```
 
-**Terminal 2 - NotificationService:**
+**Hoặc manual từng terminal** (port dev theo `launchSettings.json`):
+
 ```powershell
-cd D:\Nam_3\ev-dealer-management\ev-dealer-management\NotificationService
+# Terminal 2 - NotificationService (http://localhost:5051)
+cd ev-dealer-management/NotificationService
+dotnet run
+
+# Terminal 3 - VehicleService (http://localhost:5068)
+cd ev-dealer-management/VehicleService
 dotnet run
 ```
 
-**Terminal 3 - VehicleService:**
-```powershell
-cd D:\Nam_3\ev-dealer-management\ev-dealer-management\VehicleService
-dotnet run
-```
+⚠️ NotificationService cần `firebase-credentials.json` cho các API push
+(`FIREBASE_SETUP.md`).
 
 ### 2️⃣ Start Frontend (Terminal 4)
 
-**Terminal 4 - React Frontend:**
 ```powershell
-cd D:\Nam_3\ev-dealer-management\ev-dealer-frontend
+cd ev-dealer-frontend
 npm run dev
 ```
 
@@ -47,7 +52,7 @@ Mở browser: **http://localhost:5173**
 2. Điền form đặt xe:
    - **Tên khách hàng:** `Nguyen Van A`
    - **Email:** `test@example.com`
-   - **Số điện thoại:** `+84987654321` (⚠️ QUAN TRỌNG: Dùng số VN thật để nhận SMS)
+   - **Số điện thoại:** `+84987654321`
    - **Chọn màu xe:** Chọn 1 màu bất kỳ
    - **Số lượng:** `1`
    - **Ghi chú:** (tùy chọn) `Test reservation`
@@ -57,29 +62,30 @@ Mở browser: **http://localhost:5173**
 ### Bước 3: Kiểm Tra Kết Quả ✅
 
 #### ✨ Trên Frontend
-- **Thông báo xuất hiện** ở góc phải trên màn hình:
+- **Dialog thành công** hiển thị (text thật trong `ReservationDialog.jsx`):
   ```
-  ✅ Đặt xe thành công! Mã đặt chỗ: 123. SMS xác nhận đã được gửi đến +84987654321
+  ✅ Đặt xe thành công!
+  Chúng tôi đã nhận được yêu cầu đặt xe của bạn cho [model]
+  ✔ Thông báo đã được gửi đến thiết bị của bạn
   ```
-- Thông báo tự động ẩn sau 6 giây
-- Click ❌ để đóng sớm hơn
+- Không còn dòng "SMS xác nhận..." — không có kênh SMS nào
 
-#### 📱 SMS (Nếu Dùng Số Thật)
-Nhận SMS từ Twilio:
-```
-🚗 Xác nhận đặt xe
-Xe: Tesla Model S (màu Đỏ)
-Khách hàng: Nguyen Van A
-Mã đặt chỗ: 123
-Cảm ơn bạn đã tin tưởng!
-```
+#### 📲 FCM Push
+Riêng luồng reservation: frontend gắn `deviceToken` (từ
+`src/firebase/notificationService.js`) vào chính request đặt xe →
+VehicleService đưa vào event → consumer đẩy thẳng FCM tới token đó. Máy chạy
+browser phải **cho phép notification + FCM đã init** thì mới có token (nếu
+không, consumer log `No device token found ... Skipping push notification`).
+13 consumer còn lại resolve token qua registry `user:<id>` (API DeviceTokens).
 
 #### 🖥️ Backend Logs (NotificationService Terminal)
 ```
-[INFO] Received VehicleReservedEvent: reservationId=123
-[INFO] Sending reservation SMS to +84987654321
-[INFO] SMS sent successfully. SID: SM...
+[INF] Started consuming from queue: vehicle.reserved
+[INF] Processing VehicleReservedEvent for Vehicle: 1, Customer: Nguyen Van A
+[INF] Reservation confirmation push notification sent for Vehicle: 1, ...
 ```
+(Nếu thấy `No device token found ... Skipping push notification` — thiết bị
+chưa đăng ký token, xem FIREBASE_SETUP.md.)
 
 #### 🐰 RabbitMQ UI
 1. Mở: http://localhost:15672
@@ -89,12 +95,12 @@ Cảm ơn bạn đã tin tưởng!
 
 ---
 
-## 🎨 Giao Diện Notification
+## 🎨 Thông Báo Trên UI
 
 ### Thành Công (Success) ✅
 - **Màu xanh lá**
 - Icon: ✅ CheckCircle
-- Hiện: "Đặt xe thành công! Mã đặt chỗ: XXX"
+- Dialog xác nhận trong trang đặt xe
 
 ### Lỗi (Error) ❌
 - **Màu đỏ**
@@ -130,28 +136,29 @@ npm run dev
 
 **Giải pháp:**
 ```powershell
-# Check VehicleService running
-curl http://localhost:5002/health
+# Check VehicleService running (port dev 5068)
+curl http://localhost:5068/health
 
 # Check có xe trong DB không
-curl http://localhost:5002/api/vehicles
+curl http://localhost:5068/api/vehicles
 ```
 
-### ❌ SMS Không Gửi
+### ❌ FCM Push Không Tới Máy
 **Nguyên nhân:**
-- NotificationService chưa chạy
+- NotificationService chưa chạy / thiếu `firebase-credentials.json`
 - RabbitMQ chưa chạy
-- Twilio credentials sai
+- Thiết bị chưa đăng ký device token
 
 **Giải pháp:**
 ```powershell
-# Check NotificationService
-curl http://localhost:5005/notifications/health
+# Check NotificationService (port dev 5051)
+curl http://localhost:5051/health
 
-# Check RabbitMQ
-docker ps | findstr rabbitmq
+# Check RabbitMQ (container compose tên evm_rabbitmq)
+docker ps | Select-String evm_rabbitmq
 
-# Check Twilio config trong appsettings.json
+# Test đẩy thẳng 1 token để tách lỗi (script có sẵn)
+.\test-fcm.ps1
 ```
 
 ---
@@ -176,43 +183,31 @@ docker ps | findstr rabbitmq
 ## ✅ Checklist Hoàn Thành
 
 - [ ] RabbitMQ đang chạy (port 5672)
-- [ ] NotificationService đang chạy (port 5005)
-- [ ] VehicleService đang chạy (port 5002)
+- [ ] NotificationService đang chạy (port 5051)
+- [ ] VehicleService đang chạy (port 5068)
 - [ ] Frontend đang chạy (port 5173)
 - [ ] Vào trang chi tiết xe thành công
 - [ ] Điền form đặt xe đầy đủ
 - [ ] Thông báo xuất hiện khi đặt xe
-- [ ] SMS nhận được (nếu dùng số thật)
-- [ ] Backend log hiện message sent
+- [ ] FCM push nhận được (nếu thiết bị đã đăng ký token)
+- [ ] Backend log hiện "push notification sent"
 
 ---
 
 ## 🎉 Thành Công Khi
 
-✅ **Frontend:** Notification hiện ra "Đặt xe thành công! Mã đặt chỗ: XXX"  
-✅ **Backend:** NotificationService log "SMS sent successfully"  
+✅ **Frontend:** Dialog "Đặt xe thành công!" hiện ra  
+✅ **Backend:** NotificationService log "Reservation confirmation push notification sent"  
 ✅ **RabbitMQ:** Message delivered and acknowledged  
-✅ **SMS:** Nhận được tin nhắn xác nhận (nếu dùng số VN thật)
+✅ **FCM:** Thiết bị nhận push (nếu device token hợp lệ)
 
 ---
 
 ## 📝 Notes Quan Trọng
 
-1. **SMS chỉ gửi nếu:** Số điện thoại là **số Việt Nam thật** (+84...)
-2. **Twilio Mock:** Nếu số không hợp lệ, vẫn log "SMS sent" nhưng không gửi thật
-3. **Notification:** Sẽ tự động ẩn sau **6 giây**, hoặc click ❌ để đóng
-4. **RabbitMQ:** Cần chạy trước khi start NotificationService
-
----
-
-## 🚀 Next Steps (Sau Khi Test Xong)
-
-1. ✅ Test frontend đặt xe → Notification
-2. ✅ Tích hợp SalesService — SaleCompletedEvent đã publish (`SalesService/Controllers/OrdersController.cs`) và NotificationService đã push FCM (`Consumers/SaleCompletedConsumer.cs`); email xác nhận order vẫn **chưa implement**
-3. ✅ Test drive scheduling — CustomerService đã publish TestDriveScheduledEvent (`Services/TestDriveService.cs`), NotificationService gửi push FCM (`Consumers/TestDriveScheduledConsumer.cs`); email xác nhận **chưa implement**
-4. ✅ API Gateway routing — `APIGatewayService/ocelot.json` đã có `/api/Notification/*`, `/api/notifications/*`, `/api/DeviceTokens/*` → NotificationService (port 5051)
-5. ✅ Docker Compose full stack — `docker-compose.yml` đã có đủ 7 services + RabbitMQ
-
----
-
-**Good luck! 🎯**
+1. **Reservation push theo token của chính máy đặt xe** (token đi cùng request)
+   — muốn người khác cũng nhận push qua registry là chuyện của các event
+   order/contract/payment...
+2. **Không có mock SMS/email nữa** — thiếu credentials Firebase là fail loudly
+   (500 + log), không im lặng giả vờ gửi.
+3. Chi tiết kiến trúc + endpoint: `README.md`, `QUICK_START.md` cùng thư mục.

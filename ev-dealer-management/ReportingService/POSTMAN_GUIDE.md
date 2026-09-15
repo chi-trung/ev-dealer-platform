@@ -99,14 +99,18 @@ _(Postman thường tự thêm nếu bạn dùng Body)_
 ```json
 {
   "date": "2025-01-15T00:00:00Z",
-  "dealerId": "550e8400-e29b-41d4-a716-446655440000",
+  "dealerId": 1,
   "dealerName": "Dealer Hà Nội",
-  "salespersonId": "550e8400-e29b-41d4-a716-446655440002",
+  "region": "Miền Bắc",
+  "salespersonId": 2,
   "salespersonName": "Nguyễn Văn A",
   "totalOrders": 5,
   "totalRevenue": 1500000000
 }
 ```
+
+*(các field `required` trong model `SalesSummary.cs`: dealerName, region,
+salespersonName — thiếu là 400)*
 
 ### 4. Gửi Request
 
@@ -122,9 +126,10 @@ Response sẽ hiển thị ở dưới:
   "data": {
     "id": "550e8400-e29b-41d4-a716-446655440001",
     "date": "2025-01-15T00:00:00Z",
-    "dealerId": "550e8400-e29b-41d4-a716-446655440000",
+    "dealerId": 1,
     "dealerName": "Dealer Hà Nội",
-    "salespersonId": "550e8400-e29b-41d4-a716-446655440002",
+    "region": "Miền Bắc",
+    "salespersonId": 2,
     "salespersonName": "Nguyễn Văn A",
     "totalOrders": 5,
     "totalRevenue": 1500000000,
@@ -149,9 +154,9 @@ POST http://localhost:5208/api/reports/inventory-summary
 
 ```json
 {
-  "vehicleId": "550e8400-e29b-41d4-a716-446655440003",
+  "vehicleId": 3,
   "vehicleName": "Tesla Model 3",
-  "dealerId": "550e8400-e29b-41d4-a716-446655440000",
+  "dealerId": 1,
   "dealerName": "Dealer Hà Nội",
   "region": "Miền Bắc",
   "stockCount": 15
@@ -178,7 +183,7 @@ Click **"Send"** → Xem kết quả
 **URL:**
 
 ```
-http://localhost:5208/api/reports/sales-summary?fromDate=2025-01-01&toDate=2025-01-31&dealerId=550e8400-e29b-41d4-a716-446655440000
+http://localhost:5208/api/reports/sales-summary?fromDate=2025-01-01&toDate=2025-01-31&dealerId=1
 ```
 
 ### Lấy chi tiết một doanh số
@@ -228,10 +233,10 @@ Postman tự động lưu request. Để sử dụng lại:
 ```json
 {
   "date": "2025-01-15T00:00:00Z",
-  "dealerId": "550e8400-e29b-41d4-a716-446655440000",
+  "dealerId": 1,
   "dealerName": "Dealer Hà Nội",
   "region": "Miền Bắc",
-  "salespersonId": "550e8400-e29b-41d4-a716-446655440002",
+  "salespersonId": 2,
   "salespersonName": "Nguyễn Văn A",
   "totalOrders": 5,
   "totalRevenue": 1500000000
@@ -241,10 +246,10 @@ Postman tự động lưu request. Để sử dụng lại:
 ```json
 {
   "date": "2025-01-16T00:00:00Z",
-  "dealerId": "550e8400-e29b-41d4-a716-446655440000",
+  "dealerId": 1,
   "dealerName": "Dealer Hà Nội",
   "region": "Miền Bắc",
-  "salespersonId": "550e8400-e29b-41d4-a716-446655440002",
+  "salespersonId": 2,
   "salespersonName": "Nguyễn Văn A",
   "totalOrders": 3,
   "totalRevenue": 900000000
@@ -254,10 +259,10 @@ Postman tự động lưu request. Để sử dụng lại:
 ```json
 {
   "date": "2025-01-17T00:00:00Z",
-  "dealerId": "550e8400-e29b-41d4-a716-446655440000",
+  "dealerId": 1,
   "dealerName": "Dealer Hà Nội",
   "region": "Miền Bắc",
-  "salespersonId": "550e8400-e29b-41d4-a716-446655440002",
+  "salespersonId": 2,
   "salespersonName": "Nguyễn Văn A",
   "totalOrders": 7,
   "totalRevenue": 2100000000
@@ -266,13 +271,13 @@ Postman tự động lưu request. Để sử dụng lại:
 
 ### Bước 2: Lấy lại tất cả
 
-**URL:** `https://localhost:5214/api/reports/sales-summary`
+**URL:** `http://localhost:5208/api/reports/sales-summary`
 
 **Kết quả:** Thấy 3 bản ghi vừa thêm
 
 ### Bước 3: Lọc theo ngày
 
-**URL:** `https://localhost:5214/api/reports/sales-summary?fromDate=2025-01-15&toDate=2025-01-16`
+**URL:** `http://localhost:5208/api/reports/sales-summary?fromDate=2025-01-15&toDate=2025-01-16`
 
 **Kết quả:** Thấy 2 bản ghi (15 và 16)
 

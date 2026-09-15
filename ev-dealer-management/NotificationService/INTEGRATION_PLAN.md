@@ -1,5 +1,15 @@
 # 🚀 Integration Plan - NotificationService với Frontend & Services
 
+> **⚠️ TÀI LIỆU LỊCH SỬ (docs sweep #52, 2026-09):** đây là plan thiết kế từ
+> trước khi integration được build — **đã được hiện thực hóa và thay thế**.
+> Trạng thái thật hiện nay: NotificationService port **5051** (không phải
+> 5005), VehicleService **5068** (không phải 5002), kênh duy nhất là **FCM
+> push** (không SendGrid/Twilio/email/SMS), routes Ocelot Notification +
+> DeviceTokens **đã có** trong `APIGatewayService/ocelot.json`, compose dùng
+> container `evm_rabbitmq`/`evm_notificationservice` (không phải
+> `ev-dealer-notification`). Đọc file này để hiểu *tại sao* thiết kế như vậy,
+> nhưng làm theo `QUICK_START.md`/`TESTING_GUIDE.md` cùng thư mục.
+
 ## 📋 Tổng Quan
 
 NotificationService đã hoàn thành và test backend thành công. Bây giờ cần tích hợp vào toàn bộ hệ thống để tạo luồng notification hoàn chỉnh từ frontend → backend services → NotificationService → Email/SMS.

@@ -377,9 +377,9 @@ Failed to connect to RabbitMQ at localhost:5672
    docker ps | grep rabbitmq
    ```
 
-2. Restart RabbitMQ:
+2. Restart RabbitMQ (tên container trong compose là `evm_rabbitmq`):
    ```bash
-   docker restart rabbitmq
+   docker restart evm_rabbitmq
    ```
 
 3. Check port not blocked:

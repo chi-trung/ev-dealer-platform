@@ -279,5 +279,5 @@ Toàn bộ code đã sẵn sàng — phần còn lại chỉ là credentials:
 4. ⬜ Đặt `firebase-credentials.json` (Bước 4) vào `NotificationService/` — file này đã có trong `.gitignore` của repo, không commit lên Git
 5. ⬜ Thêm các giá trị `VITE_FIREBASE_*` vào `.env.local` của frontend (repo chưa có file này)
 
-**➡️ Tiếp theo: Sau khi có credentials, chạy `test-fcm.ps1` (gọi `POST http://localhost:5051/api/notification/test-fcm`) để test push notifications**
+**➡️ Tiếp theo: Sau khi có credentials, chạy `test-fcm.ps1` (gọi `POST http://localhost:5051/api/Notification/test-fcm`) để test push notifications**
 
