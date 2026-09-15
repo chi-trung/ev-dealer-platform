@@ -22,6 +22,7 @@ namespace DealerSystem.Tests.NotificationService.Tests;
 /// Real registry (SQLite temp file) + a recording IFcmService fake; the
 /// consumers are what's under test, not Firebase or EF.
 /// </summary>
+[Collection("sqlite")]
 public class VehiclePushConsumerTests : IDisposable
 {
     private readonly string _dbPath;

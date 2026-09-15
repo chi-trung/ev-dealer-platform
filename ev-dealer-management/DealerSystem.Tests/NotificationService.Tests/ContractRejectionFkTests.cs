@@ -28,6 +28,7 @@ namespace DealerSystem.Tests.NotificationService.Tests;
 /// test fail with "FOREIGN KEY constraint failed"; the second test proves
 /// the common payment-less rejection still behaves exactly as before.
 /// </summary>
+[Collection("sqlite")]
 public class ContractRejectionFkTests : IDisposable
 {
     private readonly string _dbPath;

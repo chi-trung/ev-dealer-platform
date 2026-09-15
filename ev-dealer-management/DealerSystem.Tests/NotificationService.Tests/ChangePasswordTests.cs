@@ -25,6 +25,7 @@ namespace DealerSystem.Tests.NotificationService.Tests;
 /// - remove the length floor → ShortNewPassword fails; the floor matches
 ///   ResetPasswordAsync's <6 exactly so the two paths can't drift.
 /// </summary>
+[Collection("sqlite")]
 public class ChangePasswordTests : IDisposable
 {
     private const string OldPassword = "S3cret!old-here";

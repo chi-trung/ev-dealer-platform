@@ -25,6 +25,7 @@ namespace DealerSystem.Tests.NotificationService.Tests;
 /// unlike the shared RecordingFcm (last-only), because these tests assert
 /// on the customer AND salesperson multicasts in one event.
 /// </summary>
+[Collection("sqlite")]
 public class PreferenceFanoutConsumerTests : IDisposable
 {
     private readonly string _dbPath;

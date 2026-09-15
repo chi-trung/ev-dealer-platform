@@ -43,6 +43,7 @@ namespace DealerSystem.Tests.NotificationService.Tests;
 /// controller, so a #36 consumer still sees User.FindFirst(ClaimTypes.Name).
 /// Here we pin the wire.
 /// </summary>
+[Collection("sqlite")]
 public class DealerClaimLoginTests : IDisposable
 {
     // Any HS256 key works — we only READ the token back (claims are not

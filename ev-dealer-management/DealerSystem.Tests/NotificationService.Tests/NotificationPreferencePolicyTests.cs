@@ -27,6 +27,7 @@ namespace DealerSystem.Tests.NotificationService.Tests;
 /// Real store (temp-file SQLite) so the GetAsync defaults contract — never
 /// saved ⇒ shared defaults — is exercised end-to-end, not mocked away.
 /// </summary>
+[Collection("sqlite")]
 public class NotificationPreferencePolicyTests : IDisposable
 {
     private readonly string _dbPath;

@@ -27,6 +27,7 @@ namespace DealerSystem.Tests.NotificationService.Tests;
 /// missing one flag must 400 (not store false = muted), and a caller whose
 /// "id" claim is missing/zero/garbage must 403 (no subject is built).
 /// </summary>
+[Collection("sqlite")]
 public class NotificationPreferencesTests : IDisposable
 {
     private readonly string _dbPath;

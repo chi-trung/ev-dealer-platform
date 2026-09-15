@@ -38,6 +38,10 @@ firebase-credentials.json
 *.db-wal
 *.log
 
+# ── Test output ──────────────────────────────────────
+TestResults/
+*.trx
+
 # ── OS ───────────────────────────────────────────────
 Thumbs.db
 .DS_Store

@@ -155,6 +155,26 @@ public class QuotePdfGenerationTests
         Assert.IsType<BadRequestObjectResult>(result);
     }
 
+    private static byte[] Render(SalesService.PdfDocuments.QuotePdfDocument doc)
+    {
+        // #58 measured: QuestPDF stamps every GeneratePdf() with a
+        // creation-date literal at second granularity ("D:...HHMMSS"), so
+        // two renders that straddle a clock tick differ in exactly ONE
+        // byte and the raw-bytes determinism assertion below flakes ~1 in
+        // 20 runs (caught on d9abc78). Mask every date-shaped token — PDF
+        // `D:` literals and ISO8601 stamps — so equality is about
+        // RENDERING, not about wall-clock luck. The mask touches nothing
+        // but date tokens (name glyphs are font-subset/compressed bytes,
+        // never date-shaped), so the NotEqual contrast below — compared
+        // ON MASKED BYTES, like everything here — still proves the
+        // customer name reaches the page: a rendered-name difference is a
+        // content difference, and content survives masking untouched.
+        var raw = System.Text.Encoding.Latin1.GetString(doc.GeneratePdf());
+        var masked = System.Text.RegularExpressions.Regex.Replace(raw, @"D:\d{6,14}[^\)\s]*", "D:MASKED");
+        masked = System.Text.RegularExpressions.Regex.Replace(masked, @"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}", "MASKED");
+        return System.Text.Encoding.Latin1.GetBytes(masked);
+    }
+
     [Fact]
     public void CustomerName_ReachesRenderedBytes_AndQuestPdfIsDeterministic()
     {
@@ -162,18 +182,19 @@ public class QuotePdfGenerationTests
         // CONTRAST, since glyphs are font-subset encoded: two payloads that
         // differ only in one customer name must produce different PDF bytes
         // (the name reached the page), while the determinism assertion shows
-        // the comparison itself is meaningful (same input → identical bytes;
-        // if QuestPDF ever embeds a timestamp, this pins that too and the
-        // contrast test gets redesigned rather than silently passing).
+        // the comparison itself is meaningful (same input → identical bytes,
+        // modulo the creation-date mask in Render — the #58 run that
+        // flipped one seconds-digit is what moved this from "if QuestPDF
+        // ever embeds a timestamp" to "it does").
         var a = BindLikeAspNetCore<GenerateQuotePdfRequestDto>(
             FrontendPayloadJson.Replace("Nguyễn Văn An", "AAAA-một"));
         var b = BindLikeAspNetCore<GenerateQuotePdfRequestDto>(
             FrontendPayloadJson.Replace("Nguyễn Văn An", "BBBB-hai"));
-        var same = new SalesService.PdfDocuments.QuotePdfDocument(a).GeneratePdf();
-        var sameAgain = new SalesService.PdfDocuments.QuotePdfDocument(a).GeneratePdf();
+        var same = Render(new SalesService.PdfDocuments.QuotePdfDocument(a));
+        var sameAgain = Render(new SalesService.PdfDocuments.QuotePdfDocument(a));
         Assert.Equal(same, sameAgain); // deterministic baseline
 
-        var other = new SalesService.PdfDocuments.QuotePdfDocument(b).GeneratePdf();
+        var other = Render(new SalesService.PdfDocuments.QuotePdfDocument(b));
         Assert.NotEqual(same, other);
     }
 
