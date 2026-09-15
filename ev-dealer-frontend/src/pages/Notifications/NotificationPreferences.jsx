@@ -34,8 +34,9 @@ import {
   Avatar
 } from '@mui/material'
 import {
-  Email as EmailIcon,
-  Sms as SmsIcon,
+  // Email/Sms icons tạm thời không dùng: hai card toggle bị ẩn theo #56
+  // (xem comment trong FormGroup "Kênh thông báo") — giữ import sẽ chết
+  // build-free nhưng là dead weight; khôi phục cùng card khi có sender thật.
   Notifications as NotificationsIcon,
   ShoppingCart as OrdersIcon,
   LocalShipping as DeliveriesIcon,
@@ -355,135 +356,13 @@ const NotificationPreferences = () => {
 
                 <FormControl component="fieldset" sx={{ width: '100%' }}>
                   <FormGroup sx={{ gap: 3 }}>
-                    <Paper elevation={2} sx={{
-                      p: 4,
-                      borderRadius: 3,
-                      background: 'linear-gradient(135deg, #e6f1ff 0%, #dbeffc 100%)',
-                      border: '1px solid rgba(13,71,161,0.06)',
-                      position: 'relative',
-                      overflow: 'hidden',
-                      boxShadow: '0 10px 20px rgba(13,71,161,0.035)',
-                      '&:hover': {
-                        transform: 'translateY(-3px) scale(1.005)',
-                        boxShadow: '0 12px 26px rgba(13,71,161,0.05)'
-                      },
-                      '&::before': {
-                        content: '""',
-                        position: 'absolute',
-                        top: -36,
-                        right: -36,
-                        width: 92,
-                        height: 92,
-                        background: 'rgba(21,101,192,0.035)',
-                        borderRadius: '50%',
-                        zIndex: 0
-                      }
-                    }}>
-                      <FormControlLabel
-                        control={
-                          <Switch
-                            checked={preferences.emailNotifications}
-                            onChange={handleChannelChange('emailNotifications')}
-                            sx={{
-                              '& .MuiSwitch-switchBase.Mui-checked': {
-                                color: '#0d47a1',
-                                '& + .MuiSwitch-track': {
-                                  backgroundColor: 'rgba(21,101,192,0.18)'
-                                }
-                              },
-                              '& .MuiSwitch-switchBase': {
-                                color: '#0d47a1'
-                              },
-                              '& .MuiSwitch-track': {
-                                backgroundColor: 'rgba(13,71,161,0.08)'
-                              }
-                            }}
-                          />
-                        }
-                        label={
-                          <Box sx={{ display: 'flex', alignItems: 'center', position: 'relative', zIndex: 1 }}>
-                            <Avatar sx={{ mr: 2, bgcolor: '#cfe8ff', width: 50, height: 50 }}>
-                              <EmailIcon sx={{ color: '#07203a', fontSize: 24 }} />
-                            </Avatar>
-                            <Box>
-                              <Typography variant="h5" sx={{ fontWeight: 700, color: '#07203a', mb: 0.5 }}>
-                                Email
-                              </Typography>
-                              <Typography variant="body1" sx={{ color: '#0f3b63', fontSize: '1rem' }}>
-                                Nhận thông báo qua email
-                              </Typography>
-                            </Box>
-                          </Box>
-                        }
-                        sx={{ width: '100%', m: 0 }}
-                      />
-                    </Paper>
-
-                    <Paper elevation={2} sx={{
-                      p: 4,
-                      borderRadius: 3,
-                      background: 'linear-gradient(135deg, #e6f1ff 0%, #dbeffc 100%)',
-                      border: '1px solid rgba(13,71,161,0.06)',
-                      position: 'relative',
-                      overflow: 'hidden',
-                      boxShadow: '0 10px 20px rgba(13,71,161,0.035)',
-                      '&:hover': {
-                        transform: 'translateY(-3px) scale(1.005)',
-                        boxShadow: '0 12px 26px rgba(13,71,161,0.05)'
-                      },
-                      '&::before': {
-                        content: '""',
-                        position: 'absolute',
-                        top: -36,
-                        right: -36,
-                        width: 92,
-                        height: 92,
-                        background: 'rgba(21,101,192,0.035)',
-                        borderRadius: '50%',
-                        zIndex: 0
-                      }
-                    }}>
-                      <FormControlLabel
-                        control={
-                          <Switch
-                            checked={preferences.smsNotifications}
-                            onChange={handleChannelChange('smsNotifications')}
-                            sx={{
-                              '& .MuiSwitch-switchBase.Mui-checked': {
-                                color: '#0d47a1',
-                                '& + .MuiSwitch-track': {
-                                  backgroundColor: 'rgba(21,101,192,0.18)'
-                                }
-                              },
-                              '& .MuiSwitch-switchBase': {
-                                color: '#0d47a1'
-                              },
-                              '& .MuiSwitch-track': {
-                                backgroundColor: 'rgba(13,71,161,0.08)'
-                              }
-                            }}
-                          />
-                        }
-                        label={
-                          <Box sx={{ display: 'flex', alignItems: 'center', position: 'relative', zIndex: 1 }}>
-                            <Avatar sx={{ mr: 2, bgcolor: '#cfe8ff', width: 50, height: 50 }}>
-                              <SmsIcon sx={{ color: '#07203a', fontSize: 24 }} />
-                            </Avatar>
-                            <Box>
-                              <Typography variant="h5" sx={{ fontWeight: 700, color: '#07203a', mb: 0.5 }}>
-                                SMS
-                              </Typography>
-                              <Typography variant="body1" sx={{ color: '#0f3b63', fontSize: '1rem' }}>
-                                Nhận thông báo qua tin nhắn
-                              </Typography>
-                            </Box>
-                          </Box>
-                        }
-                        sx={{ width: '100%', m: 0 }}
-                      />
-                    </Paper>
-
-                    <Paper elevation={2} sx={{
+                    {/* Issue #56: email/SMS toggle đã bị ẩn khỏi UI. NotificationService hiện chỉ
+    có MỘT kênh giao là FCM push; email/SMS là flags lưu-nhưng-chưa-có-đường
+    gửi. Trước #56 trang này hiện chúng như điều chỉnh được; enforcement (#56)
+    chỉ tôn trọng kênh in-app + 5 loại sự kiện — nên hai toggle không có tác
+    dụng gì bị ẩn để UI và enforcement không mâu thuẫn (acceptance #56).
+    State vẫn giữ nguyên giá trị đã lưu, round-trip qua GET/PUT trở lại.
+    Khi nào có email/SMS sender thật, khôi phục hai card này. */}<Paper elevation={2} sx={{
                       p: 4,
                       borderRadius: 3,
                       background: 'linear-gradient(135deg, #e6f1ff 0%, #dbeffc 100%)',

@@ -28,11 +28,13 @@ namespace NotificationService.Controllers;
 /// user's payments alert because some client forgot a field is exactly the
 /// bug class; it is a 400 instead.
 ///
-/// Scope note: consumers honoring these flags is NOT part of this issue —
-/// no consumer fans out to "user:&lt;id&gt;" subjects today
-/// (NotificationSubjects.User is registration-only), so enforcement code
-/// would be dead. Persisting the truth stops the page lying; the follow-up
-/// issue makes the pushes listen.
+/// Scope note: #51 deliberately shipped persistence only — the enforcement
+/// half landed in Issue #56, where NotificationPreferencePolicy reads these
+/// documents at the user:&lt;id&gt; fan-out points (the quote/contract
+/// consumers' salesperson pushes). In-app is the only channel FCM delivery
+/// exercises today, so email/sms flags persist but gate nothing yet; the
+/// frontend hides those two toggles until a sender exists, keeping the page
+/// and the enforcement honest with each other.
 /// </summary>
 public partial class NotificationController
 {
