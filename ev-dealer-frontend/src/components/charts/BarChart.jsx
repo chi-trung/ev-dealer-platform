@@ -1,6 +1,7 @@
 /**
  * Bar Chart Component — wrapper của Recharts BarChart.
- * Đang dùng: DealerDetail.jsx. Use for: Sales by region, sales by dealer
+ * Chưa có importer nào — giữ lại theo quyết định #53 cho dashboard tương lai
+ * (sales by region, sales by dealer). Only LineChart is live (DealerDetail).
  */
 
 import { BarChart as RechartsBarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'

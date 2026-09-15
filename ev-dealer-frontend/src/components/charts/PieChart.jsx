@@ -1,6 +1,7 @@
 /**
  * Pie Chart Component — wrapper của Recharts PieChart.
- * Đang dùng: DealerDetail.jsx. Use for: Top vehicles, sales distribution
+ * Chưa có importer nào — giữ lại theo quyết định #53 cho dashboard tương lai
+ * (top vehicles, sales distribution). Only LineChart is live (DealerDetail).
  */
 
 import { PieChart as RechartsPieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from 'recharts'

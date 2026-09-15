@@ -3,11 +3,13 @@
  * Route protection based on authentication and role.
  *
  * Dev-mode bypass là DESIGN, không phải TODO còn sót: Vite dev (import.meta.env.DEV)
- * inject mock user `dev-token-123` để toàn bộ UI chạy được không cần login.
- * Production build luôn enforce auth ở dưới. Một số trang (NotificationPreferences,
- * firebase/notificationService.js) có isDevPlaceholder() nhận diện đúng token
- * 'dev-token-123' / 'dev-user-1' này để hiện placeholder thay vì gọi API thật —
- * đổi token ở đây là làm hỏng mấy chỗ đó.
+ * inject mock user `dev-token-123` / id `dev-user-1` để toàn bộ UI chạy được
+ * không cần login. Production build luôn enforce auth ở dưới. Hai defender phụ
+ * thuộc giá trị cụ thể ở đây:
+ * - NotificationPreferences.jsx isDevPlaceholder() so token === 'dev-token-123'
+ * - firebase/notificationService.js thấy user id 'dev-user-1' (không match
+ *   /^\d+$/) thì bỏ qua, không gọi API DeviceTokens thật
+ * Đổi token/user id ở đây là làm hỏng mấy chỗ đó.
  */
 
 import { Navigate } from 'react-router-dom'
