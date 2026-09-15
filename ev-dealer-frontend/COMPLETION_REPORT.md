@@ -10,7 +10,7 @@
 > the repository. Issue #65: this rewrite replaces every inventory claim with
 > the tree measured from git-tracked files.
 > **Verified against:** `main` @ 53ac11c, 2026-09-16. Regenerate counts with:
-> `git ls-files 'ev-dealer-frontend/src'` (115 files).
+> `git ls-files 'ev-dealer-frontend/src'` (115 then; 113 after Issue #67).
 
 ## Tổng quan
 
@@ -27,7 +27,7 @@
 
 | Loại | Số lượng | Chi tiết |
 |------|----------|----------|
-| **Pages** | 40 jsx (12 modules) | Admin(1) Auth(4) Complaints(4) Customers(9) Dashboard(1) Dealers(2) Landing(1) Notifications(2) Reports(1) Sales(8) Settings(2) Vehicles(5) |
+| **Pages** | 39 jsx (12 modules) | Admin(1) Auth(4) Complaints(4) Customers(9) Dashboard(1) Dealers(2) Landing(1) Notifications(2) Reports(1) Sales(8) Settings(1) Vehicles(5) |
 | **Components** | 33 jsx | common(23, incl. 1 test) · charts(3) · Complaints(2) · forms(1) · Notification(1) · vehicles(1) · Car3D · DemandForecastChart |
 | **Layouts** | 2 | MainLayout, AuthLayout |
 | **Services** | 10 js | api.js + 9 feature services (admin, auth, complaint, customer, dealer, notification, report, testDrive, vehicle) |
@@ -36,13 +36,15 @@
 | **Data / constants** | 5 js | mockDataSales, mockNotifications, mockVehicles, complaintTypes, theme.js |
 | **Context** | 1 | AuthContext.jsx |
 | **Routing** | 3 | routes/index.jsx, App.jsx, main.jsx |
-| **Barrels / orphans** | 3 | common/index.js + Notifications/index.js barrels; 0-byte orphan `services/DemandForecastChart.jsx` |
+| **Barrels** | 2 | common/index.js, Notifications/index.js barrels |
 | **Styles** | 4 css | index.css, App.css, Auth/Auth.css, common/NotificationBell.css |
 | **Assets** | 9 | 5 png, 3 jpg, 1 svg |
 | **Docs (frontend root)** | 3 md | DOCS_INDEX.md (entry point), AUTH_MODULE_README.md, this file |
 | **Config** | 4 | package.json, vite.config.js, eslint.config.js, .env.example |
 
-**src total: 115 tracked files** (80 jsx · 22 js · 4 css · 9 images).
+**src total: 113 tracked files** (78 jsx · 22 js · 4 css · 9 images). After the
+Issue #67 delete (Settings/temp.jsx fragment + 0-byte
+services/DemandForecastChart.jsx stub); header's 53ac11c count was 115.
 `tailwind.config.js` / `postcss.config.js` never existed — and see Known gaps:
 Tailwind itself is declared but not wired in.
 
@@ -59,7 +61,7 @@ Tailwind itself is declared but not wired in.
 | Dealers | 2 | List, Detail |
 | Reports | 1 | Reports |
 | Notifications | 2 | List, Preferences (Firebase push wired) |
-| Settings | 2 | Settings (+temp.jsx — leftover scratch page) |
+| Settings | 1 | Settings.jsx (temp.jsx orphan fragment deleted, Issue #67) |
 | Admin | 1 | UserManagement |
 | Landing | 1 | LandingPage |
 
@@ -89,11 +91,9 @@ Note: `@types/react` 19.x are dev-deps only; the runtime is React 18.3.1.
 
 - `tailwindcss` 4.1 is in `package.json` dependencies but nothing imports or
   configures it — dead weight until wired (or dropped).
-- `src/pages/Settings/temp.jsx` is an orphan scratch file: imported and routed
-  nowhere. Cleanup candidate.
-- Orphaned components: `components/Car3D.jsx` and `components/DemandForecastChart.jsx`
-  are fully written but imported by no page; `services/DemandForecastChart.jsx`
-  is a 0-byte empty file. The 3D stack is real but currently renders nothing.
+- Orphaned components (complete, working, but no page imports them yet):
+  `components/Car3D.jsx` and `components/DemandForecastChart.jsx`. The 3D
+  stack is real but currently renders nothing.
 - Zustand is installed but state lives mostly in context/page code.
 - Mock data files (mockVehicles/mockDataSales/mockNotifications) coexist with real service calls.
 - Tests: a single component test (`NotificationBell.test.jsx`) — no frontend test suite yet.
