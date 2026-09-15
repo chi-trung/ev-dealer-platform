@@ -13,7 +13,7 @@
 ### 2. Tạo 3 File Hướng Dẫn
 📄 **TEST_FRONTEND.md** - Hướng dẫn chi tiết đầy đủ  
 📄 **DEMO_2_PHUT.md** - Test nhanh trong 2 phút  
-📄 **start-all.ps1** - Script tự động start tất cả services
+📄 ~~start-all.ps1~~ — đã xóa trong #53 (hardcode path máy dev cũ; dùng docker compose)
 
 ---
 
@@ -33,8 +33,7 @@ Container thật tên `evm_rabbitmq` / `evm_vehicleservice` /
 `evm_notificationservice`. Frontend chạy `npm run dev` trong
 `ev-dealer-frontend/` (port 5173).
 
-(`start-all.ps1` vẫn còn trong thư mục nhưng hardcode đường dẫn `D:\Nam_3\`
-máy dev cũ — không nên dùng; nằm trong đợt cleanup Issue #53.)
+(`start-all.ps1` đã bị xóa trong #53 — hardcode đường dẫn `D:\Nam_3\` máy dev cũ; khởi động bằng docker compose như trên)
 
 ### Option 2: Manual (Chi Tiết)
 Xem file: **DEMO_2_PHUT.md**
@@ -154,7 +153,7 @@ http://localhost:15672
 |------|-------|
 | **DEMO_2_PHUT.md** | Test nhanh nhất (2 phút) |
 | **TEST_FRONTEND.md** | Hướng dẫn chi tiết đầy đủ |
-| **start-all.ps1** | ⚠️ Script cũ — hardcode đường dẫn máy dev, dùng compose thay thế |
+| ~~start-all.ps1~~ | ❌ Đã xóa (#53) — hardcode path máy dev; dùng docker compose |
 | **INTEGRATION_PLAN.md** | Roadmap tích hợp đầy đủ |
 | **QUICK_START.md** | Test backend end-to-end |
 | **TESTING_GUIDE.md** | Test riêng NotificationService |

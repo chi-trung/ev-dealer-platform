@@ -1,7 +1,7 @@
 /**
- * Pie Chart Component
- * TODO: Implement pie chart using Recharts
- * Use for: Top vehicles, sales distribution
+ * Pie Chart Component — wrapper của Recharts PieChart.
+ * Chưa có importer nào — giữ lại theo quyết định #53 cho dashboard tương lai
+ * (top vehicles, sales distribution). Only LineChart is live (DealerDetail).
  */
 
 import { PieChart as RechartsPieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from 'recharts'

@@ -1,15 +1,23 @@
 /**
  * Protected Route Component
- * Route protection based on authentication and role
- * TODO: Remove development mode when backend is ready
+ * Route protection based on authentication and role.
+ *
+ * Dev-mode bypass là DESIGN, không phải TODO còn sót: Vite dev (import.meta.env.DEV)
+ * inject mock user `dev-token-123` / id `dev-user-1` để toàn bộ UI chạy được
+ * không cần login. Production build luôn enforce auth ở dưới. Hai defender phụ
+ * thuộc giá trị cụ thể ở đây:
+ * - NotificationPreferences.jsx isDevPlaceholder() so token === 'dev-token-123'
+ * - firebase/notificationService.js thấy user id 'dev-user-1' (không match
+ *   /^\d+$/) thì bỏ qua, không gọi API DeviceTokens thật
+ * Đổi token/user id ở đây là làm hỏng mấy chỗ đó.
  */
 
 import { Navigate } from 'react-router-dom'
 import authService from '../../services/authService'
 
 const ProtectedRoute = ({ children, requiredRole }) => {
-  // DEVELOPMENT MODE: Allow access without authentication
-  // TODO: Remove this when backend is ready
+  // DEVELOPMENT MODE (Vite only): mock user so the UI runs without a backend login.
+  // Production builds skip this branch entirely — auth is enforced below.
   const isDevelopmentMode = import.meta.env.DEV
   
   if (isDevelopmentMode) {

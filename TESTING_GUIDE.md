@@ -17,11 +17,11 @@
 .\ev-dealer-management\check-health.ps1
 ```
 
-> ⚠️ These three scripts are themselves stale: `start-all-services.ps1` hardcodes
-> `C:\Code\XD\project_XD\...`, and `test-all-flows.ps1` / `check-health.ps1` still
-> probe the old VehicleService port **5002** (it runs on **5068**) and
-> `/notifications/health` (the real endpoint is `/health`). Until they are fixed,
-> prefer starting services manually as shown below.
+> ✅ Fixed in #53: `start-all-services.ps1` now derives its base path from
+> `$PSScriptRoot` (no more hardcoded dev-machine path), and
+> `test-all-flows.ps1` / `check-health.ps1` probe the real endpoints
+> (VehicleService **5068** `/health`, NotificationService **5051** `/health`
+> — no more `/notifications/health`).
 
 ---
 

@@ -27,9 +27,7 @@ Container thật tên `evm_rabbitmq` / `evm_vehicleservice` /
 ⚠️ NotificationService cần `firebase-credentials.json` cho mọi API notification
 (xem `FIREBASE_SETUP.md`).
 
-*Còn* `.\start-all.ps1` trong thư mục này vẫn hardcode đường dẫn `D:\Nam_3\`
-máy dev cũ + tạo container `rabbitmq` riêng — dùng compose ở trên thay vì
-script này (script nằm trong đợt cleanup tiếp theo, Issue #53).
+*`start-all.ps1` cũ đã bị xóa (#53)* — hardcode đường dẫn `D:\Nam_3\` máy dev cũ; khởi động bằng compose ở trên
 
 Chờ **30 giây** để services khởi động.
 

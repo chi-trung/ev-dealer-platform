@@ -1,12 +1,8 @@
 /**
  * Dealer Detail Page
- * TODO: Implement dealer detail view with:
- * - Dealer information (name, region, contact, contract)
- * - Performance metrics (sales, target, achievement %)
- * - Performance chart (monthly sales)
- * - Debt information
- * - Contract upload/view
- * - Edit dealer button
+ * Trang route /dealers/:id — layout đầy đủ (info, metrics, LineChart, debt,
+ * contracts) nhưng dữ liệu đang là mock hardcoded trong file (chưa đọc theo
+ * :id, chưa gọi API); các nút Edit/Set Targets/Upload chỉ alert placeholder.
  */
 
 import React from "react";

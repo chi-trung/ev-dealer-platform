@@ -1,7 +1,7 @@
 /**
- * Line Chart Component
- * TODO: Implement line chart using Recharts
- * Use for: Monthly sales trend, revenue over time
+ * Line Chart Component — wrapper của Recharts LineChart.
+ * Đang dùng: DealerDetail.jsx (Monthly Performance). Use for: Monthly sales
+ * trend, revenue over time.
  */
 
 import { LineChart as RechartsLineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'

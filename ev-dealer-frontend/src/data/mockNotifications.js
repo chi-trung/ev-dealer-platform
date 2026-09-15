@@ -1,6 +1,6 @@
 /**
- * Mock Notification Data for Development
- * TODO: Replace with real API calls when backend is ready
+ * Mock Notification Data — fallback khi trang Notifications / notificationService
+ * không lấy được dữ liệu thật từ NotificationService (:5051, FCM push).
  */
 
 export const mockNotifications = [
