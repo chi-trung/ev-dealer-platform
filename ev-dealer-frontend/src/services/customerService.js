@@ -51,13 +51,4 @@ export const customerService = {
     }
   },
 
-  getCustomerStats: async () => {
-    try {
-      const response = await api.get('/customers/stats');
-      return response;
-    } catch (error) {
-      console.error('Error fetching customer stats:', error);
-      throw error;
-    }
-  },
 };

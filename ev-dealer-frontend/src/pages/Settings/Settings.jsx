@@ -1,10 +1,7 @@
 /**
  * Settings Page
- * TODO: Implement settings with tabs:
- * - Profile (name, email, phone, avatar)
- * - Change Password
- * - Role & Permissions (Admin only)
- * - System Settings (Admin only)
+ * 3 tab đã implement: Profile (name, email, phone, avatar), Security
+ * (đổi mật khẩu qua POST /auth/change-password), Permissions (Admin).
  */
 
 import React, { useState } from "react";

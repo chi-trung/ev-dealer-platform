@@ -345,29 +345,6 @@ const vehicleService = {
     }
   },
 
-  // Search vehicles
-  searchVehicles: async (query) => {
-    try {
-      const response = await api.get('/vehicles/search', { params: { q: query } })
-      return response
-    } catch (error) {
-      // Fallback to mock data if API fails
-      console.warn('API call failed, using mock data:', error.message)
-
-      // Simulate API delay
-      await new Promise(resolve => setTimeout(resolve, 300))
-
-      const searchTerm = query.toLowerCase()
-      const results = mockVehicles.filter(vehicle =>
-        vehicle.model.toLowerCase().includes(searchTerm) ||
-        vehicle.type.toLowerCase().includes(searchTerm) ||
-        vehicle.description.toLowerCase().includes(searchTerm)
-      )
-
-      return results
-    }
-  },
-
   // Reserve vehicle
   reserveVehicle: async (vehicleId, reservationData) => {
     try {
@@ -409,31 +386,6 @@ const vehicleService = {
 
       console.log('Mock reservation created:', mockReservation)
       return mockReservation
-    }
-  },
-
-  // Get reservation by ID
-  getReservation: async (reservationId) => {
-    try {
-      const response = await api.get(`/vehicles/reservations/${reservationId}`)
-      return response
-    } catch (error) {
-      console.warn('API call failed, using mock data:', error.message)
-      
-      // Mock reservation data
-      return {
-        id: reservationId,
-        vehicleId: 1,
-        vehicleName: 'Mock Vehicle',
-        customerName: 'Mock Customer',
-        customerEmail: 'customer@example.com',
-        customerPhone: '0123456789',
-        quantity: 1,
-        totalPrice: 50000,
-        status: 'Pending',
-        createdAt: new Date().toISOString(),
-        expiresAt: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString()
-      }
     }
   },
 

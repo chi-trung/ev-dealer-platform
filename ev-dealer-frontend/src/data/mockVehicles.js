@@ -1,6 +1,6 @@
 /**
- * Mock Vehicle Data for Development
- * TODO: Replace with real API calls when backend is ready
+ * Mock Vehicle Data — fallback cho vehicleService.js khi API VehicleService
+ * (:5068) không reachable (catch-block trong services/vehicleService.js).
  */
 
 export const mockVehicles = [

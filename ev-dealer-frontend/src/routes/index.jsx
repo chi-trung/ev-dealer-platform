@@ -1,6 +1,5 @@
 /**
- * Route Configuration
- * TODO: Configure all application routes with React Router
+ * Route Configuration — toàn bộ route của app khai báo trong <AppRoutes /> bên dưới.
  */
 
 import { Routes, Route, Navigate } from "react-router-dom";
