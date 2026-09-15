@@ -1,6 +1,6 @@
 # (WEB) EV DEALER MANAGEMENT SYSTEM
 
-A comprehensive microservices-based dealer management system for electric vehicles, featuring real-time notifications via SMS and Email.
+A comprehensive microservices-based dealer management system for electric vehicles, featuring real-time push notifications delivered through Firebase Cloud Messaging.
 
 ## Table of Contents
 - [Overview](#overview)
@@ -17,8 +17,8 @@ A comprehensive microservices-based dealer management system for electric vehicl
 EV Dealer Management System is a full-stack application designed to manage electric vehicle dealerships with automated customer notifications. The system uses event-driven architecture with RabbitMQ for reliable message delivery.
 
 ### Key Capabilities:
-- **Vehicle Reservation with SMS Notification**
-- **Order Completion with Email Confirmation**
+- **Vehicle Reservation with Push Notification**
+- **Order Completion with Push Confirmation**
 - **Real-time Event Processing**
 - **Dealer Analytics & Reporting**
 - **Customer Management**
@@ -45,38 +45,36 @@ EV Dealer Management System is a full-stack application designed to manage elect
 ┌─────────┐ ┌──────────┐ ┌─────────┐ ┌────────────────┐
 │ User    │ │ Vehicle  │ │ Sales   │ │ Customer       │
 │ Service │ │ Service  │ │ Service │ │ Service        │
-│ :7001   │ │ :5002    │ │ :5003   │ │ :5039          │
+│ :7001   │ │ :5068    │ │ :5003   │ │ :5039          │
 └────┬────┘ └────┬─────┘ └────┬────┘ └───┬────────────┘
      │           │            │           │
      │           └────────────┴───────────┴─────┐
      │                                           │
      ↓                                           ↓
 ┌──────────┐                              ┌──────────────┐
-│ SQL      │                              │ RabbitMQ     │
-│ Server   │                              │ :5672, 15672 │
+│ SQLite   │                              │ RabbitMQ     │
+│ per-svc  │                              │ :5672, 15672 │
 └──────────┘                              └──────┬───────┘
                                                  │
                                                  ↓
                                         ┌──────────────────┐
                                         │ Notification     │
                                         │ Service :5051    │
-                                        └────┬────────┬────┘
-                                             │        │
-                                    ┌────────┘        └─────────┐
-                                    ↓                           ↓
-                              ┌──────────┐              ┌────────────┐
-                              │ SendGrid │              │ Twilio SMS │
-                              │ Email    │              │ (Mock)     │
-                              └──────────┘              └────────────┘
+                                        └────────┬─────────┘
+                                                 ↓
+                                        ┌──────────────────┐
+                                        │ Firebase Cloud   │
+                                        │ Messaging (Push) │
+                                        └──────────────────┘
 ```
 
 ### Event-Driven Communication
 ```
 Vehicle Reserved Event:
-User → VehicleService → RabbitMQ → NotificationService → SMS
+User → VehicleService → RabbitMQ → NotificationService → Push (Firebase FCM)
 
 Order Completed Event:
-User → SalesService → RabbitMQ → NotificationService → Email
+User → SalesService → RabbitMQ → NotificationService → Push (Firebase FCM)
 ```
 
 ---
@@ -85,23 +83,22 @@ User → SalesService → RabbitMQ → NotificationService → Email
 
 ###  Implemented:
 
-#### 1. Vehicle Reservation with SMS
+#### 1. Vehicle Reservation with Push Notification
 - Reserve vehicles through web interface
-- Automatic SMS confirmation (mock mode in development)
-- Real-time notification via RabbitMQ
+- vehicle.reserved event published to RabbitMQ
+- NotificationService consumes it and delivers an FCM push
 - Customer information capture
 
-#### 2. Order Completion with Email
+#### 2. Order Completion with Confirmation
 - Complete orders from Order Detail page
-- Email confirmation with order details
-- Order ID generation (ORD-YYYYMMDD-GUID format)
-- SendGrid integration for reliable delivery
+- sales.completed event triggers a push notification with order details
+- Order number generation (ORD-YYYYMMDDHHMMSS-XXXX format)
 
 #### 3. Notification Infrastructure
-- Multi-channel notification support (Email + SMS)
-- RabbitMQ message queuing
-- Consumer service with automatic retry
-- Mock mode for development testing
+- Push delivery via Firebase Cloud Messaging (FirebaseAdmin)
+- RabbitMQ message queuing (14 event queues)
+- Consumer retry with DLQ (max 3 delivery attempts)
+- Per-user device-token registry and notification preferences
 
 #### 4. API Gateway
 - Centralized routing with Ocelot
@@ -109,8 +106,6 @@ User → SalesService → RabbitMQ → NotificationService → Email
 - Load balancing ready
 
 ### In Progress:
-- Test Drive Scheduling notifications
-- Customer complaint management
 - Dealer analytics dashboard
 
 ---
@@ -167,10 +162,17 @@ npm run dev
 
 ### Verify Installation:
 ```powershell
+# Script nằm trong ev-dealer-management/ — chạy từ đó.
+# ⚠️ check-health.ps1 còn probe route/port cũ (NotificationService
+# /notifications/health — route thật là /health; VehicleService :5002 —
+# port dev thật 5068) nên vài dòng có thể báo ❌ giả —
+# đối chiếu thủ công theo list bên dưới cho tới khi script được sửa (#53).
+cd ev-dealer-management
 .\check-health.ps1
 ```
 
-Expected output:
+Expected output (khi services chạy qua compose; phần RabbitMQ/Notification/
+Sales đúng, dòng VehicleService chỉ đúng khi override port — xem caveat):
 ```
 ✅ RabbitMQ Running
 ✅ NotificationService Healthy
@@ -187,8 +189,8 @@ Expected output:
 |----------|-------------|
 | [DEPLOYMENT_GUIDE.md](./DEPLOYMENT_GUIDE.md) | Production deployment instructions |
 | [TESTING_GUIDE.md](./TESTING_GUIDE.md) | Comprehensive testing guide |
-| [SalesService/README_TEST.md](./ev-dealer-management/SalesService/README_TEST.md) | SalesService API testing |
-| [SalesService/COMPLETE.md](./ev-dealer-management/SalesService/COMPLETE.md) | SalesService integration details |
+| [SalesService/START_HERE.md](./ev-dealer-management/SalesService/START_HERE.md) | SalesService setup and API testing |
+| [docs/EVENTS.md](./ev-dealer-management/docs/EVENTS.md) | Event topology across services |
 | [NotificationService/README.md](./ev-dealer-management/NotificationService/README.md) | Notification service setup |
 
 ---
@@ -199,9 +201,9 @@ Expected output:
 - **Framework**: .NET 8.0
 - **API Gateway**: Ocelot
 - **Message Broker**: RabbitMQ
-- **Database**: SQL Server / SQLite
-- **Email**: SendGrid API
-- **SMS**: Twilio API
+- **Database**: SQLite (EF Core)
+- **Push Notifications**: Firebase Cloud Messaging (FirebaseAdmin)
+- **Email**: SMTP via MailKit (UserService)
 
 ### Frontend:
 - **Framework**: React 18
@@ -213,7 +215,7 @@ Expected output:
 ### DevOps:
 - **Containerization**: Docker
 - **Orchestration**: Docker Compose
-- **CI/CD**: GitHub Actions (planned)
+- **CI/CD**: GitHub Actions (.github/workflows/ci.yml — backend build + unit tests, frontend build + LFS check)
 
 ---
 
@@ -224,11 +226,13 @@ Expected output:
 | **APIGatewayService** | 5036 |  Active | Central API gateway with Ocelot routing |
 | **UserService** | 7001 |  Ready | Authentication, authorization, user management |
 | **CustomerService** | 5039 |  Ready | Customer CRUD, test drives, complaints |
-| **VehicleService** | 5002 |  Complete | Vehicle management, reservations, SMS notifications |
-| **SalesService** | 5003 |  Complete | Order management, email notifications |
-| **NotificationService** | 5051 |  Complete | Multi-channel notifications (Email/SMS) |
+| **VehicleService** | 5068 |  Complete | Vehicle management, reservations, vehicle.reserved events |
+| **SalesService** | 5003 |  Complete | Order management, RabbitMQ order/sales events |
+| **NotificationService** | 5051 |  Complete | Push notifications via Firebase FCM |
 | **DealerManagementService** | TBD |  Planned | Dealer management and analytics |
-| **ReportingService** | 5004 |  Ready | Sales analytics and reporting |
+| **ReportingService** | 5208 |  Ready | Sales analytics and reporting |
+
+*Ports are the development (launchSettings/ocelot.json) ports; Docker Compose maps different host ports (e.g. VehicleService 5224, UserService 5223) — see `ev-dealer-management/docker-compose.yml`.*
 
 ---
 
@@ -241,20 +245,20 @@ Expected output:
 
 ### Test Individual Flows:
 
-**Vehicle Reservation (SMS):**
+**Vehicle Reservation (Push):**
 ```powershell
 $body = @{
     customerName = "Test User"
     customerEmail = "test@example.com"
     customerPhone = "+84912345678"
-    vehicleId = 1
+    quantity = 1
 } | ConvertTo-Json
 
-Invoke-RestMethod -Uri "http://localhost:5002/api/vehicles/reserve" `
+Invoke-RestMethod -Uri "http://localhost:5068/api/vehicles/1/reserve" `
     -Method Post -Body $body -ContentType "application/json"
 ```
 
-**Order Completion (Email):**
+**Order Completion (Push):**
 ```powershell
 $body = @{
     customerName = "Test Customer"
@@ -277,10 +281,9 @@ Invoke-RestMethod -Uri "http://localhost:5003/api/orders/complete" `
 
 **NotificationService:**
 ```env
-SENDGRID_API_KEY=your_sendgrid_key
-TWILIO_ACCOUNT_SID=your_twilio_sid
-TWILIO_AUTH_TOKEN=your_twilio_token
-SMS_MOCK_MODE=true
+ConnectionStrings__DefaultConnection=Data Source=notifications.db
+Firebase__CredentialPath=firebase-credentials.json
+Firebase__ProjectId=ev-dealer-management-6c620
 ```
 
 **All Services:**
@@ -306,12 +309,14 @@ Password: guest
 ```
 
 ### Health Endpoints:
-- NotificationService: http://localhost:5051/notifications/health
+- NotificationService: http://localhost:5051/health
 - SalesService: http://localhost:5003/api/orders/health
-- VehicleService: http://localhost:5002/health
+- VehicleService: http://localhost:5068/api/health
 
 ### Check All Services:
 ```powershell
+# từ ev-dealer-management/ (script chưa sửa port — xem caveat mục Quick Start)
+cd ev-dealer-management
 .\check-health.ps1
 ```
 
@@ -346,7 +351,7 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 ### Quick Help:
 ```powershell
 # Check service health
-.\check-health.ps1
+cd ev-dealer-management; .\check-health.ps1   # ⚠️ vài probe còn port cũ (#53)
 
 # View logs
 # Check terminal windows for each service
@@ -366,16 +371,16 @@ See [TESTING_GUIDE.md](./TESTING_GUIDE.md#common-issues--solutions)
 ##  Roadmap
 
 ### Phase 1:  Complete (Current)
-- [x] Vehicle Reservation with SMS
-- [x] Order Completion with Email
+- [x] Vehicle Reservation with Push Notification
+- [x] Order Completion with Confirmation
 - [x] RabbitMQ Integration
 - [x] Frontend Integration
 - [x] API Gateway Routing
 
 ### Phase 2: In Progress
-- [ ] Test Drive Scheduling
-- [ ] CustomerService Notifications
-- [ ] Docker Compose Deployment
+- [x] Test Drive Scheduling
+- [x] CustomerService Notifications
+- [x] Docker Compose Deployment
 - [ ] API Gateway Authentication
 
 ### Phase 3:  Planned
@@ -387,5 +392,5 @@ See [TESTING_GUIDE.md](./TESTING_GUIDE.md#common-issues--solutions)
 ---
 
 **Version**: 1.0.0  
-**Last Updated**: November 22, 2025  
+**Last Updated**: September 14, 2026  
 **Status**:  Production Ready (Core Features)

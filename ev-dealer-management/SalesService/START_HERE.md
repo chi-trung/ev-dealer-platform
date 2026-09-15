@@ -1,20 +1,31 @@
 # 🎯 QUICK START - Test Complete Order Feature
 
+> **Cập nhật 2026-09 (docs sweep #52):** luồng cũ vẽ "NotificationService →
+> SendGrid → email" — **không có email/SMS trong hệ thống**; NotificationService
+> chỉ đẩy **FCM push**. Đường dẫn `D:\Nam_3\...` là máy dev cũ, RabbitMQ container
+> thật tên `evm_rabbitmq`. Bài dưới khớp code hiện tại.
+
 ## ⚡ 30-Second Test
 
-### Start Services (4 commands):
+### Start Services:
+
+**Cách gọn nhất — compose** (từ `ev-dealer-management/`):
+
 ```powershell
-# Terminal 1: RabbitMQ (if not running)
-docker start rabbitmq
+docker compose up -d rabbitmq salesservice notificationservice
+```
 
-# Terminal 2: NotificationService
-cd D:\Nam_3\ev-dealer-management\ev-dealer-management\NotificationService; dotnet run
+**Hoặc manual:**
 
-# Terminal 3: SalesService
-cd D:\Nam_3\ev-dealer-management\ev-dealer-management\SalesService; dotnet run
+```powershell
+# Terminal 2: NotificationService (port dev 5051)
+cd ev-dealer-management/NotificationService; dotnet run
+
+# Terminal 3: SalesService (port dev 5003)
+cd ev-dealer-management/SalesService; dotnet run
 
 # Terminal 4: Frontend
-cd D:\Nam_3\ev-dealer-management\ev-dealer-frontend; npm run dev
+cd ev-dealer-frontend; npm run dev
 ```
 
 ### Test (3 clicks):
@@ -22,9 +33,14 @@ cd D:\Nam_3\ev-dealer-management\ev-dealer-frontend; npm run dev
 2. Click: **Sales** → **Xem chi tiết** (any order)
 3. Click: Green button **"Hoàn tất đơn hàng"**
 
+*(luồng tạo đơn + complete thật đi qua `OrderCreateFromQuote.jsx` →
+`POST /api/Orders/complete` — endpoint này vừa tạo order vừa hoàn tất, xem
+OrdersController.cs)*
+
 ### Verify (2 checks):
-✅ Toast appears: "Đơn hàng hoàn tất thành công! ... Mã đơn: ORD-..."
-✅ Status badge: "Hoàn thành" (green)
+✅ Order được tạo/hoàn tất, status cập nhật  
+✅ NotificationService log: `Processing SaleCompletedEvent ...` + push FCM gửi
+tới subject registry
 
 ---
 
@@ -71,13 +87,13 @@ AFTER SUCCESS:
 │  ✅ Đã hoàn tất        │  ← Gray, disabled
 └────────────────────────┘
 
-TOAST NOTIFICATION:
+SUCCESS TOAST (frontend):
 ┌──────────────────────────────────────────────────┐
 │  ✅ Đơn hàng hoàn tất thành công!               │
-│     Email xác nhận đã được gửi đến              │
-│     customer@example.com.                       │
-│     Mã đơn: ORD-20251122-A1B2C3D4              │
+│     Mã đơn: ORD-...                              │
 └──────────────────────────────────────────────────┘
+(không còn dòng "Email xác nhận đã được gửi" —
+luồng này chưa từng gửi email)
 ```
 
 ---
@@ -88,19 +104,21 @@ TOAST NOTIFICATION:
 1. Button Click
    ↓
 2. Frontend → SalesService API
-   POST http://localhost:5003/api/orders/complete
+   POST http://localhost:5003/api/Orders/complete
    ↓
 3. SalesService → RabbitMQ
-   Publish to queue: "sales.completed"
+   Publish SaleCompletedEvent → queue "sales.completed"
+   (RabbitMQMessagePublisher; log "Published message")
    ↓
 4. RabbitMQ → NotificationService
-   Deliver message to consumer
+   SaleCompletedConsumer nhận message
    ↓
-5. NotificationService → SendGrid
-   Send email via SendGrid API
+5. NotificationService → Firebase FCM
+   Resolve device tokens qua registry subject `user:<customerId>`
+   → push "🎉 Đơn hàng đã hoàn tất!" (title thật trong consumer)
    ↓
-6. SendGrid → Customer Inbox
-   Email delivered
+6. Thiết bị người dùng nhận push
+   (nếu customer chưa có token đăng ký → log warning, bỏ qua)
    ↓
 7. Frontend ← SalesService
    Return OrderId
@@ -118,7 +136,7 @@ TOAST NOTIFICATION:
 ```powershell
 netstat -ano | findstr :5003
 # If nothing, start SalesService:
-cd D:\Nam_3\ev-dealer-management\ev-dealer-management\SalesService; dotnet run
+cd ev-dealer-management/SalesService; dotnet run
 ```
 
 ### Problem: Error toast appears
@@ -128,11 +146,13 @@ Look for red error messages
 Common: "Failed to fetch" = Service not running
 ```
 
-### Problem: No email sent
+### Problem: No push delivered
 **Fix**: Check NotificationService logs
 ```
-Should see: "Email sent successfully"
-If not: Check SendGrid API key in appsettings.json
+Should see: "Processing SaleCompletedEvent" (SaleCompletedConsumer)
+Nếu "no device tokens" → customer chưa đăng ký token
+(mở frontend, login, cho phép notification)
+Nếu credentials lỗi → firebase-credentials.json (FIREBASE_SETUP.md)
 ```
 
 ---
@@ -140,7 +160,7 @@ If not: Check SendGrid API key in appsettings.json
 ## 📋 Quick Checklist
 
 Before testing:
-- [ ] Docker running (for RabbitMQ)
+- [ ] Docker running (for RabbitMQ — `docker compose up -d rabbitmq`)
 - [ ] NotificationService terminal open (port 5051)
 - [ ] SalesService terminal open (port 5003)
 - [ ] Frontend dev server running
@@ -155,20 +175,18 @@ After test:
 - [ ] Status badge shows "Hoàn thành" (green)
 - [ ] Button shows "Đã hoàn tất" (disabled)
 - [ ] SalesService logs: "Published message"
-- [ ] NotificationService logs: "Email sent successfully"
+- [ ] NotificationService logs: "Processing SaleCompletedEvent" + push sent
 
 ---
 
-## 🎓 Key Files Modified
+## 🎓 Key Files
 
-| File | What Changed |
-|------|--------------|
-| `OrderDetail.jsx` | Added Complete Order button + API integration |
-| Lines 1-5 | Import NotificationToast |
-| Lines 84-85 | State: notification, completing |
-| Lines 171-239 | Handler: handleCompleteOrder (API call) |
-| Lines 786-806 | Button: Click → API → Toast |
-| Lines 995-1001 | Component: NotificationToast |
+| File | Role |
+|------|------|
+| `OrderCreateFromQuote.jsx` | Gọi `POST /Orders/complete` (tạo + hoàn tất đơn) |
+| `SalesService/Controllers/OrdersController.cs` | Endpoint complete + publish `sales.completed` |
+| `NotificationService/Consumers/SaleCompletedConsumer.cs` | Consume → FCM push qua token registry |
+| `NotificationService/Services/FirebaseFcmService.cs` | Gửi FCM |
 
 ---
 
@@ -178,7 +196,7 @@ After test:
 ✅ Button clicked  
 ✅ Toast shows success  
 ✅ Order status updated  
-✅ Email sent  
+✅ FCM push tới thiết bị có token đăng ký  
 
 **If all ✅ → YOU'RE DONE! 🎊**
 
@@ -186,11 +204,9 @@ After test:
 
 ## 📚 Full Documentation
 
-- `INTEGRATION_COMPLETE.md` - Detailed summary
-- `FRONTEND_INTEGRATION.md` - Technical details + flow diagrams
-- `QUICK_TEST.md` - Step-by-step testing guide
+- `RABBITMQ_SETUP.md` (cùng thư mục) - cấu hình broker
+- `NotificationService/README.md` - overview + endpoint push
 
 ---
 
 **Need help? Check the logs in all 3 terminals!**
-

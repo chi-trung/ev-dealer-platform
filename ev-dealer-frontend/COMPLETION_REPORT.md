@@ -121,15 +121,17 @@ ev-dealer-frontend/
 │   ├── 🔀 routes/ (1 file)
 │   │   └── ✅ index.jsx
 │   │
-│   ├── 📡 services/ (8 files)
+│   ├── 📡 services/ (10 files)
+│   │   ├── ✅ adminService.js
 │   │   ├── ✅ api.js
 │   │   ├── ✅ authService.js
-│   │   ├── ✅ vehicleService.js
-│   │   ├── ✅ salesService.js
+│   │   ├── ✅ complaintService.js
 │   │   ├── ✅ customerService.js
 │   │   ├── ✅ dealerService.js
+│   │   ├── ✅ notificationService.js
 │   │   ├── ✅ reportService.js
-│   │   └── ✅ notificationService.js
+│   │   ├── ✅ testDriveService.js
+│   │   └── ✅ vehicleService.js
 │   │
 │   ├── 🛠️ utils/ (4 files)
 │   │   ├── ✅ constants.js
@@ -244,7 +246,7 @@ ev-dealer-frontend/
 - PieChart (distributions)
 
 ### ✅ Form Components
-- SearchBar (with debounce)
+- SearchBar ⚠️ — debounce **chưa** implement (vẫn còn `TODO: Implement search with debounce` trong SearchBar.jsx; component hiện không được trang nào sử dụng)
 - FilterPanel (dynamic filters)
 - DateRangePicker
 

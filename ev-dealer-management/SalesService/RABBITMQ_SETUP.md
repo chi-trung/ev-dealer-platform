@@ -1,5 +1,12 @@
 # 🚀 Hướng Dẫn Khởi Động SalesService với RabbitMQ
 
+> **Cập nhật 2026-09 (docs sweep #52):** container RabbitMQ trong
+> `docker-compose.yml` tên **`evm_rabbitmq`** (compose service là `rabbitmq`);
+> key cấu hình broker là **`RabbitMQ:HostName`** (không phải `Host`);
+> VehicleService chạy port dev **5068** — value mặc định `http://localhost:5001`
+> trong `appsettings.json` là port cũ, compose đã override bằng
+> `Services__VehicleService=http://vehicleservice:8080`.
+
 ## 📋 Điều Kiện Cần Thiết
 
 ### 1. **RabbitMQ Server** (Bắt buộc)
@@ -9,17 +16,17 @@ SalesService cần RabbitMQ để publish events. Có 2 cách để chạy Rabbi
 #### **Option A: Sử dụng Docker (Khuyến nghị)**
 
 ```powershell
-# Kiểm tra RabbitMQ đã chạy chưa
-docker ps --filter "name=rabbitmq"
+# Cách gọn nhất — dùng compose (từ ev-dealer-management/):
+docker compose up -d rabbitmq     # container tạo ra tên evm_rabbitmq
 
-# Nếu chưa có, tạo và chạy RabbitMQ container
+# Kiểm tra:
+docker ps --filter "name=evm_rabbitmq"
+
+# Nếu muốn chạy container lẻ tự đặt tên (không khuyến nghị — lệch compose):
 docker run -d --name rabbitmq `
   -p 5672:5672 `
   -p 15672:15672 `
   rabbitmq:3-management
-
-# Hoặc nếu container đã tồn tại nhưng đang dừng
-docker start rabbitmq
 ```
 
 **RabbitMQ Management UI**: http://localhost:15672
@@ -29,8 +36,8 @@ docker start rabbitmq
 #### **Option B: Sử dụng Docker Compose**
 
 ```powershell
-# Từ thư mục gốc của project
-docker-compose up -d rabbitmq
+# Từ thư mục chứa docker-compose.yml (ev-dealer-management/)
+docker compose up -d rabbitmq
 ```
 
 ### 2. **.NET 8.0 SDK** (Bắt buộc)
@@ -52,7 +59,11 @@ cd ev-dealer-management\VehicleService
 dotnet run
 ```
 
-Mặc định chạy tại: `http://localhost:5001`
+Port dev (launchSettings): `http://localhost:5068`. *(appsettings của
+SalesService còn ghi `Services:VehicleService = http://localhost:5001` —
+port cũ; khi chạy dev manual, override bằng
+`$env:Services__VehicleService="http://localhost:5068"` trước `dotnet run`,
+hoặc đơn giản là chạy cả stack qua compose.)*
 
 ### 4. **Database SQLite** (Tự động tạo)
 
@@ -65,20 +76,20 @@ Database `sales.db` sẽ được tạo tự động khi chạy lần đầu.
 ### **Option A: Sử dụng Docker Compose (Khuyến nghị cho Production)**
 
 ```powershell
-# Từ thư mục gốc của project
+# Từ thư mục chứa docker-compose.yml
 cd ev-dealer-management
 
 # Build và start tất cả services (bao gồm SalesService)
-docker-compose up -d
+docker compose up -d
 
 # Hoặc chỉ start SalesService và dependencies
-docker-compose up -d rabbitmq vehicleservice salesservice
+docker compose up -d rabbitmq vehicleservice salesservice
 
 # Xem logs
-docker-compose logs -f salesservice
+docker compose logs -f salesservice
 
 # Stop services
-docker-compose down
+docker compose down
 ```
 
 **Lợi ích:**
@@ -92,13 +103,13 @@ docker-compose down
 #### Bước 1: Đảm bảo RabbitMQ đang chạy
 
 ```powershell
-# Kiểm tra
-docker ps --filter "name=rabbitmq"
+# Kiểm tra (container compose tên evm_rabbitmq)
+docker ps --filter "name=evm_rabbitmq"
 
-# Nếu không thấy, start RabbitMQ
-docker start rabbitmq
-# Hoặc tạo mới
-docker run -d --name rabbitmq -p 5672:5672 -p 15672:15672 rabbitmq:3-management
+# Nếu chưa chạy, bật qua compose (từ ev-dealer-management/):
+docker compose up -d rabbitmq
+# hoặc start container có sẵn:
+docker start evm_rabbitmq
 ```
 
 #### Bước 2: Khởi động SalesService
@@ -143,7 +154,7 @@ Mở RabbitMQ Management UI: http://localhost:15672
 ```json
 {
   "RabbitMQ": {
-    "Host": "localhost",
+    "HostName": "localhost",
     "Port": 5672,
     "UserName": "guest",
     "Password": "guest",
@@ -160,14 +171,18 @@ Mở RabbitMQ Management UI: http://localhost:15672
 }
 ```
 
+*(key broker là `HostName` — code đọc `RabbitMQ:HostName`; block Queues trên
+rút gọn, file thật còn khai báo thêm QuoteCreated/ContractCreated...)*
+
 ### Thay đổi RabbitMQ Connection
 
-Nếu RabbitMQ chạy ở host/port khác, cập nhật trong `appsettings.json`:
+Nếu RabbitMQ chạy ở host/port khác, cập nhật trong `appsettings.json` (hoặc env
+`RabbitMQ__HostName` / `RabbitMQ__Port`):
 
 ```json
 {
   "RabbitMQ": {
-    "Host": "your-rabbitmq-host",
+    "HostName": "your-rabbitmq-host",
     "Port": 5672,
     "UserName": "your-username",
     "Password": "your-password"
@@ -228,9 +243,9 @@ Published SaleCompleted event for Order ORD-20241201...
 **Nguyên nhân**: RabbitMQ chưa chạy hoặc connection string sai.
 
 **Giải pháp**:
-1. Kiểm tra RabbitMQ đang chạy: `docker ps --filter "name=rabbitmq"`
+1. Kiểm tra RabbitMQ đang chạy: `docker ps --filter "name=evm_rabbitmq"`
 2. Kiểm tra port 5672 không bị block
-3. Kiểm tra cấu hình trong `appsettings.json`
+3. Kiểm tra cấu hình `RabbitMQ:HostName` trong `appsettings.json`
 
 ### Lỗi: "Error publishing events to RabbitMQ"
 

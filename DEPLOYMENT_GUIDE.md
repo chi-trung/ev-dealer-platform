@@ -33,23 +33,26 @@
 
 ### Backend Services:
 
-| Service | Port | Description | Dependencies |
-|---------|------|-------------|--------------|
-| **APIGatewayService** | 5036 | Ocelot API Gateway | All services |
-| **UserService** | 7001 | Authentication & Users | SQL Server |
-| **CustomerService** | 5039 | Customer Management | SQL Server, RabbitMQ |
-| **VehicleService** | 5002 | Vehicle Management | SQL Server, RabbitMQ |
-| **SalesService** | 5003 | Sales & Orders | RabbitMQ |
-| **NotificationService** | 5051 | Email & SMS Notifications | RabbitMQ, SendGrid, Twilio |
-| **DealerManagementService** | TBD | Dealer Management | SQL Server |
+| Service | Port (dev) | Port (Docker host) | Description | Dependencies |
+|---------|------------|--------------------|-------------|--------------|
+| **APIGatewayService** | 5036 | 5036 | Ocelot API Gateway | All services |
+| **UserService** | 7001 | 5223 | Authentication & Users; sends email via MailKit SMTP | SQLite |
+| **CustomerService** | 5039 | 5039 | Customer Management | SQLite, RabbitMQ |
+| **VehicleService** | 5068 | 5224 | Vehicle Management | SQLite, RabbitMQ (producer) |
+| **SalesService** | 5003 | 5003 | Sales & Orders | SQLite, RabbitMQ (producer) |
+| **NotificationService** | 5051 | 5051 | Push Notifications via Firebase Cloud Messaging | SQLite, RabbitMQ, Firebase |
+| **ReportingService** | 5208 | 5208 | Reports & Analytics (HTTP fan-out, no broker) | SQLite |
+
+> **DealerManagementService** is listed in the README as *planned* only — there is
+> no such project in `DealerSystem.sln` and no source directory; it is not deployed.
 
 ### Infrastructure:
 
 | Component | Port | Credentials |
 |-----------|------|-------------|
 | **RabbitMQ** | 5672 (AMQP), 15672 (UI) | guest/guest |
-| **SQL Server** | 1433 | sa/YourPassword |
-| **Frontend** | 5173 (dev), 3000 (prod) | - |
+| **SQLite** | – | per-service `*.db` files, volume-mounted under each service's `data/` dir |
+| **Frontend** | 5173 (Vite dev) | - |
 
 ---
 
@@ -58,8 +61,8 @@
 ### Option 1: Automated Script (Recommended)
 
 ```powershell
-# Navigate to project directory
-cd D:\Nam_3\ev-dealer-management\ev-dealer-management
+# Navigate to the backend solution directory (contains the scripts below)
+cd ev-dealer-management
 
 # Start all services
 .\start-all-services.ps1
@@ -109,9 +112,9 @@ npm run dev
 
 #### 4. Verify Services
 - RabbitMQ UI: http://localhost:15672 (guest/guest)
-- NotificationService: http://localhost:5051/notifications/health
+- NotificationService: http://localhost:5051/health
 - SalesService: http://localhost:5003/api/orders/health
-- VehicleService: http://localhost:5002/health
+- VehicleService: http://localhost:5068/health
 - Frontend: http://localhost:5173
 
 ---
@@ -121,6 +124,10 @@ npm run dev
 ### Using Docker Compose
 
 #### 1. Create Production docker-compose.yml
+
+A working compose file already exists at `ev-dealer-management/docker-compose.yml`
+(RabbitMQ + all six backend services + gateway). The production copy below follows
+its service names and env-var spellings — note `RabbitMQ__HostName`, not `RabbitMQ__Host`.
 
 ```yaml
 version: '3.8'
@@ -148,14 +155,21 @@ services:
     container_name: ev-dealer-notification
     ports:
       - "5051:80"
+    volumes:
+      - ./NotificationService/Logs:/app/Logs
+      - ./NotificationService/data:/app/data
     environment:
       - ASPNETCORE_ENVIRONMENT=Production
-      - RabbitMQ__Host=rabbitmq
+      - ASPNETCORE_URLS=http://+:80
+      - ConnectionStrings__DefaultConnection=Data Source=/app/data/notifications.db
+      - Jwt__Key=${JWT_KEY}
+      - Jwt__Issuer=evm.local
+      - Jwt__Audience=evm.local
+      - RabbitMQ__HostName=rabbitmq
       - RabbitMQ__Port=5672
-      - SendGrid__ApiKey=${SENDGRID_API_KEY}
-      - Twilio__AccountSid=${TWILIO_ACCOUNT_SID}
-      - Twilio__AuthToken=${TWILIO_AUTH_TOKEN}
-      - Twilio__PhoneNumber=${TWILIO_PHONE_NUMBER}
+      - RabbitMQ__UserName=${RABBITMQ_USER}
+      - RabbitMQ__Password=${RABBITMQ_PASSWORD}
+      - Firebase__CredentialPath=/app/firebase-credentials.json
     depends_on:
       - rabbitmq
     networks:
@@ -169,10 +183,16 @@ services:
     container_name: ev-dealer-sales
     ports:
       - "5003:80"
+    volumes:
+      - ./SalesService/data:/app/data
     environment:
       - ASPNETCORE_ENVIRONMENT=Production
-      - RabbitMQ__Host=rabbitmq
+      - ASPNETCORE_URLS=http://+:80
+      - ConnectionStrings__DefaultConnection=Data Source=/app/data/sales.db
+      - RabbitMQ__HostName=rabbitmq
       - RabbitMQ__Port=5672
+      - RabbitMQ__UserName=${RABBITMQ_USER}
+      - RabbitMQ__Password=${RABBITMQ_PASSWORD}
     depends_on:
       - rabbitmq
     networks:
@@ -185,12 +205,18 @@ services:
       dockerfile: Dockerfile
     container_name: ev-dealer-vehicle
     ports:
-      - "5002:80"
+      - "5224:8080"
+    volumes:
+      - ./VehicleService/data:/app/data
+      - ./VehicleService/wwwroot/images:/app/wwwroot/images
     environment:
       - ASPNETCORE_ENVIRONMENT=Production
-      - ConnectionStrings__DefaultConnection=${VEHICLE_DB_CONNECTION}
-      - RabbitMQ__Host=rabbitmq
+      - ASPNETCORE_URLS=http://+:8080
+      - ConnectionStrings__DefaultConnection=Data Source=/app/data/vehicles.db
+      - RabbitMQ__HostName=rabbitmq
       - RabbitMQ__Port=5672
+      - RabbitMQ__UserName=${RABBITMQ_USER}
+      - RabbitMQ__Password=${RABBITMQ_PASSWORD}
     depends_on:
       - rabbitmq
     networks:
@@ -214,20 +240,10 @@ services:
       - ev-dealer-network
     restart: unless-stopped
 
-  frontend:
-    build:
-      context: ./ev-dealer-frontend
-      dockerfile: Dockerfile
-    container_name: ev-dealer-frontend
-    ports:
-      - "3000:3000"
-    environment:
-      - VITE_API_BASE_URL=http://api-gateway
-    depends_on:
-      - api-gateway
-    networks:
-      - ev-dealer-network
-    restart: unless-stopped
+  # No frontend service: ev-dealer-frontend ships no Dockerfile (a `build:` here
+  # would fail). Run `npm install && npm run dev` for Vite on http://localhost:5173,
+  # or `npm run build` and serve dist/ with any static host; point the browser app at
+  # the gateway via VITE_API_BASE_URL=http://localhost:5036/api
 
 volumes:
   rabbitmq_data:
@@ -240,20 +256,21 @@ networks:
 #### 2. Create .env file
 
 ```env
-# RabbitMQ
+# RabbitMQ (must match RABBITMQ_DEFAULT_USER / RABBITMQ_DEFAULT_PASS in the rabbitmq service)
+RABBITMQ_USER=your_user
 RABBITMQ_PASSWORD=your_secure_password_here
 
-# SendGrid (Email)
-SENDGRID_API_KEY=SG.your_sendgrid_api_key_here
+# JWT signing key (must be byte-identical across UserService, CustomerService and
+# NotificationService, or every token they validate is rejected)
+JWT_KEY=replace-with-a-real-secret
 
-# Twilio (SMS)
-TWILIO_ACCOUNT_SID=your_twilio_account_sid
-TWILIO_AUTH_TOKEN=your_twilio_auth_token
-TWILIO_PHONE_NUMBER=+1234567890
-
-# Database
-VEHICLE_DB_CONNECTION=Server=sqlserver;Database=VehicleDB;User=sa;Password=YourPassword;
+# Databases: SQLite files under each service's ./data volume (see the compose
+# volumes above) — no DB connection-string secrets to put here.
+# Firebase: the service-account JSON is provisioned out-of-band and is NOT in the
+# repo; the compose deliberately does not bind-mount it (see docker-compose.yml
+# notificationservice comment) — use docker cp + restart, or add the mount yourself.
 ```
+
 
 #### 3. Deploy
 
@@ -277,43 +294,51 @@ docker-compose down -v
 
 ### NotificationService
 
-**appsettings.json:**
+**appsettings.json** (abridged — the real file also lists all 14 consumed `RabbitMQ:Queues`):
 ```json
 {
+  "ConnectionStrings": {
+    "DefaultConnection": "Data Source=notifications.db"
+  },
+  "Jwt": {
+    "Key": "ReplaceThisWithASecretKeyForDevelopment",
+    "Issuer": "evm.local",
+    "Audience": "evm.local"
+  },
   "RabbitMQ": {
-    "Host": "localhost",
-    "Port": 5672
+    "HostName": "localhost",
+    "Port": 5672,
+    "UserName": "guest",
+    "Password": "guest",
+    "MaxDeliveryAttempts": 3,
+    "RetryTtlMilliseconds": 5000
   },
-  "SendGrid": {
-    "ApiKey": "YOUR_SENDGRID_API_KEY",
-    "FromEmail": "noreply@evdealer.com",
-    "FromName": "EV Dealer Management"
-  },
-  "Twilio": {
-    "AccountSid": "YOUR_TWILIO_ACCOUNT_SID",
-    "AuthToken": "YOUR_TWILIO_AUTH_TOKEN",
-    "PhoneNumber": "+1234567890"
-  },
-  "SMS": {
-    "MockMode": true
+  "Firebase": {
+    "CredentialPath": "firebase-credentials.json",
+    "ProjectId": "ev-dealer-management-6c620"
   }
 }
 ```
 
 **Environment Variables:**
-- `SENDGRID_API_KEY`: SendGrid API key for email
-- `TWILIO_ACCOUNT_SID`: Twilio account SID
-- `TWILIO_AUTH_TOKEN`: Twilio auth token
-- `SMS_MOCK_MODE`: Set to `false` in production
+- `RabbitMQ__HostName` / `RabbitMQ__Port` / `RabbitMQ__UserName` / `RabbitMQ__Password`: broker connection (the key is `HostName`, not `Host` — `RabbitMQ__Host` is silently ignored)
+- `Firebase__CredentialPath`: service-account JSON for Firebase Cloud Messaging (the actual delivery transport)
+- `Jwt__Key` / `Jwt__Issuer` / `Jwt__Audience`: HS256 validation of UserService tokens on the DeviceTokens API (Issue #36)
+- `ConnectionStrings__DefaultConnection`: SQLite file backing the device-token registry (Issue #33)
 
 ### SalesService
 
 **appsettings.json:**
 ```json
 {
+  "ConnectionStrings": {
+    "DefaultConnection": "Data Source=sales.db"
+  },
   "RabbitMQ": {
-    "Host": "localhost",
-    "Port": 5672
+    "HostName": "localhost",
+    "Port": 5672,
+    "UserName": "guest",
+    "Password": "guest"
   }
 }
 ```
@@ -324,11 +349,13 @@ docker-compose down -v
 ```json
 {
   "ConnectionStrings": {
-    "DefaultConnection": "Server=localhost;Database=VehicleDB;..."
+    "DefaultConnection": "Data Source=vehicles.db"
   },
   "RabbitMQ": {
-    "Host": "localhost",
-    "Port": 5672
+    "HostName": "localhost",
+    "Port": 5672,
+    "UserName": "guest",
+    "Password": "guest"
   }
 }
 ```
@@ -350,9 +377,9 @@ Failed to connect to RabbitMQ at localhost:5672
    docker ps | grep rabbitmq
    ```
 
-2. Restart RabbitMQ:
+2. Restart RabbitMQ (tên container trong compose là `evm_rabbitmq`):
    ```bash
-   docker restart rabbitmq
+   docker restart evm_rabbitmq
    ```
 
 3. Check port not blocked:
@@ -402,34 +429,25 @@ app.UseCors("AllowFrontend");
 
 ### Issue: Email Not Sending
 
+Email is sent by **UserService** through MailKit SMTP — there is no SendGrid integration.
+
 **Check:**
-1. SendGrid API key is valid
-2. "From" email is verified in SendGrid
-3. Check NotificationService logs:
-   ```
-   [ERR] SendGrid API error: ...
-   ```
+1. `EmailSettings__SmtpHost` / `EmailSettings__SmtpPort` / `EmailSettings__SmtpUser` / `EmailSettings__SmtpPassword` are set (the dev compose points at `smtp.gmail.com:587`)
+2. The SMTP account accepts the login — for Gmail this requires an app password, not the account password
+3. Check UserService logs for SMTP exceptions
 
-**Test SendGrid:**
-```bash
-curl --request POST \
-  --url https://api.sendgrid.com/v3/mail/send \
-  --header "Authorization: Bearer YOUR_API_KEY" \
-  --header "Content-Type: application/json" \
-  --data '{"personalizations":[{"to":[{"email":"test@example.com"}]}],"from":{"email":"noreply@evdealer.com"},"subject":"Test","content":[{"type":"text/plain","value":"Test email"}]}'
-```
+### Issue: Push Notification Not Delivered
 
-### Issue: SMS Not Sending (Mock Mode)
+Push is sent by **NotificationService** via Firebase Cloud Messaging (`FirebaseAdmin`) — there is no Twilio/SMS transport.
 
-**Expected Behavior in Development:**
-```
-[INF] SMS Mock Mode: Would send to +84912345678: "Your vehicle reservation..."
-```
+**Check:**
+1. The Firebase service-account JSON exists at `Firebase__CredentialPath` (in Docker: `docker cp firebase-credentials.json evm_notificationservice:/app/firebase-credentials.json`, then `docker compose restart notificationservice`)
+2. The recipient registered a device token via the DeviceTokens API (requires a valid UserService JWT)
+3. Without the credential file the service still boots; the first push fails lazily and consumed events cycle retry → DLQ
 
-**To enable real SMS in Production:**
-1. Set `SMS__MockMode` to `false` in appsettings.json
-2. Ensure Twilio credentials are valid
-3. Verify phone number format: `+[country_code][number]`
+### Issue: SMS Preference Flag
+
+`smsNotifications` is stored per user as a preference flag only; no SMS is actually sent anywhere in the current codebase. Real-time delivery is push via FCM (section above).
 
 ---
 
@@ -439,19 +457,24 @@ curl --request POST \
 
 ```powershell
 # NotificationService
-curl http://localhost:5051/notifications/health
+curl http://localhost:5051/health
 
 # SalesService
 curl http://localhost:5003/api/orders/health
 
 # VehicleService
-curl http://localhost:5002/health
+curl http://localhost:5068/health
+
+# UserService / CustomerService / ReportingService
+curl http://localhost:7001/health
+curl http://localhost:5039/health
+curl http://localhost:5208/health
 
 # RabbitMQ
 curl http://localhost:15672 -u guest:guest
 
-# API Gateway
-curl http://localhost:5036
+# API Gateway (aggregate /health — pings every service's /health in parallel)
+curl http://localhost:5036/health
 ```
 
 ### Automated Health Check Script
@@ -460,9 +483,13 @@ curl http://localhost:5036
 # Save as check-health.ps1
 $services = @(
     @{ Name="RabbitMQ UI"; Url="http://localhost:15672" },
-    @{ Name="NotificationService"; Url="http://localhost:5051/notifications/health" },
+    @{ Name="NotificationService"; Url="http://localhost:5051/health" },
     @{ Name="SalesService"; Url="http://localhost:5003/api/orders/health" },
-    @{ Name="VehicleService"; Url="http://localhost:5002/health" }
+    @{ Name="VehicleService"; Url="http://localhost:5068/health" },
+    @{ Name="UserService"; Url="http://localhost:7001/health" },
+    @{ Name="CustomerService"; Url="http://localhost:5039/health" },
+    @{ Name="ReportingService"; Url="http://localhost:5208/health" },
+    @{ Name="APIGatewayService"; Url="http://localhost:5036/health" }
 )
 
 foreach ($service in $services) {
@@ -524,8 +551,7 @@ foreach ($service in $services) {
 ## 📚 Additional Resources
 
 - **RabbitMQ Documentation**: https://www.rabbitmq.com/documentation.html
-- **SendGrid API Docs**: https://docs.sendgrid.com/
-- **Twilio SMS Docs**: https://www.twilio.com/docs/sms
+- **Firebase Cloud Messaging Docs**: https://firebase.google.com/docs/cloud-messaging
 - **Ocelot Gateway**: https://ocelot.readthedocs.io/
 - **.NET 8 Docs**: https://learn.microsoft.com/en-us/dotnet/
 

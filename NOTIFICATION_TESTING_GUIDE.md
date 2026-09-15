@@ -13,29 +13,37 @@
 
 ### 1. RabbitMQ
 ```powershell
-docker start rabbitmq
-# Hoặc: docker run -d --name rabbitmq -p 5672:5672 -p 15672:15672 rabbitmq:management
+# Container được compose đặt tên là evm_rabbitmq:
+docker start evm_rabbitmq
+# Hoặc chạy qua compose (từ thư mục ev-dealer-management):
+docker compose up -d rabbitmq
+# Management UI: http://localhost:15672 (guest/guest)
 ```
 
 ### 2. Backend Services
 ```powershell
+# (chạy từ thư mục gốc repo; đường dẫn tương đối)
 # Terminal 1 - UserService (port 7001)
-cd D:\Nam_3\ev-dealer-management\ev-dealer-management\UserService
+cd ev-dealer-management/UserService
 dotnet run
 
 # Terminal 2 - VehicleService (port 5068)
-cd D:\Nam_3\ev-dealer-management\ev-dealer-management\VehicleService
+cd ev-dealer-management/VehicleService
 dotnet run
 
 # Terminal 3 - NotificationService (port 5051)
-cd D:\Nam_3\ev-dealer-management\ev-dealer-management\NotificationService
+cd ev-dealer-management/NotificationService
 dotnet run
+
+# (Tuỳ chọn cho các luồng khác) SalesService 5003, CustomerService 5039,
+# ReportingService 5208; API Gateway (Ocelot) 5036 — frontend mặc định
+# gọi qua gateway: http://localhost:5036/api
 ```
 
 ### 3. Frontend
 ```powershell
 # Terminal 4
-cd D:\Nam_3\ev-dealer-management\ev-dealer-frontend
+cd ev-dealer-frontend
 npm run dev
 ```
 
@@ -89,7 +97,8 @@ console.log('Current Token:', token);
 
 ### Sử dụng Postman/curl
 
-**Endpoint:** `POST http://localhost:5051/api/notification/test-fcm`
+**Endpoint:** `POST http://localhost:5051/api/Notification/test-fcm`
+hoặc qua API Gateway: `POST http://localhost:5036/api/Notification/test-fcm`
 
 **Headers:**
 ```
@@ -109,17 +118,52 @@ Content-Type: application/json
 }
 ```
 
-**Expected Response:**
+**Expected Response (200):**
 ```json
 {
-  "success": true,
-  "message": "Notification sent successfully"
+  "message": "Push notification sent successfully"
 }
 ```
+(Nếu gửi lỗi: `400` với `{ "message": "Failed to send push notification" }`)
 
 **Kiểm tra:**
 - ✅ Notification popup xuất hiện trên browser
-- ✅ NotificationService logs show "✅ FCM notification sent successfully"
+- ✅ NotificationService logs show `FCM notification sent successfully. MessageId: ..., Token: ...`
+
+Cùng controller còn có: `subscribe-topic`, `unsubscribe-topic`, `send-to-topic`,
+`send-multicast` (đều POST, `api/Notification/...`).
+
+---
+
+## 🧪 TEST 2b: Device Token Registry (JWT — Issues #33/#36/#44)
+
+Thay vì copy token thủ công, frontend tự đăng ký khi login
+(`src/firebase/notificationService.js` gọi `PUT /DeviceTokens/<subject>` kèm JWT).
+Test tay:
+
+```powershell
+# 1. Login ở http://localhost:5173/login (hoặc POST /api/auth/login trên 7001)
+#    và lấy JWT trong response.
+# 2. Đăng ký FCM token cho subject của chính mình (user:<id> hoặc dealer:<n>):
+Invoke-RestMethod -Uri "http://localhost:5051/api/DeviceTokens/user:1" -Method Put `
+    -Headers @{ Authorization = "Bearer $jwt" } `
+    -Body (@{ token = "YOUR_FCM_DEVICE_TOKEN" } | ConvertTo-Json) `
+    -ContentType "application/json"
+# 3. Kiểm tra: đếm token + preview đã mask
+Invoke-RestMethod -Uri "http://localhost:5051/api/DeviceTokens/user:1" `
+    -Headers @{ Authorization = "Bearer $jwt" }
+# 4. Notification preferences [Authorize] (#51/#57):
+Invoke-RestMethod -Uri "http://localhost:5051/api/Notification/preferences" `
+    -Headers @{ Authorization = "Bearer $jwt" }
+```
+
+- PUT trả `204 NoContent`; GET trả `{ key, count, tokens }` với token dạng masked
+  `"tok-…xxxx (N chars)"` — token thô không bao giờ rời server
+- Chỉ chạm được subject của chính mình (`user:<id claim>`, `dealer:<n>` khi token
+  có claim dealer); còn lại là `403`. Đẩy token mới tự refresh; hết chỗ thì LRU
+  eviction (#44), token chết được revoke khỏi registry
+- Các consumer (`sales.completed` fallback, `testdrive.scheduled`, ...) resolve
+  token từ registry theo `customer:<CustomerId>` khi payload không có token
 
 ---
 
@@ -164,34 +208,37 @@ Content-Type: application/json
 
 **1. VehicleService Logs (Terminal 2):**
 ```
-[INFO] Publishing VehicleReservedEvent to RabbitMQ
-[INFO] Queue: vehicle.reserved
+[INF] Published message of type VehicleReservedEvent to exchange 'vehicle_events' with routing key 'vehicle.reserved'
 ```
 
 **2. RabbitMQ Management UI:**
 - Mở http://localhost:15672 (guest/guest)
 - Vào tab **Queues**
-- Kiểm tra queue `vehicle.reserved`
+- Kiểm tra queue `vehicle.reserved` (NotificationService) và
+  `customer_vehicle_reserved` (CustomerService cùng consume event này)
 - Xem message đã được consumed (message count = 0)
 
 **3. NotificationService Logs (Terminal 3):**
 ```
-[INFO] Received event from queue: vehicle.reserved
-[INFO] Processing VehicleReservedEvent for customer: Nguyễn Văn A
-[INFO] Device token: eyJhbG...
-[INFO] ✅ FCM notification sent successfully
+[INF] Started consuming from queue: vehicle.reserved
+[INF] Processing VehicleReservedEvent for Vehicle: 1, Customer: Nguyễn Văn A
+[INF] FCM notification sent successfully. MessageId: ..., Token: eyJ... (đã mask)
+[INF] Reservation confirmation push notification sent for Vehicle: 1, Customer: Nguyễn Văn A
 ```
+(Hoặc `[WRN] No device token found for Vehicle: 1, Customer: ...` — payload
+không có deviceToken thì consumer skip push.)
 
 **4. Browser:**
 - 🔔 **Push notification popup xuất hiện!**
 - Title: "🚗 Đặt xe thành công!"
-- Body: "Bạn đã đặt xe Tesla Model 3 thành công!"
+- Body: "Xe <tên xe> (SL: 1) đã được đặt thành công. Chúng tôi sẽ liên hệ bạn sớm!"
 
 ---
 
-## 🧪 TEST 4: Test với Frontend UI (Khi có reservation form)
+## 🧪 TEST 4: Test với Frontend UI (reservation form đã có sẵn)
 
-### Khi UI reservation form đã sẵn sàng:
+### Form đã wire: trang chi tiết xe có nút "🚗 Đặt xe ngay" mở `ReservationDialog`,
+tự động gửi kèm `deviceToken` đọc từ localStorage — UI test chạy được ngay:
 
 1. **Login vào hệ thống**
    - http://localhost:5173/login
@@ -202,9 +249,9 @@ Content-Type: application/json
    - Click **Allow**
 
 3. **Đặt xe từ UI**
-   - Vào trang chi tiết xe
-   - Click nút "Đặt xe" hoặc "Reserve"
-   - Điền form và submit
+   - Vào trang chi tiết xe (http://localhost:5173/vehicles/<id>)
+   - Click nút "🚗 Đặt xe ngay"
+   - Điền form ReservationDialog và submit
 
 4. **Kiểm tra notification**
    - Notification sẽ tự động xuất hiện
@@ -264,7 +311,8 @@ Content-Type: application/json
 - **Nguyên nhân:** RabbitMQ không chạy
 - **Giải pháp:**
   ```powershell
-  docker start rabbitmq
+  docker start evm_rabbitmq   # tên container thật trong docker-compose
+  # Hoặc: docker compose up -d rabbitmq (từ ev-dealer-management/)
   # Wait 10 seconds
   # Restart NotificationService
   ```
@@ -311,7 +359,7 @@ Content-Type: application/json
 
 ### Test FCM với curl:
 ```bash
-curl -X POST http://localhost:5051/api/notification/test-fcm \
+curl -X POST http://localhost:5051/api/Notification/test-fcm \
   -H "Content-Type: application/json" \
   -d '{
     "deviceToken": "YOUR_TOKEN",
@@ -357,11 +405,18 @@ curl -X POST http://localhost:5068/api/vehicles/1/reserve \
 
 ## 🎓 Next Steps
 
-1. **Document API endpoints** (Swagger/Postman)
-2. **Create automated tests** (Playwright/Cypress)
+1. ✅ **Swagger đã bật từng service** — mỗi service chạy `app.UseSwagger()`
+   trong Development và launchSettings có `launchUrl: swagger`
+   (vd. http://localhost:5051/swagger, http://localhost:5068/swagger, ...)
+2. **Create automated tests** (Playwright/Cypress) — mới có unit tests trong
+   `ev-dealer-management/DealerSystem.Tests`, chưa có E2E browser tests
 3. **Add notification history** (Store in database)
-4. **Support multiple device tokens** per user
-5. **Add notification preferences** (Email, SMS, Push)
+4. ✅ **Multiple device tokens per user** — đã ship: registry
+   `PUT/GET/DELETE /api/DeviceTokens/{key}` (Issues #33/#34), JWT-gated (#36),
+   LRU eviction + dead-token revoke (#44); frontend tự đăng ký khi login
+5. ✅ **Notification preferences** — đã ship (Issues #51/#57):
+   `GET/PUT /api/Notification/preferences` [Authorize], persist trong bảng
+   `NotificationPreferences` (notifications.db)
 6. **Implement notification templates**
 7. **Add analytics tracking**
 

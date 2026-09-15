@@ -1,5 +1,15 @@
 # Apache NiFi Integration Guide
 
+> **Cập nhật 2026-09 (docs sweep #52):** đây là **tài liệu thiết kế** — chưa có
+> NiFi nào được deploy trong repo. Đồng bộ dữ liệu vào ReportingService hiện
+> chạy bằng code trong service: `Services/DataSynchronizationService.cs`
+> (pull qua `HttpClient`, cấu hình `Services:SalesService`
+> `http://localhost:5003`, `Services:VehicleService` `http://localhost:5068`,
+> `Services:CustomerService` `http://localhost:5039` trong `appsettings.json`)
+> và endpoint `POST /api/reports/synchronize-data` (Program.cs). Port nội bộ
+> ReportingService là **5208** (http dev), không phải 5214. Nếu sau này build
+> NiFi thật, dùng các flow bên dưới làm tham khảo và cập nhật lại URL/port.
+
 ## Tổng quan
 
 Apache NiFi được sử dụng để đồng bộ dữ liệu từ các services (SalesService, VehicleService) vào ReportingService một cách tự động và định kỳ.
@@ -13,7 +23,7 @@ SalesService (Port 5003)
 NiFi Flow
     ↓ (Transform & Aggregate)
     ↓
-ReportingService (Port 5214)
+ReportingService (Port 5208)
 ```
 
 ## Cài đặt Apache NiFi
@@ -60,7 +70,7 @@ NiFi UI sẽ chạy tại: `http://localhost:8443/nifi`
    - Group by: `dealerId`, `date`
 
 5. **InvokeHTTP** - Post to ReportingService
-   - URL: `http://localhost:5214/api/reports/sales-summary`
+   - URL: `http://localhost:5208/api/reports/sales-summary` (POST ingest có thật - Program.cs MapPost "cho test", xem banner)
    - Method: POST
    - Content-Type: `application/json`
 
@@ -69,14 +79,14 @@ NiFi UI sẽ chạy tại: `http://localhost:8443/nifi`
 1. **GenerateFlowFile** - Tạo trigger định kỳ (mỗi 6 giờ)
 
 2. **InvokeHTTP** - Fetch Vehicles từ VehicleService
-   - URL: `http://localhost:5002/api/vehicles`
+   - URL: `http://localhost:5068/api/vehicles`
    - Method: GET
 
 3. **TransformJSON** - Transform dữ liệu
    - Map Vehicle sang InventorySummary format
 
 4. **InvokeHTTP** - Post to ReportingService
-   - URL: `http://localhost:5214/api/reports/inventory-summary`
+   - URL: `http://localhost:5208/api/reports/inventory-summary` (POST ingest có thật - Program.cs MapPost "cho test", xem banner)
    - Method: POST
 
 ## Import Flow Template

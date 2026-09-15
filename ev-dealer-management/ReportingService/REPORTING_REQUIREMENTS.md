@@ -8,19 +8,19 @@ ReportingService đã được mở rộng để hỗ trợ 5 loại báo cáo c
 
 ### 1. Báo cáo Doanh số (Dealer Portal) ✅
 
-**Endpoint**: `GET /api/reports/dealer-sales`
+**Endpoint**: `GET /api/reports/sales-by-dealer`
 
 **Mô tả**: Giúp Giám đốc đại lý xem doanh thu thực tế, số lượng xe bán ra theo ngày/tháng/năm của riêng đại lý đó.
 
-**Query Parameters**:
-- `dealerId` (required): ID của đại lý
+**Query Parameters** (theo Program.cs):
+- `dealerId` (optional): ID của đại lý (int). Không truyền → trả tổng hợp cho 10 đại lý đầu tiên
 - `period` (optional): "day", "month", hoặc "year" (default: "month")
-- `from` (optional): Ngày bắt đầu (format: yyyy-MM-dd)
-- `to` (optional): Ngày kết thúc (format: yyyy-MM-dd)
+- `fromDate` (optional): Ngày bắt đầu (DateTime)
+- `toDate` (optional): Ngày kết thúc (DateTime)
 
 **Ví dụ**:
 ```bash
-GET /api/reports/dealer-sales?dealerId=1&period=month&from=2025-01-01&to=2025-01-31
+GET /api/reports/sales-by-dealer?dealerId=1&period=month&fromDate=2025-01-01&toDate=2025-01-31
 ```
 
 **Response**:
@@ -28,7 +28,7 @@ GET /api/reports/dealer-sales?dealerId=1&period=month&from=2025-01-01&to=2025-01
 {
   "success": true,
   "data": {
-    "dealerId": "00000000-0000-0000-0000-000000000001",
+    "dealerId": 1,
     "dealerName": "Dealer Hà Nội",
     "period": "month",
     "fromDate": "2025-01-01T00:00:00Z",
@@ -53,16 +53,16 @@ GET /api/reports/dealer-sales?dealerId=1&period=month&from=2025-01-01&to=2025-01
 
 ### 2. Báo cáo Công nợ (Dealer Portal) ✅
 
-**Endpoint**: `GET /api/reports/dealer-debt`
+**Endpoint**: `GET /api/reports/debt-report`
 
 **Mô tả**: Theo dõi số tiền đại lý còn nợ hãng (công nợ mua xe) hoặc khách hàng còn nợ đại lý (trả góp).
 
 **Query Parameters**:
-- `dealerId` (required): ID của đại lý
+- `dealerId` (optional): ID của đại lý (int). Không truyền → báo cáo tổng hợp tất cả đại lý
 
 **Ví dụ**:
 ```bash
-GET /api/reports/dealer-debt?dealerId=1
+GET /api/reports/debt-report?dealerId=1
 ```
 
 **Response**:
@@ -70,13 +70,13 @@ GET /api/reports/dealer-debt?dealerId=1
 {
   "success": true,
   "data": {
-    "dealerId": "00000000-0000-0000-0000-000000000001",
+    "dealerId": 1,
     "dealerName": "Dealer Hà Nội",
     "reportDate": "2025-01-15T10:30:00Z",
     "debtToManufacturer": 5000000000,
     "debtToManufacturerDetails": [
       {
-        "orderId": "00000000-0000-0000-0000-000000000001",
+        "orderId": 1,
         "orderNumber": "ORD-20250115-12345",
         "orderDate": "2025-01-10T00:00:00Z",
         "orderAmount": 1500000000,
@@ -88,7 +88,7 @@ GET /api/reports/dealer-debt?dealerId=1
     "debtFromCustomers": 2000000000,
     "debtFromCustomerDetails": [
       {
-        "orderId": "00000000-0000-0000-0000-000000000002",
+        "orderId": 2,
         "orderNumber": "ORD-20250112-67890",
         "customerId": 1,
         "customerName": "Nguyễn Văn A",
@@ -106,23 +106,20 @@ GET /api/reports/dealer-debt?dealerId=1
 }
 ```
 
-**Nguồn dữ liệu**: SalesService (Orders, Payments)
+**Nguồn dữ liệu**: SalesService (Orders, Payments), CustomerService (tên khách hàng qua `customerNameMap`)
 
 ---
 
-### 3. Dashboard Doanh số tổng (EVM Portal) ✅
+### 3. Dashboard Doanh số tổng (EVM Portal) ⚠️ (chưa có endpoint HTTP)
 
-**Endpoint**: `GET /api/reports/total-sales-dashboard`
+**Trạng thái**: `GetTotalSalesDashboardAsync` đã có trong `ReportService` (trả `TotalSalesDashboardDto` với heatmap), nhưng **chưa được map thành route** trong Program.cs. Frontend dashboard hiện dựng từ các endpoint thật: `GET /api/reports/summary`, `GET /api/reports/sales-by-region`, `GET /api/reports/sales-proportion`, `GET /api/reports/top-vehicles`.
 
 **Mô tả**: Business Intelligence (BI): Hiển thị bản đồ nhiệt (Heatmap) doanh số theo vùng miền để Hãng thấy khu vực nào bán tốt/kém.
 
-**Query Parameters**:
-- `from` (optional): Ngày bắt đầu (format: yyyy-MM-dd)
-- `to` (optional): Ngày kết thúc (format: yyyy-MM-dd)
-
-**Ví dụ**:
+**Ví dụ** (các route hiện có):
 ```bash
-GET /api/reports/total-sales-dashboard?from=2025-01-01&to=2025-01-31
+GET /api/reports/sales-by-region?from=2025-01-01&to=2025-01-31
+GET /api/reports/sales-proportion?from=2025-01-01&to=2025-01-31
 ```
 
 **Response**:
@@ -162,7 +159,7 @@ GET /api/reports/total-sales-dashboard?from=2025-01-01&to=2025-01-31
       {
         "region": "Miền Bắc",
         "dealerName": "Dealer Hà Nội",
-        "dealerId": "00000000-0000-0000-0000-000000000001",
+        "dealerId": 1,
         "vehiclesSold": 30,
         "revenue": 45000000000,
         "heatLevel": "high"
@@ -172,19 +169,21 @@ GET /api/reports/total-sales-dashboard?from=2025-01-01&to=2025-01-31
 }
 ```
 
-**Nguồn dữ liệu**: ReportingService Database (SalesSummaries - được sync từ SalesService qua NiFi)
+**Nguồn dữ liệu**: ReportingService Database (SalesSummaries — được sync từ SalesService bởi `DataSynchronizationService`; NiFi chỉ là phương án tuỳ chọn)
 
 ---
 
 ### 4. Phân tích Tồn kho & Tốc độ tiêu thụ ✅
 
-**Endpoint**: `GET /api/reports/inventory-analysis`
+**Endpoint**: `GET /api/reports/inventory-trends`
 
 **Mô tả**: Tính toán chỉ số Inventory Turnover. Báo cáo này cảnh báo những mẫu xe "nằm kho" quá lâu để hãng ra quyết định ngưng sản xuất hoặc giảm giá xả hàng.
 
+**Query Parameters**: không có
+
 **Ví dụ**:
 ```bash
-GET /api/reports/inventory-analysis
+GET /api/reports/inventory-trends
 ```
 
 **Response**:
@@ -195,9 +194,9 @@ GET /api/reports/inventory-analysis
     "reportDate": "2025-01-15T10:30:00Z",
     "inventoryTurnover": [
       {
-        "vehicleId": "00000000-0000-0000-0000-000000000001",
+        "vehicleId": 1,
         "vehicleName": "Tesla Model 3",
-        "dealerId": "00000000-0000-0000-0000-000000000001",
+        "dealerId": 1,
         "dealerName": "Dealer Hà Nội",
         "region": "Miền Bắc",
         "currentStock": 10,
@@ -207,9 +206,9 @@ GET /api/reports/inventory-analysis
         "status": "healthy"
       },
       {
-        "vehicleId": "00000000-0000-0000-0000-000000000002",
+        "vehicleId": 2,
         "vehicleName": "VinFast VF8",
-        "dealerId": "00000000-0000-0000-0000-000000000001",
+        "dealerId": 1,
         "dealerName": "Dealer Hà Nội",
         "region": "Miền Bắc",
         "currentStock": 20,
@@ -221,9 +220,9 @@ GET /api/reports/inventory-analysis
     ],
     "slowMovingInventory": [
       {
-        "vehicleId": "00000000-0000-0000-0000-000000000002",
+        "vehicleId": 2,
         "vehicleName": "VinFast VF8",
-        "dealerId": "00000000-0000-0000-0000-000000000001",
+        "dealerId": 1,
         "dealerName": "Dealer Hà Nội",
         "region": "Miền Bắc",
         "stockCount": 20,
@@ -290,7 +289,7 @@ GET /api/reports/demand-forecast?from=2024-01-01&to=2025-01-31
 }
 ```
 
-**Nguồn dữ liệu**: ReportingService Database (SalesSummaries - được sync từ SalesService qua NiFi)
+**Nguồn dữ liệu**: ReportingService Database (SalesSummaries — được sync từ SalesService bởi `DataSynchronizationService`; NiFi chỉ là phương án tuỳ chọn)
 
 **Thuật toán**: Linear Regression dựa trên dữ liệu bán hàng theo tháng
 
@@ -313,26 +312,26 @@ Xem chi tiết trong file `NIFI_INTEGRATION.md`
 
 ```bash
 # 1. Báo cáo Doanh số
-curl "http://localhost:5214/api/reports/dealer-sales?dealerId=1&period=month"
+curl "http://localhost:5208/api/reports/sales-by-dealer?dealerId=1&period=month"
 
 # 2. Báo cáo Công nợ
-curl "http://localhost:5214/api/reports/dealer-debt?dealerId=1"
+curl "http://localhost:5208/api/reports/debt-report?dealerId=1"
 
-# 3. Dashboard Doanh số tổng
-curl "http://localhost:5214/api/reports/total-sales-dashboard?from=2025-01-01&to=2025-01-31"
+# 3. Doanh số theo vùng (dashboard)
+curl "http://localhost:5208/api/reports/sales-by-region?from=2025-01-01&to=2025-01-31"
 
 # 4. Phân tích Tồn kho
-curl "http://localhost:5214/api/reports/inventory-analysis"
+curl "http://localhost:5208/api/reports/inventory-trends"
 
 # 5. AI Dự báo
-curl "http://localhost:5214/api/reports/demand-forecast"
+curl "http://localhost:5208/api/reports/demand-forecast"
 ```
 
 ### Test qua API Gateway:
 
 ```bash
 # Tất cả requests qua API Gateway (port 5036)
-curl "http://localhost:5036/api/reports/dealer-sales?dealerId=1&period=month"
+curl "http://localhost:5036/api/reports/sales-by-dealer?dealerId=1&period=month"
 ```
 
 ---

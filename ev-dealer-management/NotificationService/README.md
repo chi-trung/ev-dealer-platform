@@ -1,29 +1,36 @@
 # NotificationService
 
-Microservice xử lý gửi thông báo Email và SMS cho khách hàng trong hệ thống EV Dealer Management.
+Microservice xử lý **push notification (Firebase Cloud Messaging)** cho hệ thống
+EV Dealer Management — tiêu thụ event RabbitMQ từ các service khác và đẩy thông
+báo tới thiết bị người dùng.
+
+> **Cập nhật 2026-09 (docs sweep #52):** bản cũ mô tả SendGrid (email) +
+> Twilio (SMS) và các endpoint `test-email`/`order-confirmation`/... — những
+> thứ **không hề tồn tại trong code**. Email (SMTP qua MailKit) là việc của
+> **UserService**, không phải service này. Nội dung dưới đối chiếu code hiện tại.
 
 ## Tính năng
 
-- **Email Notifications** (sử dụng SendGrid):
-  - Order confirmation emails
-  - Test drive appointment confirmations
-  - Custom email sending
-
-- **SMS Notifications** (sử dụng Twilio):
-  - Vehicle reservation confirmations
-  - Test drive reminders
-  - Custom SMS sending
-
-- **RabbitMQ Consumers**:
-  - `SaleCompletedConsumer` - Lắng nghe event "sales.completed" và gửi email xác nhận đơn hàng
-  - `VehicleReservedConsumer` - Lắng nghe event "vehicle.reserved" và gửi SMS xác nhận đặt xe
-  - `TestDriveScheduledConsumer` - Lắng nghe event "testdrive.scheduled" và gửi email xác nhận lịch test drive
+- **Push Notifications** (`FirebaseFcmService`, package `FirebaseAdmin` 3.0.1):
+  gửi theo device token, theo topic, và multicast.
+- **RabbitMQ Consumers — 14 queue** (khai báo trong `appsettings.json` →
+  `RabbitMQ:Queues`; mỗi queue một consumer class trong `Consumers/`):
+  `SaleCompletedConsumer`, `VehicleReservedConsumer`, `TestDriveScheduledConsumer`,
+  `OrderCreatedConsumer`, `QuoteCreatedConsumer`, `ContractCreatedConsumer`,
+  `OrderStatusChangedConsumer`, `PaymentReceivedConsumer`, `CustomerCreated/Updated/Deleted...`,
+  `VehicleCreated/Updated/Deleted...` — mỗi consumer dịch event sang push FCM.
+- **Device-token registry** (`DeviceTokensController`, `api/DeviceTokens/{key}`):
+  thiết bị đăng ký token theo subject (`user:<id>`), JWT-authorized, có LRU cap
+  + thu hồi token chết (Issues #33/#36/#44).
+- **Notification preferences** (`GET/PUT /api/Notification/preferences`):
+  8 cờ lựa chọn của từng user, persist server-side (Issue #51).
 
 ## Cấu hình
 
-### 1. RabbitMQ Configuration
+### 1. RabbitMQ
 
-Cập nhật `appsettings.json`:
+`appsettings.json` — services đọc `RabbitMQ:HostName` (env override
+`RabbitMQ__HostName`), kèm `Port`/`UserName`/`Password` và retry policy:
 
 ```json
 "RabbitMQ": {
@@ -31,262 +38,140 @@ Cập nhật `appsettings.json`:
   "Port": 5672,
   "UserName": "guest",
   "Password": "guest",
-  "Queues": {
-    "SaleCompleted": "sales.completed",
-    "VehicleReserved": "vehicle.reserved",
-    "TestDriveScheduled": "testdrive.scheduled"
-  }
+  "MaxDeliveryAttempts": 3,
+  "RetryTtlMilliseconds": 5000,
+  "Queues": { "SaleCompleted": "sales.completed", "VehicleReserved": "vehicle.reserved", "...": "14 queue" }
 }
 ```
 
-### 2. SendGrid Configuration (Email)
+### 2. Firebase (channel duy nhất của service này)
 
-Đăng ký tài khoản SendGrid tại: https://sendgrid.com/
+- Tạo service-account JSON trong Firebase Console (project
+  `ev-dealer-management-6c620`), đặt file theo path cấu hình
+  `Firebase:CredentialPath` (mặc định `firebase-credentials.json` — **không**
+  commit vào repo; trong Docker dùng env `Firebase__CredentialPath` + mount/copy
+  file). Hướng dẫn đầy đủ: `FIREBASE_SETUP.md`.
+- `Firebase:ProjectId` trong appsettings.
+- ⚠️ `FirebaseFcmService` (singleton) nạp credentials trong constructor và chỉ
+  được resolve khi có request/controller đầu tiên chạm tới nó: thiếu file thì
+  service vẫn boot và `/health` vẫn trả healthy, nhưng mọi API notification fail
+  500 và consumer log lỗi ở message đầu tiên.
 
-Lấy API Key và cập nhật `appsettings.json`:
+### 3. JWT
 
-```json
-"SendGrid": {
-  "ApiKey": "SG.xxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-  "FromEmail": "noreply@evdealer.com",
-  "FromName": "EV Dealer Management"
-}
-```
-
-### 3. Twilio Configuration (SMS)
-
-Đăng ký tài khoản Twilio tại: https://www.twilio.com/
-
-Lấy AccountSid, AuthToken và số điện thoại, cập nhật `appsettings.json`:
-
-```json
-"Twilio": {
-  "AccountSid": "ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-  "AuthToken": "your_auth_token",
-  "PhoneNumber": "+1234567890"
-}
-```
+`Jwt:Key` phải **byte-identical** với UserService/KitchenService các service
+phát token (cùng biến trong `docker-compose.yml`) — endpoint DeviceTokens và
+preferences authorize bằng claim `id` của token đó.
 
 ## Chạy Service
 
 ### Prerequisites
 
-- RabbitMQ phải đang chạy (localhost:5672)
-- .NET 8.0 SDK
-- SendGrid API Key (để test email)
-- Twilio credentials (để test SMS)
-
-### Commands
+- RabbitMQ đang chạy (compose: `docker compose up -d rabbitmq` → container
+  `evm_rabbitmq`)
+- .NET 8 SDK
+- File credentials Firebase (mục 2 ở trên)
 
 ```bash
 cd ev-dealer-management/NotificationService
-dotnet restore
-dotnet build
-dotnet run
+dotnet restore && dotnet build && dotnet run
 ```
 
-Service sẽ chạy tại: `http://localhost:5005` (hoặc port được cấu hình)
+Service chạy tại `http://localhost:5051` (dev port trong `launchSettings.json`;
+Docker map `5051:80`).
 
-## API Endpoints
-
-### Health Check
+## API Endpoints (tồn tại thật — kiểm chứng trong Controllers/)
 
 ```http
-GET /health
+GET /health          # { status: "healthy", service: "NotificationService", timestamp }
 ```
 
-### Test Email
+`api/Notification` (`NotificationController`):
 
 ```http
-POST /api/notification/test-email
-Content-Type: application/json
-
-{
-  "to": "customer@example.com",
-  "subject": "Test Email",
-  "htmlContent": "<h1>Hello World</h1>"
-}
+POST /api/Notification/test-fcm        # { deviceToken, title, body, data? }
+POST /api/Notification/subscribe-topic # { deviceToken, topic }
+POST /api/Notification/unsubscribe-topic
+POST /api/Notification/send-to-topic   # { topic, title, body, data? }
+POST /api/Notification/send-multicast  # { deviceTokens[], title, body, data? }
+GET/PUT /api/Notification/preferences  # [Authorize] 8 cờ preference (#51)
 ```
 
-### Test SMS
+`api/DeviceTokens` (`DeviceTokensController`, [Authorize]):
 
 ```http
-POST /api/notification/test-sms
-Content-Type: application/json
-
-{
-  "phoneNumber": "+84901234567",
-  "message": "Test SMS from NotificationService"
-}
+PUT    /api/DeviceTokens/{key}   # { deviceToken } — đăng ký/refresh token cho subject
+GET    /api/DeviceTokens/{key}   # danh sách token của subject
+DELETE /api/DeviceTokens/{key}   # thu hồi
 ```
 
-### Send Order Confirmation
-
-```http
-POST /api/notification/order-confirmation
-Content-Type: application/json
-
-{
-  "customerEmail": "customer@example.com",
-  "customerName": "John Doe",
-  "vehicleModel": "Tesla Model 3",
-  "totalPrice": 45000.00,
-  "orderId": "ORD-12345"
-}
-```
-
-### Send Reservation Confirmation
-
-```http
-POST /api/notification/reservation-confirmation
-Content-Type: application/json
-
-{
-  "customerPhone": "+84901234567",
-  "customerName": "John Doe",
-  "vehicleModel": "Tesla Model Y",
-  "colorName": "Pearl White"
-}
-```
-
-### Send Test Drive Confirmation
-
-```http
-POST /api/notification/test-drive-confirmation
-Content-Type: application/json
-
-{
-  "customerEmail": "customer@example.com",
-  "customerName": "John Doe",
-  "vehicleModel": "Tesla Model S",
-  "scheduledDate": "2025-02-15T10:00:00"
-}
-```
+Swagger UI khi chạy Development: `http://localhost:5051/swagger`.
 
 ## Event-Driven Architecture
 
-### Message Flow
+Publishers đã hoạt động: VehicleService (reservation/CRUD xe), SalesService
+(`order.created`, `sales.completed`, quote/contract), CustomerService
+(`testdrive.scheduled`, customer CRUD), Payments (`payment.received`). Mỗi
+event → 1 queue → consumer phía đây dịch thành FCM push cho subject
+tương ứng (`user:<id>` / `dealer:<id>` / topic). Chi tiết topology:
+`docs/EVENTS.md` ở thư mục solution.
 
-1. **SalesService** → Publish `SaleCompletedEvent` → Queue: `sales.completed`
-2. **VehicleService** → Publish `VehicleReservedEvent` → Queue: `vehicle.reserved`
-3. **CustomerService** → Publish `TestDriveScheduledEvent` → Queue: `testdrive.scheduled`
-4. **NotificationService** → Consume events → Send Email/SMS
-
-### Event Schemas
-
-#### SaleCompletedEvent
+Ví dụ payload `SaleCompletedEvent` (schema thật trong `Events/`):
 
 ```json
 {
-  "orderId": "ORD-12345",
-  "customerEmail": "customer@example.com",
+  "orderId": 1,
   "customerName": "John Doe",
   "vehicleModel": "Tesla Model 3",
   "totalPrice": 45000.00,
-  "completedAt": "2025-01-15T14:30:00Z"
-}
-```
-
-#### VehicleReservedEvent
-
-```json
-{
-  "reservationId": "RES-12345",
-  "customerPhone": "+84901234567",
-  "customerName": "John Doe",
-  "vehicleModel": "Tesla Model Y",
-  "colorName": "Pearl White",
-  "reservedAt": "2025-01-15T14:30:00Z"
-}
-```
-
-#### TestDriveScheduledEvent
-
-```json
-{
-  "customerEmail": "customer@example.com",
-  "customerName": "John Doe",
-  "vehicleModel": "Tesla Model S",
-  "scheduledDate": "2025-02-15T10:00:00Z"
+  "completedAt": "2025-01-15T14:30:00Z",
+  "deviceToken": "..."
 }
 ```
 
 ## Logging
 
-Service sử dụng Serilog để ghi logs:
-
-- **Console**: Output logs màu sắc trong terminal
-- **File**: Ghi logs vào `Logs/notification-service-YYYYMMDD.log`
-
-Log level có thể cấu hình trong `appsettings.json`:
-
-```json
-"Serilog": {
-  "MinimumLevel": {
-    "Default": "Information",
-    "Override": {
-      "Microsoft": "Warning",
-      "System": "Warning"
-    }
-  }
-}
-```
+Serilog: console có màu + file `Logs/notification-service-YYYYMMDD.log`
+(config `Serilog` trong appsettings).
 
 ## Testing
 
-### Test với Postman
-
-1. Import collection từ `NotificationService.http`
-2. Cập nhật environment variables (email, phone, API keys)
-3. Gửi test requests
-
-### Test RabbitMQ Integration
-
-```bash
-# Publish test message to queue
-# (Cần RabbitMQ Management plugin hoặc code publisher)
-```
+- `.\test-fcm.ps1` — push trực tiếp tới một device token (endpoint `test-fcm`).
+- `.\TestProducer.ps1` — publish event giả vào RabbitMQ để test consumer.
+- `.\QuickTest.ps1` — script tổ hợp cũ (kiểm tra lại endpoint nó gọi trước khi
+  dùng; một số phần chưa được sweep trong đợt docs này).
+- Unit tests thật: `DealerSystem.Tests/NotificationService.Tests/`
+  (device-token registry, consumers, preferences...).
+- Hướng dẫn đầu-cuối: `TESTING_GUIDE.md` + `NOTIFICATION_TESTING_GUIDE.md` ở
+  gốc repo.
 
 ## Troubleshooting
 
-### SendGrid Email không gửi
+### Push không tới máy
+- Credentials Firebase hợp lệ? (`Firebase__CredentialPath`, project đúng)
+- Device token còn sống? Token chết được thu hồi tự động (#44) — đăng ký lại
+  qua `PUT /api/DeviceTokens/{key}` từ chính thiết bị.
+- Consumer đã consume? RabbitMQ UI → queue tương ứng, Ready = 0.
 
-- Kiểm tra API Key hợp lệ
-- Verify sender email trong SendGrid dashboard
-- Kiểm tra logs trong `Logs/` folder
-
-### Twilio SMS không gửi
-
-- Kiểm tra AccountSid và AuthToken
-- Verify phone number format (+84901234567)
-- Kiểm tra Twilio account balance
+### 500 trên mọi endpoint
+`FileNotFoundException: firebase-credentials.json` — xem mục 2 phần Cấu hình.
 
 ### RabbitMQ connection failed
+Container tên `evm_rabbitmq` (không phải `rabbitmq`); `docker compose up -d
+rabbitmq`; port 5672 không bị block.
 
-- Kiểm tra RabbitMQ đang chạy: `docker ps` hoặc `rabbitmqctl status`
-- Kiểm tra credentials trong appsettings.json
-- Kiểm tra port 5672 không bị block
+## Dependencies (đúng csproj)
 
-## Architecture Notes
+- `FirebaseAdmin` 3.0.1 — push
+- `RabbitMQ.Client` 6.8.1 (+ `MassTransit`/`MassTransit.RabbitMQ` 8.2.3 — hiện không dùng bus, chỉ tham khảo)
+- `Microsoft.EntityFrameworkCore.Sqlite` 8.0.0 — device-token registry + preferences DB
+- `Microsoft.AspNetCore.Authentication.JwtBearer` 8.0.0
+- `Serilog.AspNetCore` 9.0.0 (+ Console/File sinks), `Swashbuckle.AspNetCore` 6.6.2
 
-- Service sử dụng **Scoped** lifetime cho EmailService và SmsService để đảm bảo thread-safety
-- RabbitMQ consumers chạy trong **Background Service** (Hosted Service)
-- Mỗi queue có một channel riêng để tránh conflict
-- Message acknowledgment được xử lý manually (BasicAck/BasicNack)
+## Next Steps (còn thiếu thật)
 
-## Dependencies
-
-- `SendGrid` (9.29.3) - Email service provider
-- `Twilio` (7.13.7) - SMS service provider
-- `RabbitMQ.Client` (6.8.1) - RabbitMQ client library
-- `Serilog.AspNetCore` (9.0.0) - Structured logging
-- `MassTransit` (8.2.3) - Message bus abstraction (optional)
-
-## Next Steps
-
-- [ ] Add notification templates (HTML/SMS templates)
-- [ ] Implement retry logic with exponential backoff
-- [ ] Add notification history/persistence
-- [ ] Add health checks for SendGrid/Twilio
-- [ ] Add metrics and monitoring
-- [ ] Add unit tests and integration tests
+- [ ] Gửi **email xác nhận** đơn/test-drive từ NotificationService (hiện chỉ có
+      SMTP trong UserService cho luồng password-reset)
+- [ ] Notification history page (lưu + hiển thị lịch sử push)
+- [ ] Consumers tôn trọng preference flags khi fan-out tới `user:<id>` (Issue #56)
+- [ ] Metrics/monitoring

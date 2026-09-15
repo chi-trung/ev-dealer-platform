@@ -86,7 +86,7 @@ cp .env.example .env
 
 Edit `.env` and set your API URL:
 ```env
-VITE_API_BASE_URL=http://localhost:5000/api
+VITE_API_BASE_URL=http://localhost:5036/api
 ```
 
 ### 3. Run Development Server
@@ -145,36 +145,48 @@ src/
 
 ## 🔌 API Integration
 
-### Backend Endpoints Required
+### Backend Endpoints (IMPLEMENTED)
 
-The frontend expects these endpoints from the backend:
+All auth endpoints below are live in UserService (`ev-dealer-management/UserService/Program.cs`,
+minimal APIs mapped under `/api/auth/*`, port 7001) and routed through the API Gateway
+(port 5036) via `ocelot.json` (`/api/auth/{everything}` → localhost:7001).
+The frontend calls them for real — there is no mock layer in `src/services/authService.js`.
 
 #### 1. Login
 ```
 POST /api/auth/login
-Body: { email, password }
-Response: { token, user: { id, name, email, role } }
+Body: { username, password }
+Response (AuthResult): { success, message, token, userId, user: UserDto }
+UserDto: { id, username, email, fullName, role, isActive, dealerId, createdAt, updatedAt }
 ```
 
 #### 2. Register
 ```
 POST /api/auth/register
-Body: { name, email, phone, password }
-Response: { message: "Registration successful" }
+Body: { username, email, fullName, password, role, dealerId }
+Response: created AuthResult (201) or 400 with { success, message }
 ```
 
 #### 3. Forgot Password
 ```
 POST /api/auth/forgot-password
 Body: { email }
-Response: { message: "Reset link sent" }
+Response: { success, message }   // sends a reset link email via EmailService (SMTP)
 ```
 
 #### 4. Reset Password
 ```
 POST /api/auth/reset-password
 Body: { token, newPassword }
-Response: { message: "Password reset successful" }
+Response: { success, message }
+```
+
+#### 5. Change Password (Issue #50 — authenticated)
+```
+POST /api/auth/change-password
+Headers: Authorization: Bearer <JWT>
+Body: { currentPassword, newPassword }
+Response: { success, message }  // used by the Settings page
 ```
 
 ---
@@ -215,25 +227,25 @@ Response: { message: "Password reset successful" }
 
 ## 📝 Next Steps
 
-### For Backend Team
-1. Implement the 4 API endpoints listed above
-2. Return JWT token on successful login
-3. Include user info (id, name, email, role) in login response
-4. Set up email service for password reset
+### For Backend Team — ✅ DONE
+1. ✅ The endpoints listed above are implemented in `UserService/Program.cs` (plus `/api/auth/change-password`, Issue #50)
+2. ✅ Login returns a JWT — claims `id`, `name`, `role`, and a dealer claim when the user has a DealerId (Issue #36/#41)
+3. ✅ Login response includes full user info via `UserDto` (id, username, email, fullName, role, isActive, dealerId)
+4. ✅ `EmailService` (SMTP) is wired up and `/api/auth/forgot-password` emails a reset link (`{FrontendUrl}/reset-password?token=…`)
 
 ### For Frontend Team (Optional Enhancements)
 1. Add "Remember Me" persistence (save email)
 2. Add social login (Google, Facebook)
 3. Add 2FA (Two-Factor Authentication)
-4. Add password reset page (not just forgot password)
+4. ~~Add password reset page~~ ✅ Done — `src/pages/Auth/ResetPassword.jsx`, routed at `/reset-password` (`src/routes/index.jsx`)
 5. Add email verification flow
 
 ---
 
 ## 🐛 Known Issues / TODO
 
-- [ ] Backend API not implemented yet (using mock)
-- [ ] Need to test with real backend
+- [x] ~~Backend API not implemented yet (using mock)~~ — the auth backend IS live: UserService (port 7001) implements the endpoints behind the API Gateway (port 5036); `src/services/authService.js` calls the real API directly, no mock layer exists
+- [x] ~~Need to test with real backend~~ — login/register/forgot/reset/change-password are all wired to the real endpoints; UserService ships login + dealer-claim tests (e.g. DealerClaimLoginTests); remaining UX items below are still open
 - [ ] Add loading skeleton for better UX
 - [ ] Add animations (fade in/out)
 - [ ] Add toast notifications instead of alerts

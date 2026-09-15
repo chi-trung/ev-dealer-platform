@@ -4,18 +4,24 @@
 
 ### Start All Services
 ```powershell
-.\start-all-services.ps1
+.\ev-dealer-management\start-all-services.ps1
 ```
 
 ### Run All Tests
 ```powershell
-.\test-all-flows.ps1
+.\ev-dealer-management\test-all-flows.ps1
 ```
 
 ### Check Service Health
 ```powershell
-.\check-health.ps1
+.\ev-dealer-management\check-health.ps1
 ```
+
+> ⚠️ These three scripts are themselves stale: `start-all-services.ps1` hardcodes
+> `C:\Code\XD\project_XD\...`, and `test-all-flows.ps1` / `check-health.ps1` still
+> probe the old VehicleService port **5002** (it runs on **5068**) and
+> `/notifications/health` (the real endpoint is `/health`). Until they are fixed,
+> prefer starting services manually as shown below.
 
 ---
 
@@ -23,88 +29,113 @@
 
 ### ✅ Current Implemented Flows:
 
-#### 1️⃣ Vehicle Reservation → SMS Notification
+#### 1️⃣ Vehicle Reservation → FCM Push Notification
 ```
 User Action: Reserve vehicle on website
     ↓
-Frontend → VehicleService API
+Frontend → VehicleService API (port 5068)
     ↓
-VehicleService → RabbitMQ (queue: vehicle.reserved)
+VehicleService → RabbitMQ (topic exchange `vehicle_events`, routing key `vehicle.reserved`)
     ↓
-NotificationService → Twilio SMS
+NotificationService consumes `vehicle.reserved` → Firebase Cloud Messaging push
     ↓
-Result: Customer receives SMS (mock mode in dev)
+Result: Customer's browser/device shows a push notification
 ```
 
 **Test Manually:**
 ```powershell
 # Start services
-.\start-all-services.ps1
+.\ev-dealer-management\start-all-services.ps1
 
 # Navigate to frontend
 http://localhost:5173/vehicles/1
 
-# Click "Đặt xe" button
-# Fill form and submit
+# Click "🚗 Đặt xe ngay" button (opens ReservationDialog)
+# Fill form and submit — the dialog reads the FCM token from localStorage
+# ('fcm_device_token') and sends it in the request as deviceToken
 # Check NotificationService terminal for:
-[INF] SMS Mock Mode: Would send to +84912345678
+[INF] Processing VehicleReservedEvent for Vehicle: 1, Customer: Test User
+[INF] FCM notification sent successfully. MessageId: ..., Token: eyJ...
 ```
 
 **Test via API:**
 ```powershell
+# VehicleId comes from the URL route ({id}/reserve); body follows
+# ReservationRequestDto: customerName/customerEmail/customerPhone required,
+# quantity optional (default 1), deviceToken optional (push needs it)
 $body = @{
     customerName = "Test User"
     customerEmail = "test@example.com"
     customerPhone = "+84912345678"
-    vehicleId = 1
+    quantity = 1
     notes = "Test reservation"
+    deviceToken = "YOUR_FCM_DEVICE_TOKEN"
 } | ConvertTo-Json
 
-Invoke-RestMethod -Uri "http://localhost:5002/api/vehicles/reserve" `
+Invoke-RestMethod -Uri "http://localhost:5068/api/vehicles/1/reserve" `
     -Method Post `
     -Body $body `
     -ContentType "application/json"
+
+# Or through the Ocelot gateway (what the frontend uses by default):
+#   http://localhost:5036/api/vehicles/1/reserve
 ```
 
 ---
 
-#### 2️⃣ Order Completion → Email Notification
+#### 2️⃣ Order Completion → FCM Push Notification
 ```
-User Action: Complete order on website
+User Action: Create order from a quote (page fires POST /api/Orders/complete)
     ↓
-Frontend → SalesService API
+Frontend → SalesService API (port 5003)
     ↓
-SalesService → RabbitMQ (queue: sales.completed)
+SalesService → RabbitMQ (default exchange, routing key `sales.completed`)
     ↓
-NotificationService → SendGrid Email
+NotificationService consumes `sales.completed` → FCM push
+    (payload DeviceToken wins; otherwise registry lookup for
+     `customer:<CustomerId>` → multicast to all its registered devices)
     ↓
-Result: Customer receives order confirmation email
+Result: Push notification — or, when no token is registered, an
+"logged only" entry (no email/SMS exists in this pipeline)
 ```
 
 **Test Manually:**
 ```powershell
 # Start services
-.\start-all-services.ps1
+.\ev-dealer-management\start-all-services.ps1
 
-# Navigate to frontend
-http://localhost:5173/sales/ORD-2025-001
+# Create an order from an existing quote — this is what fires sales.completed:
+http://localhost:5173/sales/orders/create-from-quote/<quoteId>
 
-# Scroll to "Thao tác nhanh" section
-# Click green "Hoàn tất đơn hàng" button
-# Toast notification will appear
+# Fill the form and submit → alert "Đơn hàng đã được tạo thành công!"
 # Check NotificationService terminal for:
-[INF] Email sent successfully to customer@example.com
+[INF] Processing SaleCompletedEvent for Order: 5
+[INF] ✅ Push notification sent successfully for Order: 5
+# If the customer has no registered device token:
+[INF] ℹ️ No device token registered for customer:5. Notification logged only (no push sent).
 ```
 
 **Test via API:**
 ```powershell
+# CreateOrderRequest payload — quoteId/customerId/etc. must reference real data;
+# the backend recomputes the total from the quote and rejects totals <= 0
 $body = @{
-    customerName = "Test Customer"
+    quoteId = 1
+    customerId = 1
     customerEmail = "test@example.com"
-    vehicleModel = "VinFast VF8"
-    totalAmount = 1500000000
-    paymentMethod = "Full Payment"
+    customerName = "Test Customer"
+    dealerId = 1
+    salespersonId = 1
+    paymentMethod = "Cash"
+    paymentType = "Full"
+    deliveryDate = (Get-Date).ToString("yyyy-MM-dd")
+    estimatedDeliveryDate = (Get-Date).AddDays(7).ToString("yyyy-MM-dd")
+    vehicleId = 1
+    vehicleVariantId = 1
+    colorId = 1
     quantity = 1
+    unitPrice = 1500000000
+    totalAmount = 1500000000
 } | ConvertTo-Json
 
 Invoke-RestMethod -Uri "http://localhost:5003/api/orders/complete" `
@@ -122,31 +153,40 @@ Invoke-RestMethod -Uri "http://localhost:5003/api/orders/complete" `
 #### RabbitMQ Verification:
 1. Open http://localhost:15672 (guest/guest)
 2. Click "Queues" tab
-3. Check these queues exist and messages consumed:
-   - ✅ `sales.completed` - Ready: 0, Total: N+
-   - ✅ `vehicle.reserved` - Ready: 0, Total: N+
-   - ✅ `testdrive.scheduled` - Ready: 0 (not used yet)
+3. NotificationService consumes **14 queues** (declared in its appsettings.json
+   `RabbitMQ:Queues`, one consumer each). Every main queue also has a
+   `<queue>.retry` and `<queue>.dlq` companion (retry→DLQ topology, docs/EVENTS.md):
+   - ✅ `sales.completed`, `vehicle.reserved`, `testdrive.scheduled` - Ready: 0, Total: N+
+   - ✅ `order.created`, `quote.created`, `contract.created`
+   - ✅ `customer.created`, `customer.updated`, `customer.deleted`
+   - ✅ `payment.received`, `order.status.changed`
+   - ✅ `vehicle.created`, `vehicle.updated`, `vehicle.deleted`
+4. `testdrive.scheduled` is **live** — CustomerService publishes it and
+   `TestDriveScheduledConsumer` pushes (token via registry when payload has none).
+5. Other services' queues: `customer_vehicle_reserved` (CustomerService also
+   consumes `vehicle.reserved` → creates/updates customer + purchase).
 
 #### Service Logs:
 **NotificationService Terminal:**
 ```
 [INF] Started consuming from queue: sales.completed
 [INF] Started consuming from queue: vehicle.reserved
-[INF] Processing SaleCompletedEvent for Order: ORD-...
-[INF] Email sent successfully to test@example.com
-[INF] SMS Mock Mode: Would send to +84912345678
+[INF] (…one line per queue; 14 total…)
+[INF] Started consuming messages from all queues.
+[INF] Processing SaleCompletedEvent for Order: 5
+[INF] FCM notification sent successfully. MessageId: ..., Token: eyJ...
+[INF] ✅ Push notification sent successfully for Order: 5
 ```
 
 **SalesService Terminal:**
 ```
-[INF] Published message to queue sales.completed
-[INF] Order ORD-20251122-XXXXXXXX completed
+[INF] Order ORD-20260914... completed for customer test@example.com. Order ID: 5. Quote status updated to ConvertedToOrder.
+[INF] Message published to queue: sales.completed
 ```
 
 **VehicleService Terminal:**
 ```
-[INF] Vehicle reserved: ReservationId=...
-[INF] Published VehicleReservedEvent to queue
+[INF] Published message of type VehicleReservedEvent to exchange 'vehicle_events' with routing key 'vehicle.reserved'
 ```
 
 ---
@@ -155,8 +195,9 @@ Invoke-RestMethod -Uri "http://localhost:5003/api/orders/complete" `
 
 | Test | Frontend | API Response | Queue | NotificationService | Actual Delivery |
 |------|----------|--------------|-------|---------------------|-----------------|
-| Vehicle Reserve | ✅ Toast | 200 + ReservationId | vehicle.reserved | SMS Mock Log | Mock only |
-| Order Complete | ✅ Toast | 200 + OrderId | sales.completed | Email sent log | Real email ✉️ |
+| Vehicle Reserve | ✅ ReservationDialog submits | 200 + reservation object | vehicle.reserved | FCM push-sent log | Browser/device push (needs deviceToken in payload) |
+| Order Complete | ✅ "Đơn hàng đã được tạo thành công!" | 200 + order info | sales.completed | Multicast push or log-only | Push popup if `customer:<id>` token registered |
+| Test Drive Scheduled | ✅ Test Drive form | 200 | testdrive.scheduled | FCM push-sent log | Push popup |
 
 ---
 
@@ -177,10 +218,11 @@ cd SalesService; dotnet run    # Restart
 ```
 [ERR] RabbitMQ.Client.Exceptions.BrokerUnreachableException
 
-# Solution
-docker ps | grep rabbitmq      # Check running
-docker start rabbitmq          # Start if stopped
-docker logs rabbitmq           # Check logs
+# Solution — compose names the container `evm_rabbitmq`
+docker ps | grep evm_rabbitmq   # Check running
+docker start evm_rabbitmq       # Start if stopped
+docker logs evm_rabbitmq        # Check logs
+# Or via compose (from ev-dealer-management/): docker compose up -d rabbitmq
 ```
 
 ### Issue 3: CORS Error in Browser
@@ -192,44 +234,40 @@ Access-Control-Allow-Origin header is not present
 app.UseCors("AllowFrontend");
 ```
 
-### Issue 4: Email Not Delivered
-**Check:**
-1. SendGrid API key valid in `appsettings.json`
-2. "From" email verified in SendGrid dashboard
-3. Recipient email not in spam folder
-4. NotificationService logs show "Email sent successfully"
+### Issue 4: Push Notification Not Delivered
+There is no email/SMS path in NotificationService — delivery is Firebase Cloud
+Messaging push only. **Check:**
+1. `firebase-credentials.json` present next to NotificationService
+   (`Firebase:CredentialPath` in its appsettings.json; project `ev-dealer-management-6c620`)
+2. The device token is a live FCM web token — copy the current value from the
+   browser: `localStorage.getItem('fcm_device_token')` (tokens expire)
+3. For registry-driven events (`sales.completed`), a token is registered under the
+   right subject: `GET http://localhost:5051/api/DeviceTokens/customer:<id>`
+   (DeviceTokens endpoints require a UserService JWT — Issue #36)
+4. Logs show `FCM notification sent successfully. MessageId: ...`; a
+   `No device token found for Vehicle ...` or `ℹ️ No device token registered ...`
+   line means the consumer ran but had no token to push to (log-only)
 
-**Test SendGrid directly:**
+**Test FCM directly (bypasses the bus):**
 ```powershell
-$headers = @{
-    "Authorization" = "Bearer YOUR_SENDGRID_API_KEY"
-    "Content-Type" = "application/json"
-}
-
 $body = @{
-    personalizations = @(@{
-        to = @(@{ email = "test@example.com" })
-    })
-    from = @{
-        email = "noreply@evdealer.com"
-    }
-    subject = "Test Email"
-    content = @(@{
-        type = "text/plain"
-        value = "Test content"
-    })
-} | ConvertTo-Json -Depth 5
+    deviceToken = "YOUR_FCM_DEVICE_TOKEN"
+    title = "Test Notification"
+    body = "Direct FCM test"
+} | ConvertTo-Json
 
-Invoke-RestMethod -Uri "https://api.sendgrid.com/v3/mail/send" `
+Invoke-RestMethod -Uri "http://localhost:5051/api/Notification/test-fcm" `
     -Method Post `
-    -Headers $headers `
-    -Body $body
+    -Body $body `
+    -ContentType "application/json"
 ```
+Other controller endpoints: `subscribe-topic`, `unsubscribe-topic`,
+`send-to-topic`, `send-multicast` on the same controller.
 
 ### Issue 5: Port Already in Use
 ```powershell
 # Quick fix for all ports
-$ports = @(5002, 5003, 5051)
+$ports = @(7001, 5068, 5003, 5039, 5208, 5051, 5036)  # user/vehicle/sales/customer/reporting/notification/gateway
 foreach ($port in $ports) {
     $proc = netstat -ano | Select-String ":$port " | Select-Object -First 1
     if ($proc) {
@@ -247,8 +285,8 @@ foreach ($port in $ports) {
 ### 1. Clean State Testing
 ```powershell
 # Before each test session:
-# 1. Restart RabbitMQ to clear queues
-docker restart rabbitmq
+# 1. Restart RabbitMQ to clear queues (compose names it evm_rabbitmq)
+docker restart evm_rabbitmq
 
 # 2. Stop all services
 Get-Process | Where-Object {$_.ProcessName -eq "dotnet"} | Stop-Process -Force
@@ -271,14 +309,16 @@ Get-Process | Where-Object {$_.ProcessName -eq "dotnet"} | Stop-Process -Force
 **What to look for:**
 ```
 ✅ GOOD:
-[INF] Published message to queue
-[INF] Email sent successfully
-[INF] Started consuming from queue
+[INF] Published message of type VehicleReservedEvent to exchange 'vehicle_events' with routing key 'vehicle.reserved'
+[INF] Message published to queue: sales.completed
+[INF] Started consuming from queue: vehicle.reserved
+[INF] FCM notification sent successfully. MessageId: ...
 
 ❌ BAD:
-[ERR] Failed to connect to RabbitMQ
-[ERR] SendGrid API error
-[WRN] Queue not found
+[ERR] Error processing SaleCompletedEvent   (handler rethrows → retry, then <queue>.dlq)
+[WRN] Handler for sales.completed failed (attempt 1/3); retrying in 5000ms
+[WRN] Malformed payload on sales.completed; parked in DLQ
+[WRN] No device token found for Vehicle: 1, Customer: ... (reservation skips push)
 ```
 
 ---
@@ -299,7 +339,9 @@ Total: ~1-3 seconds
 - **Message rate**: Should be ~0-5/sec in dev
 - **Ready messages**: Should quickly go to 0 (consumed)
 - **Unacked messages**: Check if consumer is stuck
-- **Consumer count**: Should match service count (3 consumers per NotificationService)
+- **Consumer count**: NotificationService registers **14 consumers** (one per queue —
+  Program.cs lines 69-82); each of its 14 main queues therefore shows 1 consumer
+  while the service is up (plus `customer_vehicle_reserved` etc. on CustomerService)
 
 ---
 
@@ -354,7 +396,7 @@ git push origin main
 .\test-all-flows.ps1
 
 # CHECK HEALTH
-netstat -ano | findstr "5002 5003 5051 5672"
+netstat -ano | findstr "7001 5068 5003 5039 5208 5051 5036 5672"
 
 # RABBITMQ UI
 start http://localhost:15672
@@ -363,7 +405,7 @@ start http://localhost:15672
 Get-Process dotnet | Stop-Process -Force
 
 # RESTART RABBITMQ
-docker restart rabbitmq
+docker restart evm_rabbitmq
 
 # VIEW SERVICE LOGS (in separate terminals)
 cd NotificationService; dotnet run
@@ -392,18 +434,18 @@ Pre-conditions:
 [✅] All services started
 [✅] Frontend accessible
 
-Test 1: Vehicle Reservation SMS
+Test 1: Vehicle Reservation → Push
 - Frontend test: [PASS/FAIL]
 - API test: [PASS/FAIL]
 - Queue message: [PASS/FAIL]
-- SMS mock log: [PASS/FAIL]
+- FCM push log + popup: [PASS/FAIL]
 Notes: ...
 
-Test 2: Order Completion Email
+Test 2: Order Completion → Push
 - Frontend test: [PASS/FAIL]
 - API test: [PASS/FAIL]
 - Queue message: [PASS/FAIL]
-- Email sent: [PASS/FAIL]
+- FCM push log + popup (or documented log-only): [PASS/FAIL]
 Notes: ...
 
 Issues Found:
@@ -418,18 +460,23 @@ Overall Result: [PASS/FAIL]
 ## 🎯 Next Testing Phases
 
 ### Phase 1 (Current): ✅ COMPLETE
-- Vehicle Reservation → SMS
-- Order Completion → Email
+- Vehicle Reservation → FCM push
+- Order Completion → FCM push
 
-### Phase 2 (Future):
-- Test Drive Scheduling → Email/SMS
-- CustomerService integration
-- Frontend integration for Test Drive
+### Phase 2: ✅ SHIPPED
+- Test Drive Scheduling → push (`testdrive.scheduled` published by CustomerService,
+  consumed by `TestDriveScheduledConsumer`)
+- CustomerService integration (consumes `vehicle.reserved` via
+  `customer_vehicle_reserved`; publishes `customer.*` + `testdrive.*`)
+- Frontend integration for Test Drive (`/test-drives`, `/customers/test-drive/new`)
+- Device-token registry (`/api/DeviceTokens/{key}`, JWT-auth) + notification
+  preferences (`/api/Notification/preferences`) — Issues #33/#36/#51/#57
 
-### Phase 3 (Future):
-- API Gateway routing through Ocelot
-- End-to-end tests via Gateway
-- Load testing
+### Phase 3: 🟡 PARTIAL
+- ✅ API Gateway routing through Ocelot is live (`http://localhost:5036/api/...`;
+  the frontend's default base URL already goes through it)
+- End-to-end tests via Gateway — not yet automated
+- Load testing — not started
 
 ---
 
@@ -444,5 +491,5 @@ Overall Result: [PASS/FAIL]
 ---
 
 **Created**: November 22, 2025  
-**Last Updated**: November 22, 2025  
-**Version**: 1.0.0
+**Last Updated**: September 14, 2026  
+**Version**: 2.0.0 — rewritten for the FCM push pipeline (14 consumer queues), corrected dev ports, and the live Ocelot gateway

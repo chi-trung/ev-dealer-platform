@@ -19,16 +19,22 @@
 
 ## 🚀 Cách Test Ngay
 
-### Option 1: Dùng Script (Nhanh Nhất) ⚡
+> **Cập nhật 2026-09 (docs sweep #52):** mọi mô tả "SMS" trong bài là sai —
+> NotificationService chỉ có kênh **FCM push** (`FirebaseFcmService`); chưa từng
+> có SMS/email trong service này. Đường dẫn `D:\Nam_3\...` là máy dev cũ.
+
+### Option 1: Dùng Docker Compose (Nhanh Nhất) ⚡
 ```powershell
-cd D:\Nam_3\ev-dealer-management\ev-dealer-management\NotificationService
-.\start-all.ps1
+# từ thư mục ev-dealer-management/
+docker compose up -d rabbitmq vehicleservice notificationservice
 ```
 
-Script sẽ tự động:
-- Start RabbitMQ container
-- Mở 3 terminal cho NotificationService, VehicleService, Frontend
-- Hiện URLs để truy cập
+Container thật tên `evm_rabbitmq` / `evm_vehicleservice` /
+`evm_notificationservice`. Frontend chạy `npm run dev` trong
+`ev-dealer-frontend/` (port 5173).
+
+(`start-all.ps1` vẫn còn trong thư mục nhưng hardcode đường dẫn `D:\Nam_3\`
+máy dev cũ — không nên dùng; nằm trong đợt cleanup Issue #53.)
 
 ### Option 2: Manual (Chi Tiết)
 Xem file: **DEMO_2_PHUT.md**
@@ -48,7 +54,7 @@ User Frontend                VehicleService           RabbitMQ              Noti
     |                              |                      | 4. Route to queue       |
     |                              |                      |------------------------>|
     |                              |                      |                         | 5. Consume event
-    |                              |                      |                         | 6. Send SMS
+    |                              |                      |                         | 6. Send FCM push
     | 7. Show notification ✅      |                      |                         |
     |<-----------------------------|                      |                         |
 ```
@@ -61,11 +67,13 @@ User Frontend                VehicleService           RabbitMQ              Noti
 ```
 ┌──────────────────────────────────────┐
 │ ✅ Đặt xe thành công!               │
-│    Mã đặt chỗ: 123                  │
-│    SMS xác nhận đã được gửi đến     │
-│    +84987654321                 [×] │
+│    Chúng tôi đã nhận được yêu cầu    │
+│    đặt xe của bạn cho [model]        │
+│    ✔ Thông báo đã được gửi đến       │
+│    thiết bị của bạn               [×]│
 └──────────────────────────────────────┘
 ```
+(text thật trong `ReservationDialog.jsx` — không còn dòng "SMS xác nhận")
 - Màu: Xanh lá
 - Icon: CheckCircle ✅
 - Tự động ẩn sau 6 giây
@@ -87,13 +95,13 @@ User Frontend                VehicleService           RabbitMQ              Noti
 
 ### Chuẩn Bị
 - [ ] RabbitMQ running (port 5672)
-- [ ] NotificationService running (port 5005)
-- [ ] VehicleService running (port 5002)
+- [ ] NotificationService running (port 5051)
+- [ ] VehicleService running (port 5068)
 - [ ] Frontend running (port 5173)
 
 ### Test Cases
 - [ ] Đặt xe thành công → Notification xanh hiện
-- [ ] SMS gửi thành công (check backend log)
+- [ ] FCM push gửi thành công (check backend log)
 - [ ] RabbitMQ message consumed (check UI)
 - [ ] Notification tự động ẩn sau 6 giây
 - [ ] Click ❌ đóng notification sớm
@@ -112,12 +120,13 @@ User Frontend                VehicleService           RabbitMQ              Noti
 ```
 
 ### ✅ Backend OK
-```powershell
-# Check NotificationService log
-# Should see:
-[INFO] Received VehicleReservedEvent: reservationId=123
-[INFO] Sending reservation SMS to +84987654321
-[INFO] SMS sent successfully. SID: SM...
+```
+# Check NotificationService log (Serilog)
+# Should see (chuỗi log thật trong VehicleReservedConsumer.cs):
+[INF] Started consuming from queue: vehicle.reserved
+[INF] Processing VehicleReservedEvent for Vehicle: 1, Customer: Test
+[INF] Reservation confirmation push notification sent for Vehicle: 1, ...
+# → FCM push gửi tới device token của subject (không có SMS)
 ```
 
 ### ✅ RabbitMQ OK
@@ -133,9 +142,9 @@ http://localhost:15672
 ## 🎊 Thành Công Khi
 
 ✅ Notification hiện lên trên frontend  
-✅ Backend log "SMS sent successfully"  
+✅ Backend log "Reservation confirmation push notification sent"  
 ✅ RabbitMQ message consumed  
-✅ (Optional) Nhận SMS nếu dùng số thật
+✅ (Optional) Thiết bị đặt xe nhận FCM push (browser cho phép notification)
 
 ---
 
@@ -145,7 +154,7 @@ http://localhost:15672
 |------|-------|
 | **DEMO_2_PHUT.md** | Test nhanh nhất (2 phút) |
 | **TEST_FRONTEND.md** | Hướng dẫn chi tiết đầy đủ |
-| **start-all.ps1** | Script tự động start services |
+| **start-all.ps1** | ⚠️ Script cũ — hardcode đường dẫn máy dev, dùng compose thay thế |
 | **INTEGRATION_PLAN.md** | Roadmap tích hợp đầy đủ |
 | **QUICK_START.md** | Test backend end-to-end |
 | **TESTING_GUIDE.md** | Test riêng NotificationService |
@@ -155,23 +164,25 @@ http://localhost:15672
 ## 🚀 Next Steps
 
 ### 1️⃣ Test Frontend (Bây Giờ) ✅
-Chạy `start-all.ps1` và test đặt xe
+`docker compose up -d rabbitmq vehicleservice notificationservice` rồi test đặt xe (xem DEMO_2_PHUT.md)
 
-### 2️⃣ Tích Hợp SalesService (Tiếp Theo)
-- Thêm RabbitMQ vào SalesService
-- Publish SaleCompletedEvent
-- Gửi email xác nhận order
+### 2️⃣ Tích Hợp SalesService ✅ (đã xong)
+- ✅ SalesService đã có RabbitMQ producer (`Services/RabbitMQMessagePublisher.cs`, đăng ký trong `Program.cs`)
+- ✅ Publish SaleCompletedEvent khi order hoàn tất (`Controllers/OrdersController.cs`), cùng OrderCreated / QuoteCreated / ContractCreated / PaymentReceived
+- ✅ NotificationService consume `sales.completed` → gửi push FCM (`Consumers/SaleCompletedConsumer.cs`)
+- ⏳ Gửi email xác nhận order: **chưa implement** (NotificationService không có code gửi email)
 - Xem: INTEGRATION_PLAN.md Phase 2
 
-### 3️⃣ Test Drive Notifications
-- CustomerService publish TestDriveScheduledEvent
-- NotificationService gửi email xác nhận test drive
+### 3️⃣ Test Drive Notifications ✅ (một phần)
+- ✅ CustomerService đã publish TestDriveScheduledEvent (`Services/TestDriveService.cs`)
+- ✅ NotificationService đã gửi push FCM xác nhận lịch hẹn (`Consumers/TestDriveScheduledConsumer.cs`)
+- ⏳ Gửi email xác nhận test drive: **chưa implement**
 
-### 4️⃣ API Gateway
-- Thêm routes cho NotificationService vào Ocelot
+### 4️⃣ API Gateway ✅ (đã xong)
+- ✅ Ocelot đã có routes cho NotificationService trong `APIGatewayService/ocelot.json`: `/api/Notification/{everything}`, `/api/notifications/{everything}`, `/api/DeviceTokens/{everything}`, `/api/health/notification` → NotificationService (port 5051)
 
-### 5️⃣ Docker Compose
-- Deploy full stack lên Docker
+### 5️⃣ Docker Compose ✅ (đã xong)
+- ✅ Full stack đã có trong `docker-compose.yml`: apigateway, userservice, vehicleservice, salesservice, customerservice, reportingservice, notificationservice + rabbitmq
 
 ---
 
@@ -185,8 +196,9 @@ Ctrl + Shift + R
 
 ### Nếu Muốn Test Nhanh Backend
 ```powershell
-# Gửi test reservation trực tiếp
-curl -X POST http://localhost:5002/api/vehicles/1/reservations `
+# Gửi test reservation trực tiếp (API VehicleService, port dev 5068;
+# endpoint thật là POST /api/vehicles/{id}/reserve)
+curl -X POST http://localhost:5068/api/vehicles/1/reserve `
   -H "Content-Type: application/json" `
   -d '{
     "customerName": "Test",

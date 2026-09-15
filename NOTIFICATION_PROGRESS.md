@@ -1,5 +1,13 @@
 # 📋 NotificationService - Progress Report
 
+> ⚠️ **SUPERSEDED — báo cáo tiến độ lịch sử.** Tệp này ghi lại trạng thái tại thời điểm viết;
+> hiện **cả 3/3 luồng đã xong**: SalesService publish `order.created` + `sales.completed`
+> (`SalesService/Controllers/OrdersController.cs`), CustomerService có `POST /api/TestDrives`
+> publish `testdrive.scheduled` (`TestDrivesController.cs`, `TestDriveService.cs`),
+> NotificationService chạy 14 consumers (`Program.cs`) kèm DeviceToken registry (Issue #33/#36/#37)
+> và notification preferences (`NotificationPreferencesEndpoint.cs`).
+> Trạng thái hiện tại: xem `ev-dealer-management/docs/EVENTS.md` + `docker-compose.yml`.
+
 ## ✅ ĐÃ HOÀN THÀNH
 
 ### 🚗 VehicleService Integration (100%)
@@ -33,13 +41,16 @@ Chúng tôi đã nhận được yêu cầu đặt xe của bạn cho Tesla 2
 
 ---
 
-## ⏳ ĐANG CHỜ
+## ⏳ ĐANG CHỜ *(cập nhật sau này: cả 2 mục dưới đều đã DONE)*
 
-### 🛒 SalesService Integration (0%)
+### 🛒 SalesService Integration — ✅ DONE
 
-**Trạng thái:** Bạn của user đang gặp lỗi, chưa fix xong
+**Trạng thái lịch sử:** tại thời điểm viết, teammate đang fix lỗi SalesService. Nay đã xong:
+`OrdersController.cs` publish `order.created` và `sales.completed` khi tạo order
+(`POST /api/orders/complete`), `SaleCompletedEvent` DTO đã có `DeviceToken` (+ `CustomerId`
+cho registry fallback, Issue #37).
 
-**Cần làm khi SalesService ready:**
+**Từng được lên kế hoạch (đã làm):**
 
 1. **Update `CreateOrderDto`:**
    ```csharp
@@ -71,11 +82,14 @@ Chúng tôi đã nhận được yêu cầu đặt xe của bạn cho Tesla 2
 
 ---
 
-### 👥 CustomerService Integration (0%)
+### 👥 CustomerService Integration — ✅ DONE
 
-**Trạng thái:** Chưa rõ có TestDrive endpoint chưa
+**Trạng thái lịch sử:** tại thời điểm viết chưa kiểm tra được TestDrive endpoint. Nay đã xong:
+`TestDrivesController.cs` có `POST /api/TestDrives`, `TestDriveService.cs` publish
+`TestDriveScheduledEvent` lên queue `testdrive.scheduled` (payload không có DeviceToken →
+NotificationService tự lấy từ registry).
 
-**Cần làm:**
+**Từng được lên kế hoạch (đã làm):**
 
 1. **Tạo/Check TestDrive endpoint:**
    ```csharp
@@ -171,11 +185,11 @@ Chúng tôi sẽ liên hệ với bạn sớm.
 | **NotificationService** | ✅ Done | 100% | None |
 | **VehicleService** | ✅ Done | 100% | None |
 | **Frontend (Vehicle)** | ✅ Done | 100% | None |
-| **Firebase Setup** | ⚠️ Partial | 90% | Need verify popup |
-| **SalesService** | ⏳ Blocked | 0% | Teammate fixing bugs |
-| **CustomerService** | ❓ Unknown | 0% | Need check status |
-| **Frontend (Sales)** | ⏳ TODO | 0% | Wait SalesService |
-| **Frontend (TestDrive)** | ⏳ TODO | 0% | Wait CustomerService |
+| **Firebase Setup** | ✅ Done | 100% | DeviceToken registry + preferences shipped (#33/#36) |
+| **SalesService** | ✅ Done | 100% | None |
+| **CustomerService** | ✅ Done | 100% | None |
+| **Frontend (Sales)** | ✅ Done | 100% | `OrderCreateFromQuote.jsx` |
+| **Frontend (TestDrive)** | ✅ Done | 100% | `TestDriveForm.jsx` |
 
 ---
 
@@ -255,10 +269,8 @@ public async Task<IActionResult> ScheduleTestDrive([FromBody] TestDriveRequest r
 - Frontend UI Form (100%)
 - Firebase setup (90% - cần verify popup)
 
-**⏳ ĐỢI TEAMMATES:**
-- SalesService (đang fix lỗi)
-- CustomerService (chưa rõ status)
+**⏳ ĐỢI TEAMMATES (lịch sử):** SalesService & CustomerService — nay đã xong cả hai.
 
-**📊 TỔNG THỂ: 1/3 flows DONE (33%)**
+**📊 TỔNG THỂ: 3/3 flows DONE (100%)** ✅
 
 **→ Có thể demo VehicleService flow ngay bây giờ!**

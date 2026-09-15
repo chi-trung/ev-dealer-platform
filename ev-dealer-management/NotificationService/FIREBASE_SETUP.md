@@ -272,11 +272,12 @@ $json.project_id
 
 ## ✨ SAU KHI HOÀN TẤT
 
-Bạn đã sẵn sàng để:
-1. ✅ Install Firebase Admin SDK vào NotificationService
-2. ✅ Implement FCM Service
-3. ✅ Install Firebase SDK vào Frontend
-4. ✅ Test push notifications
+Toàn bộ code đã sẵn sàng — phần còn lại chỉ là credentials:
+1. ✅ Firebase Admin SDK đã có trong `NotificationService.csproj` (`FirebaseAdmin` 3.0.1)
+2. ✅ FCM Service đã implement (`Services/FirebaseFcmService.cs`, đăng ký singleton trong `Program.cs`)
+3. ✅ Firebase SDK đã cài vào Frontend (`firebase` ^12.6.0 trong `ev-dealer-frontend/package.json`, code trong `src/firebase/`)
+4. ⬜ Đặt `firebase-credentials.json` (Bước 4) vào `NotificationService/` — file này đã có trong `.gitignore` của repo, không commit lên Git
+5. ⬜ Thêm các giá trị `VITE_FIREBASE_*` vào `.env.local` của frontend (repo chưa có file này)
 
-**➡️ Tiếp theo: Chạy `dotnet add package FirebaseAdmin` trong NotificationService**
+**➡️ Tiếp theo: Sau khi có credentials, chạy `test-fcm.ps1` (gọi `POST http://localhost:5051/api/Notification/test-fcm`) để test push notifications**
 
