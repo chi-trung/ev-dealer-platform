@@ -118,7 +118,7 @@ Start-Sleep -Seconds 3
 
 Write-Host "`n  Check NotificationService terminal logs for:" -ForegroundColor Cyan
 Write-Host "    - 'Processing TestDriveScheduledEvent'" -ForegroundColor Gray
-Write-Host "    - 'Email sent successfully to testcustomer@example.com'" -ForegroundColor Gray
+Write-Host "    - 'Processing TestDriveScheduledEvent' -> FCM push" -ForegroundColor Gray
 
 Write-Host "`n========================================" -ForegroundColor Green
 Write-Host "        TEST COMPLETED SUCCESSFULLY     " -ForegroundColor Green
@@ -129,9 +129,9 @@ Write-Host "  ✅ CustomerService API: Working" -ForegroundColor Green
 Write-Host "  ✅ Test Drive Created: ID $testDriveId" -ForegroundColor Green
 Write-Host "  ✅ Event Published: testdrive.scheduled" -ForegroundColor Green
 Write-Host "  ✅ NotificationService: Consuming" -ForegroundColor Green
-Write-Host "  📧 Email notification: Check logs above" -ForegroundColor Yellow
+Write-Host "  📲 FCM push notification: Check NotificationService logs above" -ForegroundColor Yellow
 
 Write-Host "`n💡 Next Steps:" -ForegroundColor Cyan
-Write-Host "  1. Check NotificationService logs for email sent confirmation"
+Write-Host "  1. Check NotificationService logs for TestDriveScheduledEvent processing"
 Write-Host "  2. Test via frontend: http://localhost:5173/test-drive"
-Write-Host "  3. Verify customer email inbox`n"
+Write-Host "  3. Device with registered token receives push (no email/SMS in this system)`n"

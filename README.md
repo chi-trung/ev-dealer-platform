@@ -163,16 +163,14 @@ npm run dev
 ### Verify Installation:
 ```powershell
 # Script nằm trong ev-dealer-management/ — chạy từ đó.
-# ⚠️ check-health.ps1 còn probe route/port cũ (NotificationService
-# /notifications/health — route thật là /health; VehicleService :5002 —
-# port dev thật 5068) nên vài dòng có thể báo ❌ giả —
-# đối chiếu thủ công theo list bên dưới cho tới khi script được sửa (#53).
+# ✅ check-health.ps1 đã sửa probe khớp port dev (#53):
+# NotificationService /health, VehicleService :5068.
 cd ev-dealer-management
 .\check-health.ps1
 ```
 
-Expected output (khi services chạy qua compose; phần RabbitMQ/Notification/
-Sales đúng, dòng VehicleService chỉ đúng khi override port — xem caveat):
+Expected output (khi services chạy ở port dev — 5068 VehicleService, 5051
+NotificationService, 5003 SalesService, frontend 5173):
 ```
 ✅ RabbitMQ Running
 ✅ NotificationService Healthy
@@ -315,7 +313,7 @@ Password: guest
 
 ### Check All Services:
 ```powershell
-# từ ev-dealer-management/ (script chưa sửa port — xem caveat mục Quick Start)
+# từ ev-dealer-management/ (probe đã sửa khớp port dev — #53)
 cd ev-dealer-management
 .\check-health.ps1
 ```

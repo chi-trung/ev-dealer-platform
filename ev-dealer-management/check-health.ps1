@@ -27,7 +27,7 @@ try {
 # ============================================
 Write-Host "[2/5] NotificationService (Port 5051)..." -NoNewline
 try {
-    $response = Invoke-RestMethod -Uri "http://localhost:5051/notifications/health" -TimeoutSec 3 -ErrorAction Stop
+    $response = Invoke-RestMethod -Uri "http://localhost:5051/health" -TimeoutSec 3 -ErrorAction Stop
     Write-Host " ✅ Healthy" -ForegroundColor Green
     Write-Host "      Status: $($response.status)" -ForegroundColor Gray
 } catch {
@@ -53,9 +53,9 @@ try {
 # ============================================
 # 4. CHECK VEHICLESERVICE
 # ============================================
-Write-Host "[4/5] VehicleService (Port 5002)..." -NoNewline
+Write-Host "[4/5] VehicleService (Port 5068)..." -NoNewline
 try {
-    $response = Invoke-RestMethod -Uri "http://localhost:5002/health" -TimeoutSec 3 -ErrorAction Stop
+    $response = Invoke-RestMethod -Uri "http://localhost:5068/health" -TimeoutSec 3 -ErrorAction Stop
     Write-Host " ✅ Healthy" -ForegroundColor Green
 } catch {
     Write-Host " ❌ Not responding" -ForegroundColor Red
@@ -118,7 +118,7 @@ Write-Host ""
 # ============================================
 Write-Host "Port Status:" -ForegroundColor Cyan
 $ports = @(
-    @{ Port = 5002; Service = "VehicleService" },
+    @{ Port = 5068; Service = "VehicleService" },
     @{ Port = 5003; Service = "SalesService" },
     @{ Port = 5051; Service = "NotificationService" },
     @{ Port = 5672; Service = "RabbitMQ AMQP" },
