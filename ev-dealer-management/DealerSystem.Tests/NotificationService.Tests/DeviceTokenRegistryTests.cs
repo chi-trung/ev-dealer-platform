@@ -24,6 +24,7 @@ namespace DealerSystem.Tests.NotificationService.Tests;
 /// runs too; a shared-cache :memory: name would be kept alive by connection
 /// pooling and leak rows across tests.
 /// </summary>
+[Collection("sqlite")]
 public class DeviceTokenRegistryTests : IDisposable
 {
     private readonly string _dbPath;

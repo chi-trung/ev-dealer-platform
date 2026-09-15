@@ -28,6 +28,7 @@ namespace DealerSystem.Tests.NotificationService.Tests;
 /// the initializer to DealerId = 0 fails DeletingVehicle_PublishesEventWithOwn
 /// dealer's DealerId exactly.
 /// </summary>
+[Collection("sqlite")]
 public class VehicleDeleteProducerTests : IDisposable
 {
     private readonly string _dbPath;
