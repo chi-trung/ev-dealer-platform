@@ -42,7 +42,10 @@ uses `xs={12}`). `VehicleFormModern.jsx` carries the blue gradient theme
 - [x] Add API Gateway configuration for routing and health checks — `ocelot.json` carries
       35 downstream routes incl. `/api/health/user`, `/api/health/vehicle`, ... → each service `/health`
 - [ ] Add NiFi integration for data export endpoints — still absent from the codebase
-- [ ] Logging and monitoring — partial: Serilog (file sink) in NotificationService only;
-      other services use the default console logger, no centralized monitoring yet
+- [x] Per-service structured logging (Issue #63) — Serilog Console + daily-rolling
+      File sink now in all 7 services (was NotificationService only); each writes
+      `Logs/<service>-.log` mounted at `/app/Logs`, and boot failures land as `Fatal`
+- [ ] Centralized monitoring — no log shipper/aggregator yet (Loki/Prometheus/Grafana
+      or similar); per-service files are on-disk only, still no cross-service dashboard
 - [x] Test full microservices integration — `test-all-flows.ps1` / `start-testdrive-services.ps1`
       exercise the flows; `DealerSystem.Tests` and CI (`.github/workflows/ci.yml`) exist
