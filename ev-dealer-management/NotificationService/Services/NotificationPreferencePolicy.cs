@@ -27,7 +27,7 @@ namespace NotificationService.Services;
 ///
 /// Type mapping (consumer data["type"] → flag), documented per #56
 /// acceptance and in README.md:
-///   quote, order, sale, contract -> Orders
+///   quote, order, orders, sale, contract -> Orders
 ///   orderStatus (delivery-state changes) -> Deliveries
 ///   payment -> Payments
 ///   customer, testdrive, vehicleCreated/Updated/Deleted -> SystemAlerts
@@ -71,6 +71,13 @@ public sealed class NotificationPreferencePolicy : INotificationPreferencePolicy
         {
             ["quote"] = p => p.Orders,
             ["order"] = p => p.Orders,
+            // VehicleReserved tags its payload "orders" (plural) while
+            // OrderCreated tags "order" — both mean the same gate. The tag
+            // never reaches a user: fan-out today (that consumer targets
+            // dealer:/topics), but mapping it keeps this table honest as
+            // the complete mirror of the grep, so the day someone routes a
+            // reservation to user:<id> it is enforced, not fail-opened.
+            ["orders"] = p => p.Orders,
             ["sale"] = p => p.Orders,
             ["contract"] = p => p.Orders,
             ["orderStatus"] = p => p.Deliveries,

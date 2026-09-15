@@ -220,6 +220,29 @@ public class PreferenceFanoutConsumerTests : IDisposable
         Assert.Single(fcm.Sends); // only the customer send reached the recorder
     }
 
+    [Fact]
+    public async Task Quote_SecondaryPushThrowsException_AbsorbedExactlyOneCustomerPush()
+    {
+        // The inner catch of the #56 block IS the double-push guard, and
+        // only an EXCEPTION proves it: the Success=false path above rides
+        // the log branch instead. A throw genuinely escapes in production
+        // (DeviceTokenRegistry.GetTokensAsync fail-s-soft only for
+        // DbUpdate/Sqlite/IO/UnauthorizedAccessException — a cancellation
+        // on shutdown escapes that filter into this block). If the catch
+        // were ever dropped, the bus retries the whole event and the
+        // already-delivered customer is pushed twice — this test fails
+        // loudly in that refactor because HandleAsync would rethrow.
+        await RegisterAsync("customer:5", "tok-cust");
+        await RegisterAsync("user:1", "tok-sales");
+        var fcm = new AllSendsFcm { ThrowOnSalespersonSend = true };
+
+        await new QuoteCreatedConsumer(fcm, Registry(), Policy())
+            .HandleAsync(Json(Quote())); // must NOT throw
+
+        var send = Assert.Single(fcm.Sends); // the customer's, exactly once
+        Assert.Equal(new[] { "tok-cust" }, send.Tokens);
+    }
+
     // ---- ContractCreated ------------------------------------------------------
 
     [Fact]
@@ -261,21 +284,32 @@ public class PreferenceFanoutConsumerTests : IDisposable
     {
         // The id-space-collision guard, proven at the wiring level: a fully
         // muted document saved under "customer:5" (the primary audience's
-        // exact registry key) must not suppress the customer push.
+        // exact registry key) must not suppress the customer push. A LIVE
+        // salesperson keeps the run honest: with salespersonId=0 the policy
+        // is never invoked here at all (the branch above it is skipped), so
+        // a scope-loosening regression in IsUserSubject would sail through.
+        // With it >0 the store read happens mid-handler, and if the policy
+        // ever filtered customer: keys, the customer multicast disappears
+        // and this fails.
         await RegisterAsync("customer:5", "tok-cust");
+        await RegisterAsync("user:1", "tok-sales");
         await SavePrefsAsync("customer:5", Prefs(inApp: false, orders: false));
         var fcm = new AllSendsFcm();
 
         await new ContractCreatedConsumer(fcm, Registry(), Policy())
-            .HandleAsync(Json(Contract(salespersonId: 0)));
+            .HandleAsync(Json(Contract(salespersonId: 1)));
 
-        var send = Assert.Single(fcm.Sends);
-        Assert.Equal(new[] { "tok-cust" }, send.Tokens);
+        Assert.Equal(2, fcm.Sends.Count); // customer NOT suppressed despite the row at its key
+        Assert.Contains(fcm.Sends, s => s.Tokens.SequenceEqual(new[] { "tok-cust" }));
+        Assert.Contains(fcm.Sends, s => s.Data.TryGetValue("audience", out var a) && a == "salesperson");
     }
 
     /// <summary>Keeps EVERY multicast (the shared RecordingFcm keeps only
-    /// the last, but a fan-out event sends twice). FailOnSalespersonSend
-    /// reproduces a secondary-push send failure for the best-effort test.</summary>
+    /// the last, but a fan-out event sends twice). The two FailOn/ThrowOn
+    /// knobs reproduce secondary-push failures from both angles: a
+    /// reported-failure result (the !Success log branch) and a genuine
+    /// exception escaping the send (what the block's catch actually
+    /// defends, and the only shape that catches a dropped-catch refactor).</summary>
     private sealed class AllSendsFcm : IFcmService
     {
         public sealed record Send(IReadOnlyList<string> Tokens, string Title, string Body, Dictionary<string, string> Data);
@@ -283,10 +317,13 @@ public class PreferenceFanoutConsumerTests : IDisposable
         public List<Send> Sends { get; } = new();
         public bool Result { get; set; } = true;
         public bool FailOnSalespersonSend { get; set; }
+        public bool ThrowOnSalespersonSend { get; set; }
 
         public Task<MulticastResult> SendMulticastAsync(List<string> deviceTokens, string title, string body, Dictionary<string, string>? data = null)
         {
             var audienceSalesperson = data is not null && data.TryGetValue("audience", out var a) && a == "salesperson";
+            if (audienceSalesperson && ThrowOnSalespersonSend)
+                throw new InvalidOperationException("simulated throw inside the #56 secondary push");
             if (audienceSalesperson && FailOnSalespersonSend)
                 return Task.FromResult(new MulticastResult(false, Array.Empty<string>()));
 

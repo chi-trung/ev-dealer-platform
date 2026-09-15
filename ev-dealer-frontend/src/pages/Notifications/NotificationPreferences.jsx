@@ -1,11 +1,12 @@
 /**
  * Notification Preferences Page - Modern UI with Material-UI
  * Features:
- * - Email notifications toggle
- * - SMS notifications toggle
- * - In-app notifications toggle
- * - Notification types checkboxes
- * - Save preferences functionality
+ * - In-app notifications toggle (email/SMS toggles hidden per #56 — no
+ *   sender exists for those channels yet; see the JSX comment at the
+ *   "Kênh thông báo" group for restoration steps)
+ * - Notification types checkboxes (all five enforced by #56's policy)
+ * - Save preferences functionality (full 8-flag PUT — hidden flags
+ *   round-trip their stored values untouched)
  */
 
 import { useState, useEffect } from 'react'
@@ -35,8 +36,8 @@ import {
 } from '@mui/material'
 import {
   // Email/Sms icons tạm thời không dùng: hai card toggle bị ẩn theo #56
-  // (xem comment trong FormGroup "Kênh thông báo") — giữ import sẽ chết
-  // build-free nhưng là dead weight; khôi phục cùng card khi có sender thật.
+  // (xem comment trong FormGroup "Kênh thông báo") — giữ import thì build
+  // vẫn chạy nhưng là dead weight; khôi phục cùng hai card khi có sender thật.
   Notifications as NotificationsIcon,
   ShoppingCart as OrdersIcon,
   LocalShipping as DeliveriesIcon,
@@ -357,12 +358,13 @@ const NotificationPreferences = () => {
                 <FormControl component="fieldset" sx={{ width: '100%' }}>
                   <FormGroup sx={{ gap: 3 }}>
                     {/* Issue #56: email/SMS toggle đã bị ẩn khỏi UI. NotificationService hiện chỉ
-    có MỘT kênh giao là FCM push; email/SMS là flags lưu-nhưng-chưa-có-đường
-    gửi. Trước #56 trang này hiện chúng như điều chỉnh được; enforcement (#56)
-    chỉ tôn trọng kênh in-app + 5 loại sự kiện — nên hai toggle không có tác
-    dụng gì bị ẩn để UI và enforcement không mâu thuẫn (acceptance #56).
-    State vẫn giữ nguyên giá trị đã lưu, round-trip qua GET/PUT trở lại.
-    Khi nào có email/SMS sender thật, khôi phục hai card này. */}<Paper elevation={2} sx={{
+                        có MỘT kênh giao là FCM push; email/SMS là flags lưu-nhưng-chưa-có-đường
+                        gửi. Trước #56 trang này hiện chúng như điều chỉnh được; enforcement (#56)
+                        chỉ tôn trọng kênh in-app + 5 loại sự kiện — nên hai toggle không có tác
+                        dụng gì bị ẩn để UI và enforcement không mâu thuẫn (acceptance #56).
+                        State vẫn giữ nguyên giá trị đã lưu, round-trip qua GET/PUT trở lại.
+                        Khi nào có email/SMS sender thật, khôi phục hai card này. */}
+                    <Paper elevation={2} sx={{
                       p: 4,
                       borderRadius: 3,
                       background: 'linear-gradient(135deg, #e6f1ff 0%, #dbeffc 100%)',

@@ -155,7 +155,7 @@ Mapping `data["type"]` của consumer → cờ type (khớp bảng trong
 
 | type tag                                        | cờ gate       | mặc định (#51) |
 |-------------------------------------------------|---------------|----------------|
-| `quote`, `order`, `sale`, `contract`            | `Orders`      | BẬT |
+| `quote`, `order`, `orders`, `sale`, `contract`  | `Orders`      | BẬT |
 | `orderStatus`                                   | `Deliveries`  | BẬT |
 | `payment`                                       | `Payments`    | BẬT |
 | `customer`, `testdrive`, `vehicle*`             | `System`      | TẮT |

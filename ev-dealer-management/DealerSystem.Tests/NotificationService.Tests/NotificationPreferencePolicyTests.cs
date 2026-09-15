@@ -87,6 +87,7 @@ public class NotificationPreferencePolicyTests : IDisposable
     {
         new object[] { "quote", "Orders" },
         new object[] { "order", "Orders" },
+        new object[] { "orders", "Orders" },   // VehicleReserved's plural spelling
         new object[] { "sale", "Orders" },
         new object[] { "contract", "Orders" },
         new object[] { "orderStatus", "Deliveries" },
