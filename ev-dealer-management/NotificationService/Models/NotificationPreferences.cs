@@ -14,12 +14,12 @@ namespace NotificationService.Models;
 /// never a silent default-to-false, because these flags mean "mute" — the
 /// Issue #50 lesson about missing members binding to defaults).
 ///
-/// Scope note: this issue persists and serves the choices so the "saved"
-/// message stops being a lie (reload no longer evaporates them). Consumers
-/// honoring the muted channels/types is NOT wired here: today no consumer
-/// fans out to "user:&lt;id&gt;" subjects at all (see the doc note on
-/// NotificationSubjects.User), so any filtering code now would be dead.
-/// That half is a separate issue.
+/// Scope note: #51 persisted and served the choices so the "saved" message
+/// stopped being a lie. The enforcement half — Issue #56 — is now wired:
+/// NotificationPreferencePolicy reads this table at the user:&lt;id&gt;
+/// fan-out points (quote/contract salesperson pushes) and skips muted
+/// in-app/type combinations. customer:/dealer: subjects still have no
+/// preferences surface and are never filtered.
 /// </summary>
 public class NotificationPreferences
 {

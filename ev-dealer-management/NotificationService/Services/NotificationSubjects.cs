@@ -14,7 +14,10 @@ public static class NotificationSubjects
 
     /// <summary>Portal-account subject, e.g. "user:7" — the key a logged-in
     /// staff member may register (Issue #36: "id" claim ⇒ exactly this key).
-    /// Not a lookup key for any consumer yet; registration-only for now.</summary>
+    /// Since Issue #56 this is ALSO a fan-out key: the quote/contract
+    /// consumers push to the assigned salesperson here, gated by
+    /// NotificationPreferencePolicy (the only subject family with a
+    /// preferences surface).</summary>
     public static string User(int userId) => $"user:{userId}";
 
     /// <summary>Dealer-domain subject, e.g. "dealer:3" — registrable only when

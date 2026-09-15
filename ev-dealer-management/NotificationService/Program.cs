@@ -40,6 +40,11 @@ try
         options.UseSqlite(dbConn));
     builder.Services.AddScoped<IDeviceTokenRegistry, DeviceTokenRegistry>();
     builder.Services.AddScoped<INotificationPreferencesStore, NotificationPreferencesStore>();
+    // Issue #56: the read-side of preferences — turns #51's stored documents
+    // into delivery decisions at user:<id> fan-out points (Quote/Contract
+    // consumers' salesperson audience). Stateless over the store; Scoped
+    // matches the store's lifetime.
+    builder.Services.AddScoped<INotificationPreferencePolicy, NotificationPreferencePolicy>();
 
     // JWT authentication (Issue #36): DeviceTokens registration is now
     // authenticated. Same validation params as CustomerService/UserService —

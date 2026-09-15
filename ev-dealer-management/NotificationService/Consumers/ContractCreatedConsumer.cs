@@ -5,15 +5,25 @@ using System.Text.Json;
 
 namespace NotificationService.Consumers;
 
+/// <summary>
+/// contract.created. Primary audience: the customer (customer:&lt;id&gt;
+/// registry fallback, payload token wins — unchanged #37 shape). Issue #56
+/// adds the preference-gated salesperson audience user:&lt;SalespersonId&gt;,
+/// with the same best-effort semantics as QuoteCreatedConsumer's #56 block
+/// (never throws, never retries the already-delivered customer push).
+/// </summary>
 public class ContractCreatedConsumer
 {
     private readonly IFcmService _fcmService;
     private readonly IDeviceTokenRegistry _tokens;
+    private readonly INotificationPreferencePolicy _prefs;
 
-    public ContractCreatedConsumer(IFcmService fcmService, IDeviceTokenRegistry tokens)
+    public ContractCreatedConsumer(IFcmService fcmService, IDeviceTokenRegistry tokens,
+        INotificationPreferencePolicy prefs)
     {
         _fcmService = fcmService;
         _tokens = tokens;
+        _prefs = prefs;
     }
 
     public async Task HandleAsync(string message)
@@ -94,6 +104,55 @@ public class ContractCreatedConsumer
             else
             {
                 Log.Information("ℹ️ No device token for Contract {ContractNumber}. Notification logged only (no push sent).", contractEvent.ContractNumber);
+            }
+
+            // Issue #56 — preference-gated salesperson audience, user:<id>.
+            // Best-effort by design; see QuoteCreatedConsumer's #56 block for
+            // the full rationale (never throw: the customer push already
+            // succeeded and a rethrow would double-send it via bus retry).
+            if (contractEvent.SalespersonId > 0)
+            {
+                var salesSubject = NotificationSubjects.User(contractEvent.SalespersonId);
+                try
+                {
+                    if (await _prefs.ShouldDeliverAsync(salesSubject, "contract"))
+                    {
+                        var salesTokens = await _tokens.GetTokensAsync(salesSubject);
+                        if (salesTokens.Count > 0)
+                        {
+                            var salesData = new Dictionary<string, string>
+                            {
+                                { "type", "contract" },
+                                { "contractId", contractEvent.ContractId },
+                                { "contractNumber", contractEvent.ContractNumber },
+                                { "orderId", contractEvent.OrderId.ToString() },
+                                { "customerId", contractEvent.CustomerId.ToString() },
+                                { "audience", "salesperson" },
+                            };
+                            var salesResult = await _fcmService.SendMulticastAsync(
+                                salesTokens.ToList(),
+                                "📋 Hợp đồng mới bạn phụ trách!",
+                                $"Hợp đồng #{contractEvent.ContractNumber} cho đơn #{contractEvent.OrderId} đã được tạo. Tổng giá trị: {contractEvent.TotalAmount:N0} VND.",
+                                salesData);
+                            await _tokens.RevokeDeadTokensAsync(salesSubject, salesResult.DeadTokens);
+                            if (salesResult.Success)
+                                Log.Information("✅ Salesperson push sent for Contract: {ContractNumber}", contractEvent.ContractNumber);
+                            else
+                                Log.Error("❌ Salesperson push FAILED (best-effort, not retried — see #56 note) for Contract {ContractNumber}, user {Subject}",
+                                    contractEvent.ContractNumber, salesSubject);
+                        }
+                        else
+                        {
+                            Log.Information("ℹ️ No device token for salesperson {Subject} (Contract {ContractNumber}). Logged only.",
+                                salesSubject, contractEvent.ContractNumber);
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Log.Error(ex, "❌ Salesperson push errored (best-effort, not retried) for Contract {ContractNumber}, user {Subject}",
+                        contractEvent.ContractNumber, salesSubject);
+                }
             }
 
             Log.Debug("✅ ContractCreated event processed successfully for Contract: {ContractNumber}", contractEvent.ContractNumber);

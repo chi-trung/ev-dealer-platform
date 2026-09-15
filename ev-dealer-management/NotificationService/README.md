@@ -23,7 +23,8 @@ báo tới thiết bị người dùng.
   thiết bị đăng ký token theo subject (`user:<id>`), JWT-authorized, có LRU cap
   + thu hồi token chết (Issues #33/#36/#44).
 - **Notification preferences** (`GET/PUT /api/Notification/preferences`):
-  8 cờ lựa chọn của từng user, persist server-side (Issue #51).
+  8 cờ lựa chọn của từng user, persist server-side (Issue #51) và ENFORCE
+  tại fan-out (Issue #56) — xem mục "Preference enforcement" dưới.
 
 ## Cấu hình
 
@@ -129,6 +130,55 @@ Ví dụ payload `SaleCompletedEvent` (schema thật trong `Events/`):
 }
 ```
 
+## Preference enforcement (Issue #56)
+
+`NotificationPreferencePolicy` (Services/) là CHỖ DUY NHẤT biến document
+preference của #51 thành quyết định giao-hay-không. Ba quyết định thiết kế
+(issue ủy quyền, chốt ở đây + test pin lại):
+
+**1. Scope — chỉ subject `user:<n>`.** Preferences là bảng cá nhân đăng
+nhập portal (khóa đúng cách `NotificationSubjects.User` sinh ra, cùng id-
+space với claim `id` của JWT — chứng minh ở `QuoteCreatedConsumer` doc).
+`customer:` / `dealer:` không có surface preference nên KHÔNG BAO GIỜ bị
+lọc — hành vi giao hàng của họ y hệt trước #56, và một key va chạm
+id-space (vd row lạ lọt vào khóa `customer:5`) không thể mute traffic thật.
+
+**2. Kênh — FCM = in-app.** Service chỉ có một kênh giao là FCM push; với
+user đã đăng nhập đó chính là "in-app" trong trang cài đặt. Nên push bị
+gate bởi cờ `InAppNotifications`; hai cờ email/sms vẫn lưu (PUT 8 cờ không
+đổi contract) nhưng chưa gate gì — frontend ẨN hai toggle đó cho tới khi
+có sender thật, để UI và enforcement khớp nhau (acceptance #56).
+
+Mapping `data["type"]` của consumer → cờ type (khớp bảng trong
+`NotificationPreferencePolicy.TypeFlags`, test:
+`NotificationPreferencePolicyTests.TagToFlag`):
+
+| type tag                                        | cờ gate       | mặc định (#51) |
+|-------------------------------------------------|---------------|----------------|
+| `quote`, `order`, `orders`, `sale`, `contract`  | `Orders`      | BẬT |
+| `orderStatus`                                   | `Deliveries`  | BẬT |
+| `payment`                                       | `Payments`    | BẬT |
+| `customer`, `testdrive`, `vehicle*`             | `System`      | TẮT |
+| `promotion` / `promotions`                      | `Promotions`  | TẮT (chưa có producer nào gắn tag này — mapping sẵn, producer tương lai khỏi sửa code) |
+| tag lạ (consumer mới chưa có trong bảng)        | —             | GIAO (fail open; unmapped ≠ muted) |
+
+Điểm enforcement thật hôm nay: push cho **salesperson phụ trách**
+(`user:<SalespersonId>`) trong `QuoteCreatedConsumer` và
+`ContractCreatedConsumer`. Push chính (khách hàng) KHÔNG qua policy. Push
+salesperson là best-effort: lỗi trong block đó log to, không throw —
+rethrow sẽ làm bus retry cả event và đẩy trùng cho khách.
+
+**3. Store hỏng → FAIL OPEN.** Preference-store outage không được mute
+toàn bộ push dạng user: mass-suppression trông y hệt lớp lỗi silent-drop
+`docs/EVENTS.md` sinh ra để chống, trong khi giao-hơi-nhiều thì thấy được
+và tự lành. Policy không bao giờ throw ở bước đọc store; có Log.Warning
+to. Test: `StoreOutage_Delivers_FailOpen`.
+
+User chưa từng Save nhận đúng shared defaults của `GetAsync` (orders/
+deliveries/payments BẬT, system/promotions TẮT) — tức traffic mới gắn
+tag system với user: sẽ mặc định muted; đó là đọc đúng của "chưa chọn gì
+thì dùng default". Test: `NeverSavedUser_GetsSharedDefaults`.
+
 ## Logging
 
 Serilog: console có màu + file `Logs/notification-service-YYYYMMDD.log`
@@ -173,5 +223,4 @@ rabbitmq`; port 5672 không bị block.
 - [ ] Gửi **email xác nhận** đơn/test-drive từ NotificationService (hiện chỉ có
       SMTP trong UserService cho luồng password-reset)
 - [ ] Notification history page (lưu + hiển thị lịch sử push)
-- [ ] Consumers tôn trọng preference flags khi fan-out tới `user:<id>` (Issue #56)
 - [ ] Metrics/monitoring
