@@ -1046,7 +1046,7 @@ const VehicleDetail = () => {
                         </Suspense>
                       </Box>
                       <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 1 }}>
-                        Kéo để xoay, cuộn để zoom. Mô hình minh hoạ — màu thực tế theo tuỳ chọn bên dưới.
+                        Kéo để xoay, cuộn để zoom. Mô hình minh hoạ với màu tham khảo — không đổi theo tuỳ chọn màu.
                       </Typography>
                     </Box>
                   )}
