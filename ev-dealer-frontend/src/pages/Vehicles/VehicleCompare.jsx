@@ -39,7 +39,7 @@ import {
 } from '@mui/icons-material'
 
 import vehicleService from '../../services/vehicleService'
-import resolveImagePath from '../../utils/imageUtils'
+import resolveImagePath, { placeholderVehicleImage } from '../../utils/imageUtils'
 
 const VehicleCompare = () => {
   const navigate = useNavigate()
@@ -432,7 +432,7 @@ const VehicleCompare = () => {
                     <CardMedia
                       component="img"
                       height="220"
-                      image={vehicle.images?.[0] ? resolveImagePath(vehicle.images[0]) : '/placeholder-car.png'}
+                      image={vehicle.images?.[0] ? resolveImagePath(vehicle.images[0]) : placeholderVehicleImage(vehicle.model, 640, 480)}
                       alt={vehicle.model}
                       sx={{ 
                         objectFit: 'cover'

@@ -243,19 +243,21 @@ public class ApplicationDbContext : DbContext
             }
         );
 
-        // Seed Vehicle Images
+        // Seed Vehicle Images (Issue #83: /images/* is served from
+        // wwwroot/images by UseStaticFiles + the gateway /images route — NOT
+        // /src/assets/*, which matches the frontend SPA rewrite and 404s/returns HTML)
         modelBuilder.Entity<VehicleImage>().HasData(
-            new VehicleImage { Id = 1, VehicleId = 1, Url = "/src/assets/img/car1.png", AltText = "Tesla Model 3 Front", Order = 1 },
-            new VehicleImage { Id = 2, VehicleId = 1, Url = "/src/assets/img/car2.png", AltText = "Tesla Model 3 Side", Order = 2 },
-            new VehicleImage { Id = 3, VehicleId = 1, Url = "/src/assets/img/car3.png", AltText = "Tesla Model 3 Interior", Order = 3 },
-            new VehicleImage { Id = 4, VehicleId = 2, Url = "/src/assets/img/car2.png", AltText = "Tesla Model Y Front", Order = 1 },
-            new VehicleImage { Id = 5, VehicleId = 2, Url = "/src/assets/img/car3.png", AltText = "Tesla Model Y Side", Order = 2 },
-            new VehicleImage { Id = 6, VehicleId = 2, Url = "/src/assets/img/car4.png", AltText = "Tesla Model Y Interior", Order = 3 },
-            new VehicleImage { Id = 7, VehicleId = 3, Url = "/src/assets/img/car3.png", AltText = "BMW i4 Front", Order = 1 },
-            new VehicleImage { Id = 8, VehicleId = 3, Url = "/src/assets/img/car4.png", AltText = "BMW i4 Side", Order = 2 },
-            new VehicleImage { Id = 9, VehicleId = 4, Url = "/src/assets/img/car4.png", AltText = "Audi e-tron Front", Order = 1 },
-            new VehicleImage { Id = 10, VehicleId = 5, Url = "/src/assets/img/car1.png", AltText = "Mercedes EQS Front", Order = 1 },
-            new VehicleImage { Id = 11, VehicleId = 5, Url = "/src/assets/img/car2.png", AltText = "Mercedes EQS Side", Order = 2 }
+            new VehicleImage { Id = 1, VehicleId = 1, Url = "/images/seed-car1.webp", AltText = "Tesla Model 3 Front", Order = 1 },
+            new VehicleImage { Id = 2, VehicleId = 1, Url = "/images/seed-car2.webp", AltText = "Tesla Model 3 Side", Order = 2 },
+            new VehicleImage { Id = 3, VehicleId = 1, Url = "/images/seed-car3.webp", AltText = "Tesla Model 3 Interior", Order = 3 },
+            new VehicleImage { Id = 4, VehicleId = 2, Url = "/images/seed-car2.webp", AltText = "Tesla Model Y Front", Order = 1 },
+            new VehicleImage { Id = 5, VehicleId = 2, Url = "/images/seed-car3.webp", AltText = "Tesla Model Y Side", Order = 2 },
+            new VehicleImage { Id = 6, VehicleId = 2, Url = "/images/seed-car4.webp", AltText = "Tesla Model Y Interior", Order = 3 },
+            new VehicleImage { Id = 7, VehicleId = 3, Url = "/images/seed-car3.webp", AltText = "BMW i4 Front", Order = 1 },
+            new VehicleImage { Id = 8, VehicleId = 3, Url = "/images/seed-car4.webp", AltText = "BMW i4 Side", Order = 2 },
+            new VehicleImage { Id = 9, VehicleId = 4, Url = "/images/seed-car4.webp", AltText = "Audi e-tron Front", Order = 1 },
+            new VehicleImage { Id = 10, VehicleId = 5, Url = "/images/seed-car1.webp", AltText = "Mercedes EQS Front", Order = 1 },
+            new VehicleImage { Id = 11, VehicleId = 5, Url = "/images/seed-car2.webp", AltText = "Mercedes EQS Side", Order = 2 }
         );
 
         // Seed Color Variants
