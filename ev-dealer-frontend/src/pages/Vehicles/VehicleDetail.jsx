@@ -3,7 +3,7 @@
  * Features: Image gallery, specifications, color variants, 3D model, animations
  */
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, lazy, Suspense } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
   Box,
@@ -70,6 +70,10 @@ import vehicleService from '../../services/vehicleService'
 import resolveImagePath from '../../utils/imageUtils'
 import NotificationToast from '../../components/Notification/NotificationToast'
 import ReservationDialog from '../../components/vehicles/ReservationDialog'
+
+// Lazy: keeps Car3D in its own build chunk (Issue #69). Note: three.js itself
+// is already in the initial bundle via LandingPage's eager import.
+const Car3D = lazy(() => import('../../components/Car3D'))
 
 const VehicleDetail = () => {
   const { id } = useParams()
@@ -821,10 +825,15 @@ const VehicleDetail = () => {
                     iconPosition="start" 
                     label="Tính năng" 
                   />
-                  <Tab 
-                    icon={<SecurityIcon sx={{ mb: 0.5 }} />} 
-                    iconPosition="start" 
-                    label="Bảo hành & Hỗ trợ" 
+                  <Tab
+                    icon={<SecurityIcon sx={{ mb: 0.5 }} />}
+                    iconPosition="start"
+                    label="Bảo hành & Hỗ trợ"
+                  />
+                  <Tab
+                    icon={<ThreeDIcon sx={{ mb: 0.5 }} />}
+                    iconPosition="start"
+                    label="Mô hình 3D"
                   />
                 </Tabs>
 
@@ -1007,6 +1016,38 @@ const VehicleDetail = () => {
                           </Stack>
                         </Grid>
                       </Grid>
+                    </Box>
+                  )}
+
+                  {activeTab === 3 && (
+                    <Box>
+                      <Typography variant="h5" sx={{ fontWeight: 700, mb: 4, display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <ThreeDIcon color="primary" />
+                        Mô hình 3D
+                      </Typography>
+                      <Box
+                        sx={{
+                          position: 'relative',
+                          height: { xs: 320, md: 500 },
+                          borderRadius: 3,
+                          overflow: 'hidden',
+                          border: '1px solid rgba(0,0,0,0.08)',
+                          background: 'linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%)'
+                        }}
+                      >
+                        <Suspense
+                          fallback={
+                            <Box sx={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                              <LinearProgress sx={{ width: '60%' }} />
+                            </Box>
+                          }
+                        >
+                          <Car3D />
+                        </Suspense>
+                      </Box>
+                      <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 1 }}>
+                        Kéo để xoay, cuộn để zoom. Mô hình minh hoạ với màu tham khảo — không đổi theo tuỳ chọn màu.
+                      </Typography>
                     </Box>
                   )}
                 </Box>

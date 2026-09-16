@@ -1,4 +1,4 @@
-import { useRef } from 'react'
+import { useRef, Suspense } from 'react'
 import { Canvas, useFrame } from '@react-three/fiber'
 import { OrbitControls, PerspectiveCamera, Environment } from '@react-three/drei'
 import * as THREE from 'three'
@@ -39,7 +39,7 @@ function Car() {
       </mesh>
 
       {/* Front Window */}
-      <mesh position={[0.8, 0.95, 0]} castShadow>
+      <mesh position={[0.8, 0.95, 0]}>
         <boxGeometry args={[0.1, 0.6, 1.1]} />
         <meshStandardMaterial 
           color="#1a1f3a" 
@@ -51,7 +51,7 @@ function Car() {
       </mesh>
 
       {/* Back Window */}
-      <mesh position={[-0.4, 0.95, 0]} castShadow>
+      <mesh position={[-0.4, 0.95, 0]}>
         <boxGeometry args={[0.1, 0.6, 1.1]} />
         <meshStandardMaterial 
           color="#1a1f3a" 
@@ -159,8 +159,11 @@ export default function Car3D() {
       <pointLight position={[-10, 5, -5]} intensity={0.5} color="#667eea" />
       <pointLight position={[10, 5, 5]} intensity={0.5} color="#f093fb" />
 
-      {/* Environment for reflections */}
-      <Environment preset="city" />
+      {/* Environment for reflections (HDR loads async — scoped boundary keeps
+          the car itself painted even if the fetch is slow; Issue #69) */}
+      <Suspense fallback={null}>
+        <Environment preset="city" />
+      </Suspense>
 
       {/* Car Model */}
       <Car />
