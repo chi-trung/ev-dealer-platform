@@ -6,7 +6,10 @@
 import { Outlet } from 'react-router-dom'
 import { Box, Container, Typography, Paper } from '@mui/material'
 import { ElectricCar } from '@mui/icons-material'
-import bgImage from '../assets/img/bg.jpg'
+// Issue #81: was '../assets/img/bg.jpg' — the SAME artwork as the landing
+// hero, but 6,582 kB vs this 107 kB WebP (LANCZOS-downscaled to 1920px,
+// q78). One hashed URL now serves both pages.
+import bgImage from '../assets/img/bg-hero.webp'
 
 const AuthLayout = () => {
   return (

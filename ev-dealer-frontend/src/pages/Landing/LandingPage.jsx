@@ -3,12 +3,21 @@
  * Featuring Porsche Taycan 3D Model
  */
 
-import { Suspense, useRef } from 'react'
+import { Component, Suspense, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Canvas, useLoader } from '@react-three/fiber'
 import { OrbitControls, PerspectiveCamera, Environment, ContactShadows } from '@react-three/drei'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader'
 import * as THREE from 'three'
+// Issue #81: assets imported (hashed + immutable-cached by Vite) instead of
+// "/src/assets/..." literals — those runtime paths are NOT valid on the built
+// site: the SPA rewrite in vercel.json matches them and serves index.html
+// (966B) as if it were the image, so every <img>/background broke.
+import car1Img from '../../assets/img/car1.webp'
+import car2Img from '../../assets/img/car2.webp'
+import car3Img from '../../assets/img/car3.webp'
+import car4Img from '../../assets/img/car4.webp'
+import bgHeroImg from '../../assets/img/bg-hero.webp'
 import {
   Box,
   Container,
@@ -33,6 +42,132 @@ import {
   Login,
   PersonAdd,
 } from '@mui/icons-material'
+
+// Issue #81: the whole page used to go WHITE when WebGL was unavailable —
+// <Canvas> throws "Error creating WebGL context" during render (common on
+// crash-looped GPU drivers / remote desktop / blocklisted drivers) and nothing
+// caught it, so React unmounted the entire tree. Three layers of defense now:
+//   1. canRenderWebGL() probe BEFORE mounting the Canvas (cheap, synchronous);
+//   2. an ErrorBoundary that catches mount-time AND later runtime failures;
+//   3. IntersectionObserver gating so the 19 MB GLB + render only start when
+//      the section is actually scrolled into view (landing got slow in part
+//      because that download competed with first paint).
+
+/** One-shot, side-effect-light WebGL availability probe (null = untested). */
+function canRenderWebGL() {
+  try {
+    const canvas = document.createElement('canvas')
+    const gl =
+      canvas.getContext('webgl2') ||
+      canvas.getContext('webgl') ||
+      canvas.getContext('experimental-webgl')
+    if (!gl) return false
+    // Release the probe context: browsers cap concurrent WebGL contexts and a
+    // leaked probe context can make the real Canvas creation fail afterwards.
+    const lose = gl.getExtension('WEBGL_lose_context')
+    if (lose) lose.loseContext()
+    return true
+  } catch {
+    return false
+  }
+}
+
+class SceneErrorBoundary extends Component {
+  constructor(props) {
+    super(props)
+    this.state = { failed: false }
+  }
+
+  static getDerivedStateFromError() {
+    return { failed: true }
+  }
+
+  componentDidCatch(error) {
+    console.warn('3D scene failed, showing static fallback:', error?.message || error)
+  }
+
+  render() {
+    return this.state.failed ? this.props.fallback : this.props.children
+  }
+}
+
+/** Static car image shown instead of the 3D scene (no WebGL / scene crash). */
+function SceneFallback() {
+  return (
+    <Box
+      sx={{
+        position: 'absolute',
+        inset: 0,
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 2,
+      }}
+    >
+      <Box
+        component="img"
+        src={car3Img}
+        alt="Porsche Taycan"
+        loading="lazy"
+        decoding="async"
+        sx={{
+          width: { xs: '80%', md: '60%' },
+          maxWidth: 640,
+          filter: 'drop-shadow(0 24px 48px rgba(102,126,234,0.35))',
+        }}
+      />
+      <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.5)' }}>
+        Chế độ 3D không khả dụng trên thiết bị này
+      </Typography>
+    </Box>
+  )
+}
+
+/**
+ * Mounts the 3D scene only once its section scrolls into view (rootMargin
+ * preloads slightly ahead) and only if WebGL is usable. Until then it shows
+ * the static fallback — cheap, on-brand, never a white screen.
+ */
+function LazyCarScene() {
+  const holderRef = useRef(null)
+  const [inView, setInView] = useState(false)
+  const [webglOk] = useState(canRenderWebGL)
+
+  useEffect(() => {
+    if (inView) return
+    const el = holderRef.current
+    if (!el || typeof IntersectionObserver === 'undefined') {
+      setInView(true) // no IO support: mount eagerly, still WebGL-guarded
+      return
+    }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) {
+          setInView(true)
+          observer.disconnect()
+        }
+      },
+      { rootMargin: '300px' },
+    )
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [inView])
+
+  return (
+    <Box ref={holderRef} sx={{ position: 'absolute', inset: 0 }}>
+      {inView && webglOk ? (
+        <SceneErrorBoundary fallback={<SceneFallback />}>
+          <Suspense fallback={<Loader />}>
+            <CarScene />
+          </Suspense>
+        </SceneErrorBoundary>
+      ) : (
+        <SceneFallback />
+      )}
+    </Box>
+  )
+}
 
 // 3D Porsche Taycan Model Component
 function PorscheTaycan() {
@@ -176,7 +311,7 @@ export default function LandingPage() {
       range: '580 km',
       speed: '0-100: 3.3s',
       color: '#667eea',
-      image: '/src/assets/img/car1.png',
+      image: car1Img,
     },
     {
       name: 'VinFast VF8',
@@ -185,7 +320,7 @@ export default function LandingPage() {
       range: '420 km',
       speed: '0-100: 5.5s',
       color: '#f093fb',
-      image: '/src/assets/img/car2.png',
+      image: car2Img,
     },
     {
       name: 'Porsche Taycan',
@@ -194,7 +329,7 @@ export default function LandingPage() {
       range: '484 km',
       speed: '0-100: 2.8s',
       color: '#4facfe',
-      image: '/src/assets/img/car3.png',
+      image: car3Img,
     },
     {
       name: 'BMW iX',
@@ -203,7 +338,7 @@ export default function LandingPage() {
       range: '630 km',
       speed: '0-100: 4.6s',
       color: '#43e97b',
-      image: '/src/assets/img/car4.png',
+      image: car4Img,
     },
   ]
 
@@ -281,7 +416,7 @@ export default function LandingPage() {
             left: 0,
             right: 0,
             bottom: 0,
-            backgroundImage: 'url(/src/assets/img/bglanding.jpg)',
+            backgroundImage: `url(${bgHeroImg})`,
             backgroundSize: 'cover',
             backgroundPosition: 'center',
             backgroundAttachment: 'fixed',
@@ -374,9 +509,7 @@ export default function LandingPage() {
               mb: 6,
             }}
           >
-            <Suspense fallback={<Loader />}>
-              <CarScene />
-            </Suspense>
+            <LazyCarScene />
           </Box>
 
           {/* Stats - Centered */}
@@ -737,6 +870,8 @@ export default function LandingPage() {
                     component="img"
                     src={car.image}
                     alt={car.name}
+                    loading="lazy"
+                    decoding="async"
                     className="car-image"
                     sx={{
                       width: '85%',
