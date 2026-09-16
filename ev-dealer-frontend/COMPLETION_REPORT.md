@@ -54,7 +54,7 @@ Tailwind itself is declared but not wired in.
 |--------|-------|---------|
 | Auth | 4 | Login, Register, ForgotPassword, ResetPassword (+Auth.css) |
 | Dashboard | 1 | Dashboard.jsx — no charts on this page (chart components are consumed by Dealers/DealerDetail) |
-| Vehicles | 5 | List, Detail, Form, FormModern, Compare |
+| Vehicles | 5 | List, Detail, Form, FormModern, Compare — Detail includes the lazy "Mô hình 3D" tab (Car3D, Issue #69) |
 | Sales | 8 | SalesList, Quote CRUD-ish (Create/List/View/OrderFromQuote), Contract (Create/Detail), OrderDetail |
 | Customers | 9 | List/Detail/New/Edit/Form + TestDrive (Form/List) + Feedback (Form/List) |
 | Complaints | 4 | ListPage, DetailPage, New, CreatePage |
@@ -92,8 +92,8 @@ Note: `@types/react` 19.x are dev-deps only; the runtime is React 18.3.1.
 - `tailwindcss` 4.1 is in `package.json` dependencies but nothing imports or
   configures it — dead weight until wired (or dropped).
 - Orphaned components (complete, working, but no page imports them yet):
-  `components/Car3D.jsx` and `components/DemandForecastChart.jsx`. The 3D
-  stack is real but currently renders nothing.
+  `components/DemandForecastChart.jsx`. (Car3D.jsx was wired into
+  Vehicles/VehicleDetail as the "Mô hình 3D" tab, lazy-loaded, Issue #69.)
 - Zustand is installed but state lives mostly in context/page code.
 - Mock data files (mockVehicles/mockDataSales/mockNotifications) coexist with real service calls.
 - Tests: a single component test (`NotificationBell.test.jsx`) — no frontend test suite yet.
