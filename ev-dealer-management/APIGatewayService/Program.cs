@@ -76,7 +76,11 @@ try
                 // (Cors__AllowedOrigins="https://a,https://b") so a deployed
                 // frontend (e.g. the Vercel app) can be permitted without a
                 // rebuild. Default keeps the Vite dev ports working unchanged.
-                // AllowCredentials below forbids a "*" origin, hence the list.
+                // Origins must be exact "scheme://host[:port]" values: no
+                // trailing slash and no wildcard patterns (WithOrigins stores
+                // them verbatim, so e.g. "https://*.vercel.app" silently never
+                // matches). AllowCredentials below forbids a "*" origin, hence
+                // the list.
                 var defaultOrigins = new[]
                 {
                     "http://localhost:5173", "http://localhost:5174", "http://localhost:5175",
