@@ -51,6 +51,7 @@ import {
 } from "recharts";
 import { reportService } from "../../services/reportService"; // Giữ nguyên import
 import authService from "../../services/authService";
+import DemandForecastChart from "../../components/DemandForecastChart";
 
 const COLORS = ["#3B82F6", "#10B981", "#F59E0B", "#06B6D4", "#8B5CF6"];
 
@@ -155,7 +156,6 @@ const Reports = () => {
   const [manufacturerDebt, setManufacturerDebt] = useState([]);
   const [dealerSales, setDealerSales] = useState([]);
   const [inventoryTrends, setInventoryTrends] = useState([]);
-  const [demandForecast, setDemandForecast] = useState(null);
 
   // derived values for donut chart (sales share)
   const pieData = useMemo(
@@ -183,7 +183,6 @@ const Reports = () => {
         debtRes,
         dealerSalesRes,
         inventoryTrendRes,
-        forecastRes,
       ] = await Promise.all([
         reportService.getSummary(params).catch((e) => {
           console.error("Error fetching summary:", e);
@@ -216,10 +215,6 @@ const Reports = () => {
         reportService.getInventoryTrends(params).catch((e) => {
           console.error("Error fetching inventory trends:", e);
           return [];
-        }),
-        reportService.getDemandForecast(params).catch((e) => {
-          console.error("Error fetching demand forecast:", e);
-          return null;
         }),
       ]);
 
@@ -342,9 +337,6 @@ const Reports = () => {
         } else {
           setInventoryTrends(Array.isArray(inventoryTrendRes) ? inventoryTrendRes : []);
         }
-      }
-      if (forecastRes) {
-        setDemandForecast(forecastRes);
       }
     } catch (err) {
       console.error("Error fetching report data:", err);
@@ -1065,6 +1057,11 @@ const Reports = () => {
             {exporting ? "Đang xuất..." : "Xuất Inventory CSV"}
           </Button>
         </Box>
+      </Container>
+
+      {/* Demand Forecast — self-fetching chart (sales-summary + demand-forecast) */}
+      <Container maxWidth="xl" sx={{ mt: 4 }}>
+        <DemandForecastChart />
       </Container>
 
       {/* Sales by Staff */}
