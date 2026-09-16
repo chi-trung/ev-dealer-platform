@@ -32,24 +32,52 @@ try
         .ToDictionary(g => g.Key, g => g.First().To, StringComparer.OrdinalIgnoreCase);
     
     // Apply to the loaded route file so one ocelot.json serves both localhost dev
-    // and the docker-compose network. Keys/values are full "host:port" authorities:
+    // and the docker-compose network. Keys are full "host:port" authorities:
     // a host-only rewrite would collapse every service (all entries say
     // "localhost", differing only by port) onto one container with ports nothing
-    // listens on.
+    // listens on. Values are either a bare "host:port" (rewrite keeps the route's
+    // own scheme — the docker-compose form) or scheme-qualified
+    // "http(s)://host[:port]" (Issue #78: Render addresses services by public
+    // https URLs; the port may be omitted and defaults to the scheme's — 443
+    // for https, 80 for http). A scheme-qualified To also rewrites the route's
+    // DownstreamScheme. See GatewayRewrites for the exact grammar.
     var ocelotJson = JObject.Parse(File.ReadAllText(
         Path.Combine(builder.Environment.ContentRootPath, "ocelot.json")));
+    var warnedRewrites = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
     foreach (var route in ocelotJson["Routes"]?.Children() ?? Enumerable.Empty<JToken>())
     {
         foreach (var hp in route["DownstreamHostAndPorts"]?.Children() ?? Enumerable.Empty<JToken>())
         {
             var host = hp["Host"]?.Value<string>();
             var port = hp["Port"]?.Value<string>() ?? "";
-            if (host != null
-                && rewrites.TryGetValue($"{host}:{port}", out var replacement)
-                && replacement.Split(':', 2) is [var newHost, var newPort])
+            if (host == null)
             {
-                hp["Host"] = newHost;
-                hp["Port"] = int.Parse(newPort);
+                continue;
+            }
+            if (rewrites.TryGetValue($"{host}:{port}", out var replacement))
+            {
+                if (GatewayRewrites.TryParseTarget(replacement, out var newScheme, out var newHost, out var newPort))
+                {
+                    hp["Host"] = newHost;
+                    hp["Port"] = newPort;
+                    if (newScheme != null)
+                    {
+                        // Single-entry-per-route assumed (all 36 routes in
+                        // ocelot.json have exactly one DownstreamHostAndPorts
+                        // object); with two, the last scheme-qualified entry
+                        // would win route-wide.
+                        route["DownstreamScheme"] = newScheme;
+                    }
+                }
+                else
+                {
+                    // Many routes share one authority, so warn once per From.
+                    if (warnedRewrites.Add($"{host}:{port}"))
+                    {
+                        Log.Warning("Ignoring Gateway:Rewrites entry {From} -> {To}: unparseable target",
+                            $"{host}:{port}", replacement);
+                    }
+                }
             }
         }
     }
@@ -170,10 +198,82 @@ internal sealed class GatewayRewrite
 }
 
 /// <summary>
+/// Parses a Gateway:Rewrites "To" value (Issue #78). Accepted forms:
+///   "host:port"               -> no scheme (null; caller keeps the route's),
+///                                 the docker-compose form — behavior unchanged
+///   "http(s)://host[:port]"   -> scheme returned separately; port defaults to
+///                                 443/80 when omitted (Render public URLs)
+/// Everything else (bare "https://", non-numeric port, empty host) is false —
+/// callers drop malformed entries rather than crash, matching the existing
+/// whitespace-filter convention.
+/// </summary>
+internal static class GatewayRewrites
+{
+    public static bool TryParseTarget(string? to, out string? scheme, out string host, out int port)
+    {
+        scheme = null;
+        host = "";
+        port = 0;
+        if (string.IsNullOrWhiteSpace(to))
+        {
+            return false;
+        }
+
+        var value = to.Trim();
+        if (value.StartsWith("http://", StringComparison.OrdinalIgnoreCase))
+        {
+            scheme = "http";
+            value = value["http://".Length..];
+        }
+        else if (value.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+        {
+            scheme = "https";
+            value = value["https://".Length..];
+        }
+
+        // Trailing slashes are stripped, so "https://host/" is tolerated; a
+        // remaining '/' at that point means a path/query snuck into a rewrite
+        // target — reject it.
+        value = value.TrimEnd('/');
+        if (value.Contains('/'))
+        {
+            return false;
+        }
+        if (value.Length == 0)
+        {
+            return false;
+        }
+
+        // IPv6 literals would need bracket handling; this stack never uses them
+        // (services are addressed by DNS name), so ':' > once is malformed.
+        var parts = value.Split(':', 2);
+        host = parts[0];
+        if (host.Length == 0)
+        {
+            return false;
+        }
+        if (parts.Length == 1)
+        {
+            // Scheme-qualified values may omit the port; bare ones may not,
+            // because "host" alone would collapse every service (see above).
+            port = scheme switch
+            {
+                "https" => 443,
+                "http" => 80,
+                _ => 0,
+            };
+            return port != 0;
+        }
+        return int.TryParse(parts[1], out port) && port is > 0 and <= 65535;
+    }
+}
+
+/// <summary>
 /// Where the gateway pings each service's /health. Mirrors the
 /// host:port authority table in ocelot.json and applies the same
-/// Gateway:Rewrites "host:port" -> "host:port" rewrite, so the probe list
-/// follows the route file into docker-compose addressing.
+/// Gateway:Rewrites rewrite (including Issue #78 scheme-qualified targets,
+/// whose scheme the probe follows), so the probe list tracks the route file
+/// into docker-compose or Render addressing.
 /// </summary>
 internal sealed class HcHealthCheckWriter
 {
@@ -198,8 +298,18 @@ internal sealed class HcHealthCheckWriter
             .ToDictionary(g => g.Key, g => g.First().To, StringComparer.OrdinalIgnoreCase);
         Upstreams = Services.Select(s =>
         {
-            var authority = rewrites.TryGetValue(s.Authority, out var r) ? r : s.Authority;
-            return (s.Service, $"http://{authority}/health");
+            // Unset or unparseable rewrites fall back to the dev
+            // "http://localhost:port" probe; the ocelot routes stay untouched
+            // either way. (Issue #78 note: before the shared parser, an
+            // unparseable bare-host To like "userservice" was probed verbatim
+            // here while routes ignored it — probing the dev authority now is
+            // the deliberate change.)
+            if (rewrites.TryGetValue(s.Authority, out var target)
+                && GatewayRewrites.TryParseTarget(target, out var scheme, out var host, out var port))
+            {
+                return (s.Service, $"http{(scheme == "https" ? "s" : "")}://{host}:{port}/health");
+            }
+            return (s.Service, $"http://{s.Authority}/health");
         }).ToList();
     }
 }

@@ -60,6 +60,15 @@ or env vars `Gateway__Rewrites__0__From=localhost:7001` +
 to every `DownstreamHostAndPorts` entry in the loaded file and to the
 gateway's own `/health` probe list.
 
+Since Issue #78 a `To` may also be **scheme-qualified** —
+`https://userservice.onrender.com` (bare host defaults to port 443; `http://`
+defaults to 80; an explicit `:port` wins). The scheme then also replaces the
+route's `DownstreamScheme`, which is how a Render deployment addresses
+services by their public https URLs when private networking isn't available.
+Unparseable values (paths, junk ports, empty host) are dropped with a startup
+warning and leave the route untouched — the gateway keeps serving on the
+un-rewritten address rather than crashing.
+
 Two shape constraints, learned the hard way in review: a **host-only** rewrite
 would collapse all six services onto one container name (every entry shares
 the host `localhost` and differs only by port), hence full authorities; and
