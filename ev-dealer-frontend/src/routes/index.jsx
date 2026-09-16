@@ -11,7 +11,8 @@ import MainLayout from "../layouts/MainLayout";
 import AuthLayout from "../layouts/AuthLayout";
 
 // Public Pages — lazy: LandingPage statically imports three.js + fiber + drei
-// (~500 kB); routing it lazily keeps that out of the initial chunk (Issue #71)
+// (~944 kB across the on-demand chunks, measured); routing it lazily keeps that
+// out of the initial chunk (Issue #71)
 const LandingPage = lazy(() => import("../pages/Landing/LandingPage"));
 
 const FullPageSpinner = () => (
