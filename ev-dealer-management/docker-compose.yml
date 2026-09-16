@@ -68,7 +68,7 @@ services:
       - EmailSettings__SmtpHost=smtp.gmail.com
       - EmailSettings__SmtpPort=587
       - EmailSettings__SmtpUser=bata79892@gmail.com
-      - EmailSettings__SmtpPassword=rgiksegnoxayweeo
+      - EmailSettings__SmtpPassword=${EMAIL_SMTP_PASSWORD}
       - EmailSettings__FromEmail=bata79892@gmail.com
       - EmailSettings__FromName=EV Dealer
       - EmailSettings__EnableSsl=true
