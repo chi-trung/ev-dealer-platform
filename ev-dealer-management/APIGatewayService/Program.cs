@@ -72,8 +72,19 @@ try
         options.AddPolicy("AllowFrontend",
             policy =>
             {
-                // Allow common dev ports used by Vite (5173, 5174, 5175)
-                policy.WithOrigins("http://localhost:5173", "http://localhost:5174", "http://localhost:5175")
+                // Allowed origins come from config as one comma-separated string
+                // (Cors__AllowedOrigins="https://a,https://b") so a deployed
+                // frontend (e.g. the Vercel app) can be permitted without a
+                // rebuild. Default keeps the Vite dev ports working unchanged.
+                // AllowCredentials below forbids a "*" origin, hence the list.
+                var defaultOrigins = new[]
+                {
+                    "http://localhost:5173", "http://localhost:5174", "http://localhost:5175",
+                };
+                var configured = (builder.Configuration["Cors:AllowedOrigins"] ?? "")
+                    .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                var origins = configured.Length > 0 ? configured : defaultOrigins;
+                policy.WithOrigins(origins)
                       .AllowAnyHeader()
                       .AllowAnyMethod()
                       .AllowCredentials();
