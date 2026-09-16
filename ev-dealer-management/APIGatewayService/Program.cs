@@ -37,26 +37,46 @@ try
     // "localhost", differing only by port) onto one container with ports nothing
     // listens on. Values are either a bare "host:port" (rewrite keeps the route's
     // own scheme — the docker-compose form) or scheme-qualified
-    // "https://host[:port]" (Issue #78: Render addresses services by public
-    // https URLs, and a scheme-only value defaults to port 443). Scheme-qualified
-    // To also rewrites the route's DownstreamScheme.
+    // "http(s)://host[:port]" (Issue #78: Render addresses services by public
+    // https URLs; the port may be omitted and defaults to the scheme's — 443
+    // for https, 80 for http). A scheme-qualified To also rewrites the route's
+    // DownstreamScheme. See GatewayRewrites for the exact grammar.
     var ocelotJson = JObject.Parse(File.ReadAllText(
         Path.Combine(builder.Environment.ContentRootPath, "ocelot.json")));
+    var warnedRewrites = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
     foreach (var route in ocelotJson["Routes"]?.Children() ?? Enumerable.Empty<JToken>())
     {
         foreach (var hp in route["DownstreamHostAndPorts"]?.Children() ?? Enumerable.Empty<JToken>())
         {
             var host = hp["Host"]?.Value<string>();
             var port = hp["Port"]?.Value<string>() ?? "";
-            if (host != null
-                && rewrites.TryGetValue($"{host}:{port}", out var replacement)
-                && GatewayRewrites.TryParseTarget(replacement, out var newScheme, out var newHost, out var newPort))
+            if (host == null)
             {
-                hp["Host"] = newHost;
-                hp["Port"] = newPort;
-                if (newScheme != null)
+                continue;
+            }
+            if (rewrites.TryGetValue($"{host}:{port}", out var replacement))
+            {
+                if (GatewayRewrites.TryParseTarget(replacement, out var newScheme, out var newHost, out var newPort))
                 {
-                    route["DownstreamScheme"] = newScheme;
+                    hp["Host"] = newHost;
+                    hp["Port"] = newPort;
+                    if (newScheme != null)
+                    {
+                        // Single-entry-per-route assumed (all 36 routes in
+                        // ocelot.json have exactly one DownstreamHostAndPorts
+                        // object); with two, the last scheme-qualified entry
+                        // would win route-wide.
+                        route["DownstreamScheme"] = newScheme;
+                    }
+                }
+                else
+                {
+                    // Many routes share one authority, so warn once per From.
+                    if (warnedRewrites.Add($"{host}:{port}"))
+                    {
+                        Log.Warning("Ignoring Gateway:Rewrites entry {From} -> {To}: unparseable target",
+                            $"{host}:{port}", replacement);
+                    }
                 }
             }
         }
@@ -211,8 +231,9 @@ internal static class GatewayRewrites
             value = value["https://".Length..];
         }
 
-        // A single trailing slash is tolerated ("https://host/"); any other '/'
-        // means a path/query snuck into a rewrite target — reject it.
+        // Trailing slashes are stripped, so "https://host/" is tolerated; a
+        // remaining '/' at that point means a path/query snuck into a rewrite
+        // target — reject it.
         value = value.TrimEnd('/');
         if (value.Contains('/'))
         {
@@ -277,8 +298,12 @@ internal sealed class HcHealthCheckWriter
             .ToDictionary(g => g.Key, g => g.First().To, StringComparer.OrdinalIgnoreCase);
         Upstreams = Services.Select(s =>
         {
-            // Unset/unparseable rewrites keep the dev "http://localhost:port"
-            // probe, exactly as before Issue #78.
+            // Unset or unparseable rewrites fall back to the dev
+            // "http://localhost:port" probe; the ocelot routes stay untouched
+            // either way. (Issue #78 note: before the shared parser, an
+            // unparseable bare-host To like "userservice" was probed verbatim
+            // here while routes ignored it — probing the dev authority now is
+            // the deliberate change.)
             if (rewrites.TryGetValue(s.Authority, out var target)
                 && GatewayRewrites.TryParseTarget(target, out var scheme, out var host, out var port))
             {

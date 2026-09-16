@@ -2,7 +2,8 @@ services:
   # --- API Gateway (Ocelot) -------------------------------------------------
   # Publishes 5036 so the Vite frontend's VITE_API_BASE_URL is unchanged.
   # Gateway:Rewrites maps the six ocelot.json "localhost:<devport>" authorities
-  # onto the in-network container addresses (see docs/GATEWAY.md).
+  # onto the in-network container addresses; a To may also be scheme-qualified
+  # "https://host" for public URLs (Issue #78, see docs/GATEWAY.md).
   apigateway:
     build: ./APIGatewayService
     image: evdealer/apigateway:local
