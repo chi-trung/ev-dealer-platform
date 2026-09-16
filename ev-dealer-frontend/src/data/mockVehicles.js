@@ -1,7 +1,14 @@
 /**
  * Mock Vehicle Data — fallback cho vehicleService.js khi API VehicleService
  * (:5068) không reachable (catch-block trong services/vehicleService.js).
+ * Issue #83: images are Vite-imported webps (hashed /assets/*, immune to the
+ * vercel.json SPA rewrite) — NOT "src/assets/..." literals, which resolve to
+ * /src/assets/* at runtime and serve index.html as the image on Vercel.
  */
+import car1Img from '../assets/img/car1.webp'
+import car2Img from '../assets/img/car2.webp'
+import car3Img from '../assets/img/car3.webp'
+import car4Img from '../assets/img/car4.webp'
 
 export const mockVehicles = [
   {
@@ -16,9 +23,9 @@ export const mockVehicles = [
     dealerId: "dealer1",
     dealerName: "Tesla Center HCMC",
     images: [
-      "src/assets/img/car1.png",
-      "src/assets/img/car2.png",
-      "src/assets/img/car3.png"
+      car1Img,
+      car2Img,
+      car3Img
     ],
     colorVariants: [
       { id: 1, name: "Trắng ngọc trai", hex: "#FFFFFF", stock: 5 },
@@ -48,9 +55,9 @@ export const mockVehicles = [
     dealerId: "dealer1",
     dealerName: "Tesla Center HCMC",
     images: [
-      "src/assets/img/car2.png",
-      "src/assets/img/car3.png",
-      "src/assets/img/car4.png"
+      car2Img,
+      car3Img,
+      car4Img
     ],
     colorVariants: [
       { id: 4, name: "Trắng ngọc trai", hex: "#FFFFFF", stock: 3 },
@@ -80,8 +87,8 @@ export const mockVehicles = [
     dealerId: "dealer2",
     dealerName: "BMW Center District 1",
     images: [
-      "src/assets/img/car3.png",
-      "src/assets/img/car4.png"
+      car3Img,
+      car4Img
     ],
     colorVariants: [
       { id: 7, name: "Trắng Alpine", hex: "#FFFFFF", stock: 2 },
@@ -111,8 +118,8 @@ export const mockVehicles = [
     dealerId: "dealer3",
     dealerName: "Audi Center District 2",
     images: [
-      "src/assets/img/car4.png",
-      "src/assets/img/car1.png"
+      car4Img,
+      car1Img
     ],
     colorVariants: [
       { id: 10, name: "Bạc Florett", hex: "#C0C0C0", stock: 1 },
@@ -142,8 +149,8 @@ export const mockVehicles = [
     dealerId: "dealer4",
     dealerName: "Mercedes-Benz Center District 3",
     images: [
-      "src/assets/img/car1.png",
-      "src/assets/img/car2.png"
+      car1Img,
+      car2Img
     ],
     colorVariants: [
       { id: 13, name: "Đen Obsidian", hex: "#000000", stock: 1 },
@@ -172,8 +179,8 @@ export const mockVehicles = [
     dealerId: "dealer2",
     dealerName: "BMW Center District 1",
     images: [
-      "src/assets/img/car2.png",
-      "src/assets/img/car3.png"
+      car2Img,
+      car3Img
     ],
     colorVariants: [
       { id: 15, name: "Trắng Snow", hex: "#FFFFFF", stock: 4 },
@@ -203,9 +210,9 @@ export const mockVehicles = [
     dealerId: "dealer3",
     dealerName: "Audi Center District 2",
     images: [
-      "src/assets/img/car4.png",
-      "src/assets/img/car1.png",
-      "src/assets/img/car2.png"
+      car4Img,
+      car1Img,
+      car2Img
     ],
     colorVariants: [
       { id: 18, name: "Trắng Star", hex: "#FFFFFF", stock: 5 },
@@ -235,8 +242,8 @@ export const mockVehicles = [
     dealerId: "dealer4",
     dealerName: "Mercedes-Benz Center District 3",
     images: [
-      "src/assets/img/car3.png",
-      "src/assets/img/car4.png"
+      car3Img,
+      car4Img
     ],
     colorVariants: [
       { id: 21, name: "Trắng Atlas", hex: "#FFFFFF", stock: 3 },
@@ -266,10 +273,10 @@ export const mockVehicles = [
     dealerId: "dealer1",
     dealerName: "Tesla Center HCMC",
     images: [
-      "src/assets/img/car1.png",
-      "src/assets/img/car2.png",
-      "src/assets/img/car3.png",
-      "src/assets/img/car4.png"
+      car1Img,
+      car2Img,
+      car3Img,
+      car4Img
     ],
     colorVariants: [
       { id: 24, name: "Trắng Snow White Pearl", hex: "#FFFFFF", stock: 4 },
@@ -299,8 +306,8 @@ export const mockVehicles = [
     dealerId: "dealer2",
     dealerName: "BMW Center District 1",
     images: [
-      "src/assets/img/car2.png",
-      "src/assets/img/car3.png"
+      car2Img,
+      car3Img
     ],
     colorVariants: [
       { id: 27, name: "Xám Moonstone", hex: "#9CA3AF", stock: 6 },
@@ -330,7 +337,7 @@ export const mockVehicles = [
     dealerId: "dealer3",
     dealerName: "Audi Center District 2",
     images: [
-      "src/assets/img/car4.png"
+      car4Img
     ],
     colorVariants: [
       { id: 30, name: "Trắng Pearl", hex: "#FFFFFF", stock: 7 },
@@ -360,9 +367,9 @@ export const mockVehicles = [
     dealerId: "dealer4",
     dealerName: "Mercedes-Benz Center District 3",
     images: [
-      "src/assets/img/car1.png",
-      "src/assets/img/car2.png",
-      "src/assets/img/car3.png"
+      car1Img,
+      car2Img,
+      car3Img
     ],
     colorVariants: [
       { id: 33, name: "Trắng Carrara", hex: "#FFFFFF", stock: 1 }

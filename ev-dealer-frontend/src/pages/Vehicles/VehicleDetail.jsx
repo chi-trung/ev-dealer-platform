@@ -67,7 +67,7 @@ import {
 } from '@mui/icons-material'
 
 import vehicleService from '../../services/vehicleService'
-import resolveImagePath from '../../utils/imageUtils'
+import resolveImagePath, { placeholderVehicleImage } from '../../utils/imageUtils'
 import NotificationToast from '../../components/Notification/NotificationToast'
 import ReservationDialog from '../../components/vehicles/ReservationDialog'
 
@@ -107,22 +107,9 @@ const VehicleDetail = () => {
     setNotification({ ...notification, open: false })
   }
 
-  const generatePlaceholderDataUrl = (text, width = 1200, height = 700) => {
-    const bg = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
-    const fg = '#ffffff'
-    const svg = `
-      <svg xmlns='http://www.w3.org/2000/svg' width='${width}' height='${height}' viewBox='0 0 ${width} ${height}'>
-        <defs>
-          <linearGradient id="gradient" x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" style="stop-color:#667eea;stop-opacity:1" />
-            <stop offset="100%" style="stop-color:#764ba2;stop-opacity:1" />
-          </linearGradient>
-        </defs>
-        <rect width='100%' height='100%' fill='url(#gradient)' />
-        <text x='50%' y='50%' dominant-baseline='middle' text-anchor='middle' fill='${fg}' font-family='Arial, Helvetica, sans-serif' font-size='36' font-weight='600'>${text}</text>
-      </svg>`
-    return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`
-  }
+  // Issue #83: shared helper in utils/imageUtils (was a local duplicate here)
+  const generatePlaceholderDataUrl = (text, width = 1200, height = 700) =>
+    placeholderVehicleImage(text, width, height)
 
   const getImageSrc = (index) => {
     if (vehicle?.images && vehicle.images[index] && !failedImages.has(index)) return resolveImagePath(vehicle.images[index])

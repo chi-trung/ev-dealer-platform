@@ -54,6 +54,7 @@ import {
 } from '@mui/icons-material'
 
 import vehicleService from '../../services/vehicleService'
+import resolveImagePath from '../../utils/imageUtils'
 
 const VehicleForm = () => {
   const navigate = useNavigate()
@@ -141,7 +142,7 @@ const VehicleForm = () => {
         image: null
       })
       if (vehicle.images && vehicle.images[0]) {
-        setImagePreview(vehicle.images[0])
+        setImagePreview(resolveImagePath(vehicle.images[0]))
       }
     } catch (err) {
       setError(err.message || 'Không thể tải thông tin xe')
