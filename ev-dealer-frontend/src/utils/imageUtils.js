@@ -1,6 +1,17 @@
+import car1Img from '../assets/img/car1.webp'
+import car2Img from '../assets/img/car2.webp'
+import car3Img from '../assets/img/car3.webp'
+import car4Img from '../assets/img/car4.webp'
+
 /**
  * Small helper to normalize image paths used across the app.
- * - Absolute URLs (http(s)) plus data: and blob: URLs are returned as-is.
+ * - Absolute URLs (http(s), protocol-relative //) plus data: and blob:
+ *   URLs are returned as-is.
+ * - Legacy pre-#83 values ("src/assets/img/carN.png",
+ *   "/src/assets/img/carN.png", stale dev-resolved
+ *   "/src/assets/img/carN.webp") are mapped to the Vite-imported webps:
+ *   the .png sources are deleted and production builds never serve /src/*,
+ *   so returning those strings would serve index.html as the image on Vercel.
  * - Vite frontend files (/assets/* build output, /src/* dev source) stay
  *   same-origin — NEVER prefixed with the API origin. (Issue #83: the
  *   vercel.json SPA rewrite only bypasses /assets/*; anything else that is
@@ -10,17 +21,54 @@
  *   with the API origin (VITE_API_BASE_URL minus trailing /api).
  * - Bare relative paths fall back to '/'-prefixed same-origin URLs.
  */
+const LEGACY_CAR_IMAGE_MAP = {
+  'car1.png': car1Img,
+  'car2.png': car2Img,
+  'car3.png': car3Img,
+  'car4.png': car4Img,
+  'car1.webp': car1Img,
+  'car2.webp': car2Img,
+  'car3.webp': car3Img,
+  'car4.webp': car4Img,
+}
+
+function basenameOf(p) {
+  const clean = String(p).split('?')[0].split('#')[0]
+  const segments = clean.split('/')
+  return segments[segments.length - 1].toLowerCase()
+}
+
+// Resolve a stale pre-#83 car-image reference to its bundled webp, or null.
+// Strictly gated on frontend-source shapes so a same-named backend upload
+// (e.g. /images/<guid>_car1.png) is never hijacked: only "src/assets/..."
+// literals (bare or /-prefixed, incl. dev-resolved .webp) ever meant a
+// frontend file; the deleted .png filenames alone are not enough signal.
+function legacyCarImage(p) {
+  const base = basenameOf(p)
+  const mapped = LEGACY_CAR_IMAGE_MAP[base]
+  if (!mapped) return null
+  if (/(^|\/)src\/assets\//.test(p)) return mapped
+  if (!p.includes('/')) return mapped // bare "car1.png" literal
+  return null
+}
+
 export function resolveImagePath(path) {
   if (!path) return path
   const p = String(path)
 
-  // Already absolute, inline data, or an upload preview — return as-is
+  // Already absolute, protocol-relative, inline data, or an upload
+  // preview — return as-is
   if (
     p.startsWith('http://') ||
     p.startsWith('https://') ||
+    p.startsWith('//') ||
     p.startsWith('data:') ||
     p.startsWith('blob:')
   ) return p
+
+  // Stale pre-#83 references (old DB rows, caches) → bundled webp
+  const legacy = legacyCarImage(p)
+  if (legacy) return legacy
 
   // Frontend-served files stay same-origin (Issue #83)
   if (p.startsWith('/assets/') || p.startsWith('/src/')) return p
