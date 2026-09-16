@@ -2,14 +2,31 @@
  * Route Configuration — toàn bộ route của app khai báo trong <AppRoutes /> bên dưới.
  */
 
+import { lazy, Suspense } from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
+import { Box, CircularProgress } from "@mui/material";
 
 // Layouts
 import MainLayout from "../layouts/MainLayout";
 import AuthLayout from "../layouts/AuthLayout";
 
-// Public Pages
-import LandingPage from "../pages/Landing/LandingPage";
+// Public Pages — lazy: LandingPage statically imports three.js + fiber + drei
+// (~944 kB across the on-demand chunks, measured); routing it lazily keeps that
+// out of the initial chunk (Issue #71)
+const LandingPage = lazy(() => import("../pages/Landing/LandingPage"));
+
+const FullPageSpinner = () => (
+  <Box
+    sx={{
+      height: "100vh",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+    }}
+  >
+    <CircularProgress />
+  </Box>
+);
 
 // Auth Pages
 import Login from "../pages/Auth/Login";
@@ -59,9 +76,23 @@ import ProtectedRoute from "../components/common/ProtectedRoute";
 const AppRoutes = () => {
   return (
     <Routes>
-      {/* Public Routes */}
-      <Route path="/" element={<LandingPage />} />
-      <Route path="/landing" element={<LandingPage />} />
+      {/* Public Routes (LandingPage lazy-chunked — Issue #71) */}
+      <Route
+        path="/"
+        element={
+          <Suspense fallback={<FullPageSpinner />}>
+            <LandingPage />
+          </Suspense>
+        }
+      />
+      <Route
+        path="/landing"
+        element={
+          <Suspense fallback={<FullPageSpinner />}>
+            <LandingPage />
+          </Suspense>
+        }
+      />
 
       {/* Auth Routes */}
       <Route element={<AuthLayout />}>

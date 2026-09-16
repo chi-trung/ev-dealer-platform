@@ -71,8 +71,8 @@ import resolveImagePath from '../../utils/imageUtils'
 import NotificationToast from '../../components/Notification/NotificationToast'
 import ReservationDialog from '../../components/vehicles/ReservationDialog'
 
-// Lazy: keeps Car3D in its own build chunk (Issue #69). Note: three.js itself
-// is already in the initial bundle via LandingPage's eager import.
+// Lazy: keeps Car3D in its own build chunk (Issue #69). three.js is no longer
+// in the initial bundle either — LandingPage became lazy-routed in Issue #71.
 const Car3D = lazy(() => import('../../components/Car3D'))
 
 const VehicleDetail = () => {
