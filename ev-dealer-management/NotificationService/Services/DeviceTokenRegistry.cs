@@ -222,8 +222,9 @@ public class DeviceTokenRegistry : IDeviceTokenRegistry
             && typeName.StartsWith("Npgsql.", StringComparison.Ordinal))
         {
             var state = inner.GetType().GetProperty("SqlState")?.GetValue(inner) as string;
-            if (state is "23505") return true;
-            // Fall back on the message, which every Postgres dialect carries.
+            if (!string.IsNullOrEmpty(state)) return state == "23505";
+            // Best-effort English-only fallback when SQLSTATE is absent.
+            // PostgreSQL localizes messages; a populated SQLSTATE wins.
             var msg = inner.Message ?? string.Empty;
             return msg.Contains("duplicate key value violates unique constraint", StringComparison.Ordinal);
         }

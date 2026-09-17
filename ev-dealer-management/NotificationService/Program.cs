@@ -122,10 +122,9 @@ try
         // file from before Issue #51 has DeviceTokens only — the second table
         // ships as explicit IF NOT EXISTS DDL matching the EF mapping.
         // Idempotent on fresh databases (EnsureCreated already made it) and on
-        // existing ones. The PK syntax is the one provider-specific part:
-        // AUTOINCREMENT is SQLite-only, so branch on the active provider
-        // (Issue #91). The Postgres form is what the model itself emits via
-        // GenerateCreateScript, so the two never drift.
+        // existing ones. Identity, boolean and timestamp types differ by
+        // provider (Issue #91). Keep this manual DDL aligned with the model's
+        // GenerateCreateScript output, including UTC timestamp storage.
         var isSqlite = db.Database.ProviderName!.EndsWith("Sqlite", StringComparison.Ordinal);
         var prefsTable = isSqlite
             ? """
@@ -156,7 +155,7 @@ try
                 "Payments" boolean NOT NULL DEFAULT false,
                 "SystemAlerts" boolean NOT NULL DEFAULT false,
                 "Promotions" boolean NOT NULL DEFAULT false,
-                "UpdatedAt" timestamp without time zone NOT NULL
+                "UpdatedAt" timestamp with time zone NOT NULL
             );
             """;
         db.Database.ExecuteSqlRaw(prefsTable);

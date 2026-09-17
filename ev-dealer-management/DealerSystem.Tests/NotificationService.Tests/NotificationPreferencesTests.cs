@@ -192,15 +192,27 @@ public class NotificationPreferencesTests : IDisposable
     [Fact]
     public void RaceDetection_PostgresMessageFallback_IsAbsorbed()
     {
-        // If Npgsql ever surfaces the violation without the SqlState property
-        // populated (older driver, or a wrapped exception), the message-based
-        // fallback is what keeps the contract. It is provider vocabulary
-        // ("duplicate key value violates unique constraint"), not a locale
-        // string — Postgres messages are not localized server-side.
+        // Compatibility fallback for a missing SQLSTATE and English message.
+        // Real PostgreSQL messages can be localized; SQLSTATE is authoritative.
         var inner = SimulatedPostgresException("duplicate key value violates unique constraint \"IX_NotificationPreferences_Key\"", sqlState: null);
         var ex = new DbUpdateException("An error occurred while saving.", inner);
 
         Assert.True(Registry.IsUniqueViolationForStore(ex));
+    }
+
+    [Fact]
+    public void RaceDetection_RealPostgresLocalizedMessage_UsesSqlState()
+    {
+        var inner = new Npgsql.PostgresException("valeur dupliquée", "ERROR", "ERROR", "23505");
+        Assert.True(Registry.IsUniqueViolationForStore(new DbUpdateException("save failed", inner)));
+    }
+
+    [Fact]
+    public void RaceDetection_RealPostgresOtherState_OverridesMessage()
+    {
+        var inner = new Npgsql.PostgresException(
+            "duplicate key value violates unique constraint", "ERROR", "ERROR", "23503");
+        Assert.False(Registry.IsUniqueViolationForStore(new DbUpdateException("save failed", inner)));
     }
 
     [Fact]
