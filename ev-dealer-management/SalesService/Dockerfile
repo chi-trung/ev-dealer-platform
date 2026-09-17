@@ -40,7 +40,11 @@ RUN apt-get update \
 
 COPY --from=publish /app/publish .
 
-# Add health check
+# Health check. SalesService actually maps BOTH /health (MapHealthChecks at
+# Program.cs:129, the one the gateway's aggregate probe hits) and
+# /api/orders/health (OrdersController's [Route("api/[controller]")] +
+# [HttpGet("health")], an anonymous 200) — either answers 200 to curl -f.
+# /health is the canonical one the gateway polls and the other six use.
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
   CMD curl -f http://localhost:80/health || exit 1
 
