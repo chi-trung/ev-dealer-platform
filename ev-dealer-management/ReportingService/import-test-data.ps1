@@ -13,7 +13,7 @@ try {
     Write-Host "✓ Service đang chạy tại $baseUrl" -ForegroundColor Green
 } catch {
     Write-Host "✗ Lỗi: Service không chạy hoặc không thể kết nối!" -ForegroundColor Red
-    Write-Host "   Hãy chạy: cd ReportingService ; `$env:USE_SQLITE = 'true' ; dotnet run" -ForegroundColor Yellow
+    Write-Host "   Hãy chạy: cd ReportingService ; dotnet run   # SQLite là mặc định" -ForegroundColor Yellow
     exit 1
 }
 

@@ -1,4 +1,5 @@
 using Serilog;
+using Common.Data;
 using System.Text;
 using System.Text.Json;
 using System.Linq;
@@ -69,53 +70,25 @@ try
         });
     });
     
-    // DbContext: prefer PostgreSQL from configuration, but fallback to SQLite for local testing
-    var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
-    bool useSqlite = false;
-    
-    // Allow explicit override via environment variable USE_SQLITE=true
-    var envUseSqlite = Environment.GetEnvironmentVariable("USE_SQLITE");
-    if (!string.IsNullOrEmpty(envUseSqlite) && envUseSqlite.Trim().ToLowerInvariant() == "true")
-    {
-        useSqlite = true;
-    }
-    else
-    {
-        // Try to detect whether Postgres is reachable. If not, fall back to SQLite.
-        try
-        {
-            // Try opening a short-lived Npgsql connection to validate connectivity
-            using var conn = new Npgsql.NpgsqlConnection(connectionString);
-            conn.Open();
-            conn.Close();
-        }
-        catch
-        {
-            useSqlite = true;
-            Console.Error.WriteLine("Info: Postgres not reachable, falling back to SQLite for local testing. Set USE_SQLITE=false to require Postgres.");
-        }
-    }
-    
-    if (useSqlite)
-    {
-        // Use a local file-based SQLite DB for quick local testing. REPORTING_DB_PATH
-        // relocates it (docker-compose points it at the /app/data volume — without
-        // this the file sits in the container layer and report rows reset on every
-        // recreate). Unset = old behavior: AppContext.BaseDirectory/reporting_dev.db.
-        var sqlitePath = Environment.GetEnvironmentVariable("REPORTING_DB_PATH");
-        if (string.IsNullOrWhiteSpace(sqlitePath))
-            sqlitePath = Path.Combine(AppContext.BaseDirectory, "reporting_dev.db");
-        Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(sqlitePath))!);
-        var sqliteConn = $"Data Source={sqlitePath}";
-        builder.Services.AddDbContext<ReportingDbContext>(options =>
-            options.UseSqlite(sqliteConn));
-    }
-    else
-    {
-        builder.Services.AddDbContext<ReportingDbContext>(options =>
-            options.UseNpgsql(connectionString));
-    }
-    
+    // Issue #89: provider switch centralised in Common.DbProviderSelector —
+    // the same switch the other five services use. This replaces the previous
+    // bespoke USE_SQLITE + probe-and-fall-back-to-SQLite block, which was the
+    // exact pattern the shared helper was written to avoid: a Postgres
+    // instance that is merely down at boot made the service silently serve
+    // SQLite instead, and every report row written to the container layer was
+    // lost on the next recreate.
+    //
+    // The SQLite fallback still honours REPORTING_DB_PATH (compose points it
+    // at the /app/data volume) so existing local and compose behaviour is
+    // unchanged on the default DB_PROVIDER=sqlite.
+    var sqlitePath = Environment.GetEnvironmentVariable("REPORTING_DB_PATH");
+    if (string.IsNullOrWhiteSpace(sqlitePath))
+        sqlitePath = Path.Combine(AppContext.BaseDirectory, "reporting_dev.db");
+    Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(sqlitePath))!);
+    builder.Services.AddApplicationDbContext<ReportingDbContext>(
+        builder.Configuration,
+        sqliteFallback: $"Data Source={sqlitePath}");
+
     var app = builder.Build();
     
     // Configure the HTTP request pipeline.
@@ -999,7 +972,12 @@ try
 }
 catch (Exception ex)
 {
+    // Rethrow: AddApplicationDbContext's hard-fail (bad/missing DB config) must
+    // kill the process with a non-zero exit, not be swallowed here into a
+    // Fatal log line and an exit code of 0 — a restart-loop health gate would
+    // see nothing actionable. See Common/DbProviderSelector.cs (issue #89).
     Log.Fatal(ex, "ReportingService failed to start");
+    throw;
 }
 finally
 {

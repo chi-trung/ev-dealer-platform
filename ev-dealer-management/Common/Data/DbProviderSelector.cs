@@ -48,6 +48,11 @@ public static class DbProviderSelector
                           .ToLowerInvariant();
         var connectionString = configuration.GetConnectionString(connectionStringName);
 
+        // Unknown values do NOT fall through to SQLite. The whole point of this
+        // helper (see the class comment) is that a misconfigured service must
+        // fail loudly instead of quietly booting on SQLite and losing data on
+        // the next redeploy — a typo like "postgre" or a future "sqlserver"
+        // taking a silent SQLite path would be exactly that failure mode.
         switch (provider)
         {
             case "postgres":
@@ -66,7 +71,6 @@ public static class DbProviderSelector
                 break;
 
             case "sqlite":
-            default:
                 if (string.IsNullOrWhiteSpace(connectionString))
                     connectionString = sqliteFallback;
                 if (string.IsNullOrWhiteSpace(connectionString))
@@ -79,6 +83,11 @@ public static class DbProviderSelector
                     configureOptions?.Invoke(options);
                 });
                 break;
+
+            default:
+                throw new InvalidOperationException(
+                    $"DB_PROVIDER='{provider}' is not a supported value. " +
+                    "Use 'sqlite' (default) or 'postgres'.");
         }
     }
 }

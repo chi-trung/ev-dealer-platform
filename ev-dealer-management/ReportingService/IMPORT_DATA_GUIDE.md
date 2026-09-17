@@ -10,7 +10,7 @@ Hướng dẫn này giúp bạn **import dữ liệu đa dạng** vào Reporting
 
 ```powershell
 cd D:\gitclone\ev-dealer-management\ev-dealer-management\ReportingService
-$env:USE_SQLITE = "true"
+# SQLite là mặc định (DB_PROVIDER=sqlite) — không cần set gì thêm
 dotnet run
 ```
 
@@ -330,7 +330,7 @@ Write-Host "Stock:  $inventorySuccess thành công, $inventoryFailed lỗi"
 | Lỗi                       | Nguyên nhân              | Cách khắc phục                                                     |
 | ------------------------- | ------------------------ | ------------------------------------------------------------------ |
 | 400 Bad Request           | Body JSON không đúng     | Kiểm tra JSON format, các field bắt buộc (dealerName, vehicleName) |
-| 500 Internal Server Error | Database không reachable | Chạy với SQLite: `$env:USE_SQLITE = "true"`                        |
+| 500 Internal Server Error | Database không reachable | Chạy với SQLite: mặc định, chỉ cần `dotnet run`                        |
 | Connection Refused        | Service không chạy       | Khởi động lại: `dotnet run`                                        |
 | 404 Not Found             | Endpoint sai URL         | Kiểm tra lại URL (http vs https, port 5208)                        |
 

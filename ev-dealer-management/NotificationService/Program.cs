@@ -177,7 +177,12 @@ try
 }
 catch (Exception ex)
 {
+    // Rethrow: AddApplicationDbContext's hard-fail (bad/missing DB config) must
+    // kill the process with a non-zero exit, not be swallowed here into a
+    // Fatal log line and an exit code of 0 — a restart-loop health gate would
+    // see nothing actionable. See Common/DbProviderSelector.cs (issue #89).
     Log.Fatal(ex, "NotificationService failed to start");
+    throw;
 }
 finally
 {

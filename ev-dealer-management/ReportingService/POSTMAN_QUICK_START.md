@@ -9,10 +9,10 @@ cd ReportingService
 dotnet run
 ```
 
-> Nếu bạn không có PostgreSQL chạy cục bộ (hoặc migrations báo lỗi kết nối), bạn có thể chạy app trên SQLite để test nhanh bằng cách set biến môi trường `USE_SQLITE=true` trước khi chạy:
+> Nếu bạn không có PostgreSQL chạy cục bộ (hoặc migrations báo lỗi kết nối), bạn có thể chạy app trên SQLite để test nhanh — SQLite là provider mặc định, chỉ cần `dotnet run`:
 
 ```powershell
-$env:USE_SQLITE = "true"
+# SQLite là mặc định (DB_PROVIDER=sqlite) — không cần set gì thêm
 dotnet run
 ```
 

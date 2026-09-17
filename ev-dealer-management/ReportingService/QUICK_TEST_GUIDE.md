@@ -10,7 +10,7 @@ Mở PowerShell và chạy:
 
 ```powershell
 cd D:\gitclone\ev-dealer-management\ev-dealer-management\ReportingService
-$env:USE_SQLITE = "true"
+# SQLite là mặc định (DB_PROVIDER=sqlite) — không cần set gì thêm
 dotnet run
 ```
 
