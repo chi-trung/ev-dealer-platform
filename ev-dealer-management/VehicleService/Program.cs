@@ -78,13 +78,10 @@ try
 }
 catch (Exception ex)
 {
-    // Rethrow: AddApplicationDbContext's hard-fail (bad/missing DB config, or
-    // an unreachable postgres) must kill the process with a non-zero exit, not
-    // be swallowed here into a Fatal log line and exit code 0 — to a restart
-    // loop's health gate that is indistinguishable from a clean shutdown, so
-    // the misconfiguration is invisible and the service never comes up.
-    // See Common/DbProviderSelector.cs (issue #89). The other five services
-    // already rethrow; this one was missed when #89's fix landed (issue #93).
+    // Report startup failure with a non-zero process status, not just a log.
+    // Docker's unless-stopped policy may restart either exit status; this
+    // preserves the failure signal for callers and exit-code-based policies.
+    // The finally block still flushes Serilog before the exception escapes.
     Log.Fatal(ex, "VehicleService failed to start");
     throw;
 }
