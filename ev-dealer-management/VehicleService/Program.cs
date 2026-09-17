@@ -78,7 +78,12 @@ try
 }
 catch (Exception ex)
 {
+    // Report startup failure with a non-zero process status, not just a log.
+    // Docker's unless-stopped policy may restart either exit status; this
+    // preserves the failure signal for callers and exit-code-based policies.
+    // The finally block still flushes Serilog before the exception escapes.
     Log.Fatal(ex, "VehicleService failed to start");
+    throw;
 }
 finally
 {
