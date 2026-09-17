@@ -1,4 +1,5 @@
 using Serilog;
+using Common.Data;
 using Microsoft.EntityFrameworkCore;
 using VehicleService.Data;
 using VehicleService.Services;
@@ -26,8 +27,10 @@ try
     
     builder.Services.AddControllers();
     
-    builder.Services.AddDbContext<ApplicationDbContext>(options =>
-        options.UseSqlite(builder.Configuration.GetConnectionString("DefaultConnection")));
+    // Issue #89: provider switch centralised in Common.DbProviderSelector.
+    builder.Services.AddApplicationDbContext<ApplicationDbContext>(
+        builder.Configuration,
+        sqliteFallback: "Data Source=vehicles.db");
     
     builder.Services.AddScoped<IVehicleService, VehicleService.Services.VehicleService>();
     

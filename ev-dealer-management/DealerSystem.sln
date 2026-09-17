@@ -21,6 +21,8 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "DealerSystem.Tests", "Deale
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NotificationService.Tests", "DealerSystem.Tests\NotificationService.Tests\NotificationService.Tests.csproj", "{48164537-74CA-459F-92D4-BB9235F6F471}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Common", "Common\Common.csproj", "{7D488D36-F982-488C-9DD0-8247280CF3C7}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -62,6 +64,10 @@ Global
 		{48164537-74CA-459F-92D4-BB9235F6F471}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{48164537-74CA-459F-92D4-BB9235F6F471}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{48164537-74CA-459F-92D4-BB9235F6F471}.Release|Any CPU.Build.0 = Release|Any CPU
+		{7D488D36-F982-488C-9DD0-8247280CF3C7}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{7D488D36-F982-488C-9DD0-8247280CF3C7}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{7D488D36-F982-488C-9DD0-8247280CF3C7}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{7D488D36-F982-488C-9DD0-8247280CF3C7}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
 		{48164537-74CA-459F-92D4-BB9235F6F471} = {EDE10811-5C2C-49EE-87FA-90E0FF5ADC1A}

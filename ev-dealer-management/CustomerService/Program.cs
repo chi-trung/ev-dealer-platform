@@ -1,4 +1,5 @@
 using Serilog;
+using Common.Data;
 using System.Text;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -71,11 +72,12 @@ try
     // relocate the DB onto the /app/data volume; with none set, behavior is
     // unchanged from before (ContentRootPath/customers.db, i.e. the project dir
     // under `dotnet run`).
-    var dbConn = builder.Configuration.GetConnectionString("DefaultConnection");
-    if (string.IsNullOrWhiteSpace(dbConn))
-        dbConn = $"Data Source={Path.Combine(builder.Environment.ContentRootPath, "customers.db")}";
-    builder.Services.AddDbContext<CustomerService.Data.CustomerDbContext>(options =>
-        options.UseSqlite(dbConn));
+    // Issue #89: provider switch centralised in Common.DbProviderSelector.
+    // The fallback keeps the pre-existing absolute ContentRootPath/customers.db
+    // path (not just "customers.db") so `dotnet run` behaviour is unchanged.
+    builder.Services.AddApplicationDbContext<CustomerService.Data.CustomerDbContext>(
+        builder.Configuration,
+        sqliteFallback: $"Data Source={Path.Combine(builder.Environment.ContentRootPath, "customers.db")}");
     
     // Register Custom Services
     builder.Services.AddScoped<CustomerService.Services.ICustomerService, CustomerService.Services.CustomerService>();

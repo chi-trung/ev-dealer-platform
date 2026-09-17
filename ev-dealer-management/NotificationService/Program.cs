@@ -1,4 +1,5 @@
 using Serilog;
+using Common.Data;
 using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
@@ -33,11 +34,12 @@ try
     // Same connection-string convention as the other services — config /
     // ConnectionStrings__DefaultConnection wins so docker-compose can relocate
     // it onto a mounted volume; otherwise the file sits in ContentRootPath.
-    var dbConn = builder.Configuration.GetConnectionString("DefaultConnection");
-    if (string.IsNullOrWhiteSpace(dbConn))
-        dbConn = $"Data Source={Path.Combine(builder.Environment.ContentRootPath, "notifications.db")}";
-    builder.Services.AddDbContext<NotificationService.Data.NotificationDbContext>(options =>
-        options.UseSqlite(dbConn));
+    // Issue #89: provider switch centralised in Common.DbProviderSelector.
+    // Same connection-string convention as before: config wins, else the
+    // ContentRootPath/notifications.db fallback.
+    builder.Services.AddApplicationDbContext<NotificationService.Data.NotificationDbContext>(
+        builder.Configuration,
+        sqliteFallback: $"Data Source={Path.Combine(builder.Environment.ContentRootPath, "notifications.db")}");
     builder.Services.AddScoped<IDeviceTokenRegistry, DeviceTokenRegistry>();
     builder.Services.AddScoped<INotificationPreferencesStore, NotificationPreferencesStore>();
     // Issue #56: the read-side of preferences — turns #51's stored documents

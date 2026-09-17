@@ -1,4 +1,5 @@
 using Serilog;
+using Common.Data;
 using SalesService.Data;
 using SalesService.Services;
 using Microsoft.EntityFrameworkCore;
@@ -59,11 +60,16 @@ try
     builder.Services.AddSwaggerGen();
     builder.Services.AddHealthChecks();
     
-    // Configure DbContext
-    builder.Services.AddDbContext<SalesDbContext>(options =>
-        options.UseSqlite(builder.Configuration.GetConnectionString("DefaultConnection"))
-               .LogTo(Console.WriteLine, LogLevel.Information)
-               .EnableSensitiveDataLogging());
+    // Issue #89: provider switch centralised in Common.DbProviderSelector.
+    // The .LogTo/.EnableSensitiveDataLogging that was chained onto UseSqlite
+    // here is provider-neutral, so it goes in the callback and survives the
+    // switch to UseNpgsql.
+    builder.Services.AddApplicationDbContext<SalesDbContext>(
+        builder.Configuration,
+        sqliteFallback: "Data Source=sales.db",
+        configureOptions: options => options
+            .LogTo(Console.WriteLine, LogLevel.Information)
+            .EnableSensitiveDataLogging());
     
     // Register RabbitMQ Message Publisher
     builder.Services.AddSingleton<IMessagePublisher, RabbitMQMessagePublisher>();
