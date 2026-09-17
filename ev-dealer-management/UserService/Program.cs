@@ -1,4 +1,5 @@
 using Serilog;
+using Common.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using System.Text.Json.Serialization;
@@ -48,9 +49,12 @@ try
         });
     });
     
-    // DbContext - using SQLite for simplicity
-    builder.Services.AddDbContext<UserDbContext>(options =>
-        options.UseSqlite(builder.Configuration.GetConnectionString("DefaultConnection") ?? "Data Source=users.db"));
+    // Issue #89: provider switch is centralised in Common.DbProviderSelector
+    // (DB_PROVIDER=postgres → UseNpgsql, unset/sqlite → UseSqlite, exactly the
+    // connection-string behaviour this line had before).
+    builder.Services.AddApplicationDbContext<UserDbContext>(
+        builder.Configuration,
+        sqliteFallback: "Data Source=users.db");
     
     // Authentication - JWT
     var jwtSection = builder.Configuration.GetSection("Jwt");
@@ -246,7 +250,12 @@ try
 }
 catch (Exception ex)
 {
+    // Rethrow: AddApplicationDbContext's hard-fail (bad/missing DB config) must
+    // kill the process with a non-zero exit, not be swallowed here into a
+    // Fatal log line and an exit code of 0 — a restart-loop health gate would
+    // see nothing actionable. See Common/DbProviderSelector.cs (issue #89).
     Log.Fatal(ex, "UserService failed to start");
+    throw;
 }
 finally
 {

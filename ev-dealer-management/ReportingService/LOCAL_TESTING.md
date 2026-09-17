@@ -32,16 +32,17 @@ dotnet run
 
 Chờ log xuất hiện: `Now listening on: http://localhost:5208` và `Application started. Press Ctrl+C to shut down.`
 
-### Chạy với SQLite (fallback) — nhanh để test nếu bạn không có PostgreSQL
+### Chạy với SQLite — nhanh để test nếu bạn không có PostgreSQL
 
-Bạn có thể bắt buộc app dùng SQLite (file local) bằng cách set biến môi trường `USE_SQLITE=true` trước khi chạy:
+SQLite là provider mặc định (không cần Postgres). Chỉ cần chạy:
 
 ```powershell
 cd D:\gitclone\ev-dealer-management\ev-dealer-management\ReportingService
-$env:USE_SQLITE = "true"
 dotnet run
 ```
 
+Provider được chọn bởi biến môi trường `DB_PROVIDER` (`sqlite` là mặc định, `postgres` để dùng
+PostgreSQL — cùng switch cho tất cả 6 service, xem `Common/Data/DbProviderSelector.cs`).
 Lưu ý: file SQLite `reporting_dev.db` sẽ được tạo trong thư mục chạy app (AppContext.BaseDirectory).
 
 ## 4) Kiểm tra port / tiến trình
@@ -103,7 +104,7 @@ $body = @'
 Invoke-RestMethod -Uri "http://localhost:5208/api/reports/sales-summary" -Method Post -Body $body -ContentType "application/json" | ConvertTo-Json
 ```
 
-Nếu bạn chạy server với `USE_SQLITE=true`, POST sẽ lưu vào file SQLite.
+Nếu bạn chạy server với SQLite (mặc định), POST sẽ lưu vào file SQLite.
 
 ## 7) Chạy PostgreSQL nhanh bằng Docker (nếu muốn dùng Postgres thật)
 
@@ -136,7 +137,7 @@ docker compose -f docker-compose.postgres.yml up -d
 docker ps
 ```
 
-Sau khi Postgres sẵn sàng, chạy lại app (không set USE_SQLITE) và migrations sẽ được áp dụng lên Postgres.
+Sau khi Postgres sẵn sàng, chạy lại app với `$env:DB_PROVIDER = "postgres"` (set ConnectionStrings:DefaultConnection trỏ tới Postgres) và migrations sẽ được áp dụng lên Postgres.
 
 ## 8) Thay đổi port tạm thời
 

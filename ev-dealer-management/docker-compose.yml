@@ -174,10 +174,12 @@ services:
       - ev-dealer-network
 
   # --- ReportingService (NEW; HTTP fan-out, no broker, no JWT) --------------
-  # USE_SQLITE=true on purpose: the only migration in Migrations/ is
-  # SQLite-flavoured DDL and would fail into a swallowed catch against
-  # Postgres (boot schema-less). REPORTING_DB_PATH lands the SQLite file on
-  # the volume instead of the container layer (see Program.cs change).
+  # DB_PROVIDER unset = sqlite, same switch the other five services use
+  # (#89). The stale claim that this service's only migration is
+  # SQLite-only DDL was checked: it is plain TEXT/INTEGER store types +
+  # Sqlite:Autoincrement annotations, both of which Npgsql accepts / ignores
+  # exactly as the other services' migrations do. REPORTING_DB_PATH lands the
+  # SQLite file on the volume instead of the container layer (see Program.cs).
   reportingservice:
     build: ./ReportingService
     image: evdealer/reportingservice:local
@@ -190,7 +192,7 @@ services:
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
       - ASPNETCORE_URLS=http://+:80
-      - USE_SQLITE=true
+      - DB_PROVIDER=sqlite
       - REPORTING_DB_PATH=/app/data/reporting_dev.db
       - Services__SalesService=http://salesservice:80
       - Services__VehicleService=http://vehicleservice:8080

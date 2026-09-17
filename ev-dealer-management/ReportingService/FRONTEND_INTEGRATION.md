@@ -638,7 +638,7 @@ Nếu dùng port khác, kiểm tra `.env` hoặc console output.
 | CORS Error           | Frontend không được phép gọi API | Kiểm tra CORS config trong `Program.cs` (line ~27)                   |
 | "Cannot find module" | Import path sai                  | Kiểm tra file path: `src/services/reportService.js`                  |
 | Không có dữ liệu     | API không trả data               | Kiểm tra ReportingService đang chạy + import data qua Postman        |
-| Kết nối bị từ chối   | API không chạy                   | `$env:USE_SQLITE = "true"; dotnet run` trong ReportingService folder |
+| Kết nối bị từ chối   | API không chạy                   | `dotnet run` trong ReportingService folder (SQLite là mặc định) |
 
 ---
 

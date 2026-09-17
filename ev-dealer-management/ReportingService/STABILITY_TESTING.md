@@ -5,7 +5,7 @@ Các bài test bao gồm: load test, concurrent requests, edge cases, response t
 
 **Yêu cầu trước khi chạy:**
 
-- Service đang chạy trên http://localhost:5208 (dùng `dotnet run` hoặc `$env:USE_SQLITE = "true"; dotnet run`)
+- Service đang chạy trên http://localhost:5208 (dùng `dotnet run` — SQLite là provider mặc định)
 - Mở PowerShell và chạy lệnh từ folder `ReportingService`
 
 ---
