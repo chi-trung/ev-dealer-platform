@@ -1,4 +1,3 @@
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using NotificationService.Data;
 using NotificationService.Models;
@@ -133,12 +132,16 @@ public class NotificationPreferencesStore : INotificationPreferencesStore
         }
     }
 
+    // Issue #91: same provider-neutral race detection as the #33 registry —
+    // see DeviceTokenRegistry.IsUniqueViolation. Under postgres the UNIQUE(Key)
+    // loser surfaces as PostgresException 23505, not SqliteException 19, so the
+    // old typed match was dead code on that provider and the last-writer-wins
+    // contract this store documents was silently gone.
     private static bool IsTransientRace(Exception ex) => ex switch
     {
         DbUpdateConcurrencyException => true,
-        DbUpdateException { InnerException: SqliteException se } =>
-            se.SqliteErrorCode is 19 /* SQLITE_CONSTRAINT (UNIQUE hit) */
-                              or 5 /* SQLITE_BUSY (concurrent writer on file DB) */,
+        _ when DeviceTokenRegistry.IsUniqueViolationForStore(ex) => true,
+        _ when DeviceTokenRegistry.IsSqliteBusy(ex) => true,
         _ => false,
     };
 

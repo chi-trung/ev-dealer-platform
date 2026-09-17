@@ -7,6 +7,7 @@ using NotificationService.Controllers;
 using NotificationService.Data;
 using NotificationService.Services;
 using Xunit;
+using Registry = NotificationService.Services.DeviceTokenRegistry;
 
 namespace DealerSystem.Tests.NotificationService.Tests;
 
@@ -132,6 +133,96 @@ public class NotificationPreferencesTests : IDisposable
         await using (var db = New())
             Assert.Equal(1, await db.NotificationPreferences.CountAsync(p => p.Key == "user:5"));
     }
+
+    // ---- provider-neutral race detection (Issue #91) -----------------------
+
+    // The SQLite arm keeps working (ConcurrentFirstSaves above covers it), but
+    // the defect #91 fixed is invisible to that test: IsTransientRace used to
+    // match `DbUpdateException { InnerException: SqliteException }` by TYPE, so
+    // on postgres a 23505 never matched and the race retry was dead code —
+    // every concurrent first-save became a 500. These pin the new detection
+    // (SQLite code 19, Postgres 23505, and the message-based fallback) so a
+    // future re-typing cannot silently re-break one provider while the other
+    // stays green. They are unit tests over the shared helper, not DB tests,
+    // because the failure mode lives in the exception-matching, not the query;
+    // a mutation of the helper to its pre-#91 typed form is what makes them
+    // fail (verified 2026-09-17: both Postgres cases go red, the SQLite and
+    // BUSY ones stay green — the defect is pinned to the provider that lost
+    // detection, not to the one that never had a problem).
+    [Fact]
+    public void RaceDetection_UniqueViolation_Sqlite_IsAbsorbed()
+    {
+        var inner = new Microsoft.Data.Sqlite.SqliteException(
+            "SQLite Error 19: 'UNIQUE constraint failed: NotificationPreferences.Key'.", 19, 19);
+        var ex = new DbUpdateException("An error occurred while saving.", inner);
+
+        Assert.True(Registry.IsUniqueViolationForStore(ex));
+        Assert.True(Registry.IsSqliteBusy(ex) is false);
+    }
+
+    [Fact]
+    public void RaceDetection_Busy_Sqlite_IsAbsorbedButNotTreatedAsUnique()
+    {
+        // SQLITE_BUSY (5) is a file-DB artifact with no Postgres equivalent;
+        // it is retried by its own arm and must not be folded into the
+        // unique-violation one (the retry comment in PutAsync distinguishes
+        // them, and the eviction path in the registry treats them differently).
+        var inner = new Microsoft.Data.Sqlite.SqliteException("database is locked", 5, 5);
+        var ex = new DbUpdateException("An error occurred while saving.", inner);
+
+        Assert.True(Registry.IsSqliteBusy(ex));
+        Assert.False(Registry.IsUniqueViolationForStore(ex));
+    }
+
+    [Fact]
+    public void RaceDetection_UniqueViolation_Postgres_23505_IsAbsorbed()
+    {
+        // The actual #91 defect: Npgsql surfaces a unique violation as
+        // PostgresException with SqlState 23505. Simulated without a live
+        // server because the detection matches by exception shape, not by a
+        // real connection.
+        var inner = SimulatedPostgresException(
+            "23505: duplicate key value violates unique constraint \"IX_NotificationPreferences_Key\"");
+        var ex = new DbUpdateException("An error occurred while saving.", inner);
+
+        Assert.True(Registry.IsUniqueViolationForStore(ex));
+        Assert.False(Registry.IsSqliteBusy(ex));
+    }
+
+    [Fact]
+    public void RaceDetection_PostgresMessageFallback_IsAbsorbed()
+    {
+        // If Npgsql ever surfaces the violation without the SqlState property
+        // populated (older driver, or a wrapped exception), the message-based
+        // fallback is what keeps the contract. It is provider vocabulary
+        // ("duplicate key value violates unique constraint"), not a locale
+        // string — Postgres messages are not localized server-side.
+        var inner = SimulatedPostgresException("duplicate key value violates unique constraint \"IX_NotificationPreferences_Key\"", sqlState: null);
+        var ex = new DbUpdateException("An error occurred while saving.", inner);
+
+        Assert.True(Registry.IsUniqueViolationForStore(ex));
+    }
+
+    [Fact]
+    public void RaceDetection_UnrelatedFailure_IsNotAbsorbed()
+    {
+        // A genuine write failure (FK, disk, NOT NULL on a non-unique column)
+        // must NOT be swallowed as a race — retrying it 6 times then throwing
+        // is worse than throwing once, and would mask a real bug as flake.
+        var inner = new InvalidOperationException("some other failure");
+        var ex = new DbUpdateException("An error occurred while saving.", inner);
+
+        Assert.False(Registry.IsUniqueViolationForStore(ex));
+        Assert.False(Registry.IsSqliteBusy(ex));
+    }
+
+    /// <summary>Builds a stand-in for Npgsql.PostgresException. The detection
+    /// matches by namespace prefix ("Npgsql.") plus the SqlState property or
+    /// the message; a subclass in that namespace reproduces both shapes
+    /// without a live server (Docker Hub is unreachable from the dev sandbox,
+    /// so the real type gets its first live check on Render).</summary>
+    private static Exception SimulatedPostgresException(string message, string? sqlState = "23505")
+        => new Npgsql.PostgresExceptionFake(message, sqlState);
 
     // ---- controller: authorization decision table --------------------------
 
