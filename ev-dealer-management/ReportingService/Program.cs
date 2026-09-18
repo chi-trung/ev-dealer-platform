@@ -364,8 +364,10 @@ try
     
             // Tính toán metrics từ dữ liệu thật
             var totalSales = salesData.Sum(s => s.TotalOrders);
-            // Sum in memory to avoid SQLite decimal aggregate issues
-            var totalRevenue = salesData.Sum(s => (double)s.TotalRevenue);
+            // Sum as decimal and convert at the boundary: a (double) cast inside
+            // the Sum drops cents on every provider, not just SQLite, and
+            // TotalRevenue is decimal(18,2) (Issue #103).
+            var totalRevenue = (double)salesData.Sum(s => s.TotalRevenue);
     
             // Đếm số đại lý unique từ SalesSummaries và InventorySummaries
             var activeDealersFromSales = await salesQuery.Select(s => s.DealerId).Distinct().CountAsync();
@@ -440,17 +442,19 @@ try
                 {
                     region = g.Key,
                     sales = g.Sum(s => s.TotalOrders),
-                    // Sum decimals on client to avoid SQLite limitation
+                    // Materialise the decimals and aggregate them client-side
+                    // as decimal; a (long) cast in the Sum truncated cents on
+                    // every provider (Issue #103).
                     revenues = g.Select(s => s.TotalRevenue)
                 })
                 .ToListAsync();
-    
+
             var salesByRegion = regionalGroups
                 .Select(g => new
                 {
                     g.region,
                     g.sales,
-                    revenue = (long)g.revenues.Sum(v => v)
+                    revenue = (double)g.revenues.Sum(v => v)
                 })
                 .OrderByDescending(x => x.revenue)
                 .ToList();
@@ -504,18 +508,21 @@ try
                 {
                     g.region,
                     g.sales,
-                    revenue = (long)g.revenues.Sum(v => v)
+                    // Keep decimal through the aggregate; a (long) cast here
+                    // truncated cents on every provider (Issue #103).
+                    revenue = g.revenues.Sum(v => v)
                 })
                 .ToList();
-    
+
             var totalSales = salesByRegion.Sum(x => x.sales);
             var totalRevenue = salesByRegion.Sum(x => (double)x.revenue);
-    
+
             var result = salesByRegion.Select(x => new
             {
                 region = x.region,
                 sales = x.sales,
-                revenue = x.revenue,
+                // The wire value is double; convert once at the boundary.
+                revenue = (double)x.revenue,
                 salesPercentage = totalSales > 0 ? Math.Round((double)x.sales / totalSales * 100, 1) : 0,
                 revenuePercentage = totalRevenue > 0 ? Math.Round((double)x.revenue / totalRevenue * 100, 1) : 0
             }).OrderByDescending(x => x.sales).ToList();
@@ -539,9 +546,16 @@ try
         try
         {
             // Tính average revenue per order từ SalesSummaries để ước tính revenue cho vehicles
+            // Sum as decimal: casting inside the EF-translated expression made
+            // this a server-side CAST(... AS bigint) under Postgres, truncating
+            // cents at the database before the client saw the value. Summing
+            // client-side as decimal keeps the cents (Issue #103).
             var totalOrders = await db.SalesSummaries.SumAsync(s => (long)s.TotalOrders);
-            var totalRevenue = await db.SalesSummaries.SumAsync(s => (long)s.TotalRevenue);
-            var avgRevenuePerOrder = totalOrders > 0 ? (double)totalRevenue / totalOrders : 0;
+            var revenueRows = await db.SalesSummaries
+                .Select(s => s.TotalRevenue)
+                .ToListAsync();
+            var totalRevenue = (double)revenueRows.Sum(v => v);
+            var avgRevenuePerOrder = totalOrders > 0 ? totalRevenue / totalOrders : 0;
     
             var query = db.InventorySummaries
                 .GroupBy(i => i.VehicleName)
