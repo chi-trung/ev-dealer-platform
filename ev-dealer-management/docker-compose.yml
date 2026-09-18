@@ -74,6 +74,11 @@ services:
       - Jwt__Issuer=evm.local
       - Jwt__Audience=evm.local
       - FrontendUrl=http://localhost:5173
+      # Issue #121: UserService proxies /api/dealers and validates DealerId
+      # against VehicleService, which now owns the Dealers table. Compose
+      # service name is the DNS hostname on the shared network; internal port
+      # 8080 (matches salesservice/reportingservice's existing entries).
+      - Services__VehicleService=http://vehicleservice:8080
       - EmailSettings__SmtpHost=smtp.gmail.com
       - EmailSettings__SmtpPort=587
       - EmailSettings__SmtpUser=bata79892@gmail.com

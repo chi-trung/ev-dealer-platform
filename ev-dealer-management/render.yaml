@@ -168,6 +168,12 @@ services:
         value: https://evm-gateway.onrender.com
       - key: FrontendUrl
         value: https://evdealer.vercel.app
+      # Issue #121: UserService no longer maps the Dealers table -- it proxies
+      # /api/dealers and validates DealerId against VehicleService, which now
+      # owns the schema. REQUIRED: without this the /api/dealers endpoint
+      # returns 503 and DealerId validation silently fails open.
+      - key: Services__VehicleService
+        value: https://vehicleservice.onrender.com
       - key: Cors__AllowedOrigins
         value: https://evdealer.vercel.app
       # SMTP password is a `sync: false` placeholder, NEVER committed. Unset
@@ -385,23 +391,26 @@ services:
 
 databases:
   # ALL seven services share this one instance. There WAS a real collision --
-  # UserService and VehicleService both map ToTable("Dealers") but previously
-  # with incompatible columns:
+  # UserService and VehicleService both mapped ToTable("Dealers"):
   #   UserService/Migrations/...InitialCreate.cs:15      -> Id, Name(req), Address(nullable)   [3 cols, Migrate()]
   #   VehicleService/...RemoveReservations.Designer.cs   -> + Contact, Email, Region, CreatedAt, UpdatedAt, all required with MaxLength  [7 cols, EnsureCreated()]
-  # and they seeded different rows (3 VinFast dealers vs Tesla/BMW HasData),
-  # so sharing public.Dealers meant the second service to migrate either
-  # errored or silently got the other's columns.
-  #
   # An earlier "zero collisions" claim was wrong: it deduplicated table NAMES
   # (both contexts call the entity `Dealer`) instead of counting how many
   # contexts EMIT the table. See issue #121.
   #
-  # That is now fixed (c78dae3 aligned UserService onto VehicleService's
-  # superset), so the schema is shared safely and the second database entry
-  # this file used to define is gone. That matters on the free tier, which
-  # allows only ONE postgres instance per workspace -- the split was
-  # shape-correct but would have failed at apply without a paid instance.
+  # IMPORTANT: aligning the COLUMNS was NOT sufficient, and the comment that
+  # used to live here claiming it was, was wrong. Two contexts sharing a table
+  # also share a CREATION strategy, and Migrate() vs EnsureCreated() cannot
+  # co-own one database: EnsureCreated gates on the whole database existing,
+  # so whichever service boots second creates NOTHING (probed: it returns
+  # false rather than throwing, so /health stays green while every endpoint
+  # dies on "no such table"). The real fix was ownership, not schema --
+  # VehicleService owns Dealers and UserService stopped mapping it, reading
+  # dealers over HTTP instead (Services__VehicleService above).
+  #
+  # This matters on the free tier, which allows only ONE postgres instance per
+  # workspace: the second database this file used to define would have failed
+  # at apply without a paid instance.
   - name: evm-postgres
     databaseName: evm_core
     region: oregon

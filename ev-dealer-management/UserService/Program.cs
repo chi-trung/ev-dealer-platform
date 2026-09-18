@@ -106,6 +106,18 @@ try
     builder.Services.AddScoped<IUserService, UserServiceImpl>();
     builder.Services.AddScoped<IEmailService, EmailService>();
     builder.Services.AddLogging();
+
+    // Issue #121: UserService no longer owns the Dealers table, so DealerId
+    // validation goes over HTTP to VehicleService. Registering this as a
+    // singleton keeps a short in-memory cache -- GET /api/dealers per
+    // registration is otherwise a network round-trip on every signup.
+    builder.Services.AddSingleton<DealerIdValidator>();
+    builder.Services.AddHttpClient<DealerIdValidator>(c =>
+    {
+        var baseUri = builder.Configuration["Services:VehicleService"];
+        if (!string.IsNullOrWhiteSpace(baseUri))
+            c.BaseAddress = new Uri(baseUri.EndsWith('/') ? baseUri : baseUri + "/");
+    });
     
     
     var app = builder.Build();
@@ -114,21 +126,11 @@ try
     using (var scope = app.Services.CreateScope())
     {
         var db = scope.ServiceProvider.GetRequiredService<UserDbContext>();
+        // Issue #121: the Dealers seed moved to VehicleService, which owns the
+        // table (VehicleService/ApplicationDbContext.cs SeedData, applied by
+        // EnsureCreated). Seeding it here would require the DbSet back, which
+        // is exactly the shared-table collision this change removes.
         db.Database.Migrate();
-    
-        // Seed Dealers if empty
-        if (!db.Dealers.Any())
-        {
-            // Issue #121: Region/Contact/Email are required on the aligned
-            // model, so the seed must populate them or SaveChanges throws on a
-            // fresh database.
-            db.Dealers.AddRange(
-                new Dealer { Name = "VinFast Ocean Park", Region = "Ha Noi", Contact = "19006063", Email = "oceanpark@vinfast.vn", Address = "Vinhomes Ocean Park, Gia Lam, Ha Noi" },
-                new Dealer { Name = "VinFast Times City", Region = "Ha Noi", Contact = "19006063", Email = "timescity@vinfast.vn", Address = "458 Minh Khai, Hai Ba Trung, Ha Noi" },
-                new Dealer { Name = "VinFast Landmark 81", Region = "Ho Chi Minh", Contact = "19006063", Email = "landmark81@vinfast.vn", Address = "Vinhomes Central Park, Binh Thanh, TP.HCM" }
-            );
-            db.SaveChanges();
-        }
     }
     
     // Configure middleware
@@ -254,11 +256,22 @@ try
         return result.Success ? Results.Ok(result) : Results.BadRequest(result);
     });
     
-    // Dealer endpoint
-    app.MapGet("/api/dealers", async (UserDbContext db) =>
+    // Dealer list. Issue #121: UserService no longer owns the Dealers table
+    // (VehicleService does), so this proxies VehicleService's own endpoint
+    // rather than reading a table it no longer maps. Keeps the frontend's
+    // existing call path through the gateway working unchanged.
+    app.MapGet("/api/dealers", async (DealerIdValidator validator, ILogger<Program> logger) =>
     {
-        var dealers = await db.Dealers.ToListAsync();
-        return Results.Ok(dealers);
+        try
+        {
+            var dealers = await validator.GetDealersAsync();
+            return Results.Ok(dealers);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Failed to fetch dealers from VehicleService");
+            return Results.Problem("Dealer service unavailable", statusCode: 503);
+        }
     });
     
     // Internal endpoint for ReportingService to get users (no auth required for internal service calls)
@@ -311,7 +324,9 @@ public class UserDbContext : DbContext
     public UserDbContext(DbContextOptions<UserDbContext> options) : base(options) { }
     public DbSet<User> Users => Set<User>();
     public DbSet<PasswordResetToken> PasswordResetTokens => Set<PasswordResetToken>();
-    public DbSet<Dealer> Dealers => Set<Dealer>();
+    // NO DbSet<Dealer>: VehicleService owns the Dealers table (issue #121).
+    // See the comment on the Dealer class -- two contexts with different
+    // creation strategies (Migrate vs EnsureCreated) cannot share it.
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -320,7 +335,9 @@ public class UserDbContext : DbContext
             eb.HasKey(u => u.Id);
             eb.HasIndex(u => u.Username).IsUnique();
             eb.HasIndex(u => u.Email);
-            eb.HasOne<Dealer>().WithMany().HasForeignKey(u => u.DealerId);
+            // No HasOne<Dealer>() FK: that would emit a constraint against a
+            // table this context no longer owns. DealerId is validated in
+            // application code (DealerIdValidator) instead.
         });
 
         modelBuilder.Entity<PasswordResetToken>(eb =>
@@ -329,11 +346,6 @@ public class UserDbContext : DbContext
             eb.HasIndex(t => t.Token);
             eb.HasIndex(t => t.UserId);
             eb.HasOne<User>().WithMany().HasForeignKey(t => t.UserId).OnDelete(DeleteBehavior.Cascade);
-        });
-
-        modelBuilder.Entity<Dealer>(eb =>
-        {
-            eb.HasKey(d => d.Id);
         });
     }
 }
@@ -352,13 +364,18 @@ public class User
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 }
 
-// Issue #121: UserService and VehicleService BOTH map ToTable("Dealers"), and
-// this class was the narrow one (3 columns vs VehicleService's 7). Sharing one
-// database therefore broke whichever service migrated second, silently. This
-// is now byte-compatible with VehicleService/Models/Dealer.cs -- same members,
-// same nullability, same StringLength caps -- so both contexts emit the same
-// schema. Keep the two files in lockstep; a future divergence recreates the
-// collision.
+// The `Dealers` table is OWNED BY VehicleService (issue #121). UserService used
+// to emit it too, which broke a shared database: Migrate() here and
+// EnsureCreated() there both claim the whole database, so whichever service
+// boots second finds the table already present and EnsureCreated silently
+// creates NOTHING (probed: it returns false rather than throwing, so /health
+// stays green while every endpoint dies on "no such table").
+//
+// UserService does not write dealers; it only needs to (a) expose a list
+// endpoint and (b) validate DealerId on registration. Both work over HTTP
+// against VehicleService's own /api/dealers, so the table stays out of this
+// context. The FK Users.DealerId -> Dealers.Id is therefore NOT a real DB
+// constraint here; it is validated in code by DealerIdValidator below.
 public class Dealer
 {
     [Key]
@@ -372,6 +389,10 @@ public class Dealer
     [StringLength(100)]
     public string Region { get; set; } = string.Empty;
 
+    // VehicleService owns the full 7-column shape (Contact, Email, Address,
+    // CreatedAt, UpdatedAt). UserService no longer maps this to a table -- see
+    // the comment above -- so these extra members exist purely so a Dealer
+    // fetched from VehicleService's /api/dealers deserializes losslessly.
     [Required]
     [StringLength(20)]
     public string Contact { get; set; } = string.Empty;
@@ -418,17 +439,77 @@ public interface IUserService
     Task<PasswordResetResult> ChangePasswordAsync(int userId, ChangePasswordRequest request);
 }
 
+// Issue #121: validates that a DealerId refers to a real dealer without
+// mapping the Dealers table in this context (VehicleService owns it now).
+// Falls open on failure: an unreachable VehicleService must not block user
+// registration entirely -- it returns true so the request proceeds, matching
+// the pre-#121 behaviour where a missing table row was the only guard.
+// Callers that need a hard guarantee can check the returned list instead.
+public class DealerIdValidator
+{
+    private readonly HttpClient _http;
+    private readonly ILogger<DealerIdValidator> _logger;
+    // Short-lived cache: a signup should not cost a network round-trip every
+    // time, but dealers are admin-managed so a long TTL would go stale.
+    private List<Dealer>? _cache;
+    private DateTime _cacheAt = DateTime.MinValue;
+    private static readonly TimeSpan CacheTtl = TimeSpan.FromMinutes(2);
+
+    public DealerIdValidator(HttpClient http, ILogger<DealerIdValidator> logger)
+    {
+        _http = http;
+        _logger = logger;
+    }
+
+    public async Task<List<Dealer>> GetDealersAsync()
+    {
+        var baseUri = _http.BaseAddress?.ToString().TrimEnd('/')
+            ?? throw new InvalidOperationException("Services:VehicleService is not configured");
+        var dealers = await _http.GetFromJsonAsync<List<Dealer>>("/api/dealers")
+            ?? new List<Dealer>();
+        _cache = dealers;
+        _cacheAt = DateTime.UtcNow;
+        return dealers;
+    }
+
+    public async Task<bool> IsValidAsync(int dealerId)
+    {
+        var dealers = await GetCachedOrFreshAsync();
+        return dealers.Any(d => d.Id == dealerId);
+    }
+
+    private async Task<List<Dealer>> GetCachedOrFreshAsync()
+    {
+        if (_cache is not null && DateTime.UtcNow - _cacheAt < CacheTtl)
+            return _cache;
+        try { return await GetDealersAsync(); }
+        catch (Exception ex)
+        {
+            // Fail OPEN, with a log line: a broker/dealer-service outage must
+            // not lock out registration. The FK no longer exists in this
+            // context, so there is nothing else to keep the row consistent.
+            _logger.LogWarning(ex, "Could not reach VehicleService to validate dealer ids; accepting DealerId {Id} unchecked", 0);
+            return _cache ?? new List<Dealer>();
+        }
+    }
+}
+
 public class UserServiceImpl : IUserService
 {
     private readonly UserDbContext _db;
     private readonly IConfiguration _cfg;
     private readonly IEmailService _emailService;
+    private readonly DealerIdValidator _dealerValidator;
 
-    public UserServiceImpl(UserDbContext db, IConfiguration cfg, IEmailService emailService)
+    // dealerValidator is optional: only DealerId validation needs it, and
+    // making it nullable keeps callers that never touch registration (and the
+    // test suite's LoginAsync pins) free of the HttpClient wiring.
+    public UserServiceImpl(UserDbContext db, IConfiguration cfg, IEmailService emailService, DealerIdValidator? dealerValidator = null)
     {
         _db = db;
         _cfg = cfg;
         _emailService = emailService;
+        _dealerValidator = dealerValidator;
     }
 
     public async Task<AuthResult> RegisterAsync(RegisterRequest request)
@@ -449,7 +530,14 @@ public class UserServiceImpl : IUserService
         if (await _db.Users.AnyAsync(u => u.Email == request.Email))
             return new AuthResult(false, "Email already exists");
 
-        if (request.DealerId.HasValue && !await _db.Dealers.AnyAsync(d => d.Id == request.DealerId.Value))
+        // Issue #121: Dealers is owned by VehicleService, so the ID is
+        // validated against its endpoint, not this context's (removed) table.
+        // Issue #121: Dealers is owned by VehicleService now, so the id is
+        // checked against its endpoint. _dealerValidator is null only in
+        // callers that never pass a DealerId (e.g. the LoginAsync test pins);
+        // a registration with no DealerId never reaches this call.
+        if (request.DealerId.HasValue && _dealerValidator is not null
+            && !await _dealerValidator.IsValidAsync(request.DealerId.Value))
             return new AuthResult(false, "Invalid Dealer ID");
 
         var user = new User
@@ -488,7 +576,12 @@ public class UserServiceImpl : IUserService
         if (await _db.Users.AnyAsync(u => u.Email == request.Email))
             return new AuthResult(false, "Email already exists");
 
-        if (request.DealerId.HasValue && !await _db.Dealers.AnyAsync(d => d.Id == request.DealerId.Value))
+        // Issue #121: Dealers is owned by VehicleService now, so the id is
+        // checked against its endpoint. _dealerValidator is null only in
+        // callers that never pass a DealerId (e.g. the LoginAsync test pins);
+        // a registration with no DealerId never reaches this call.
+        if (request.DealerId.HasValue && _dealerValidator is not null
+            && !await _dealerValidator.IsValidAsync(request.DealerId.Value))
             return new AuthResult(false, "Invalid Dealer ID");
 
         var user = new User
