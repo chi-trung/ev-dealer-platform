@@ -356,7 +356,10 @@ namespace SalesService.Controllers
         {
             try
             {
-                var vehicleServiceUrl = _configuration["Services:VehicleService"] ?? "http://localhost:5001";
+                // Fallback must match VehicleService's real http profile port
+                // (Properties/launchSettings.json). docker compose overrides this
+                // with Services__VehicleService=http://vehicleservice:8080.
+                var vehicleServiceUrl = _configuration["Services:VehicleService"] ?? "http://localhost:5068";
                 using var httpClient = new HttpClient();
                 httpClient.Timeout = TimeSpan.FromSeconds(5);
                 
