@@ -83,10 +83,9 @@ public class DealerClaimLoginTests : IDisposable
     private async Task SeedUserAsync(int id, string username, int? dealerId, bool active = true)
     {
         using var db = new UserDbContext(_options);
-        // User.DealerId has a real FK to Dealers (OnModelCreating), so the
-        // referenced dealer must exist before the user row.
-        if (dealerId.HasValue && !await db.Dealers.AnyAsync(d => d.Id == dealerId.Value))
-            db.Dealers.Add(new Dealer { Id = dealerId.Value, Name = $"Dealer {dealerId.Value}", Address = "probe" });
+        // Issue #121: UserService no longer maps the Dealers table, so
+        // User.DealerId is not a DB FK here — seed the user row directly
+        // with no prerequisite dealer row.
         db.Users.Add(new User
         {
             Id = id,

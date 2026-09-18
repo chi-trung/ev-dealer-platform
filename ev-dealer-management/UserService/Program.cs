@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Mvc;
 using System.Text;
 using MailKit.Security;
 using System.Linq;
+using System.ComponentModel.DataAnnotations;
 
 // Issue #63: Serilog bootstrap — the convention NotificationService has
 // run since well before this repo’s CI era: sinks configured from
@@ -105,6 +106,18 @@ try
     builder.Services.AddScoped<IUserService, UserServiceImpl>();
     builder.Services.AddScoped<IEmailService, EmailService>();
     builder.Services.AddLogging();
+
+    // Issue #121: UserService no longer owns the Dealers table, so DealerId
+    // validation goes over HTTP to VehicleService. Registering this as a
+    // singleton keeps a short in-memory cache -- GET /api/dealers per
+    // registration is otherwise a network round-trip on every signup.
+    builder.Services.AddSingleton<DealerIdValidator>();
+    builder.Services.AddHttpClient<DealerIdValidator>(c =>
+    {
+        var baseUri = builder.Configuration["Services:VehicleService"];
+        if (!string.IsNullOrWhiteSpace(baseUri))
+            c.BaseAddress = new Uri(baseUri.EndsWith('/') ? baseUri : baseUri + "/");
+    });
     
     
     var app = builder.Build();
@@ -113,17 +126,44 @@ try
     using (var scope = app.Services.CreateScope())
     {
         var db = scope.ServiceProvider.GetRequiredService<UserDbContext>();
-        db.Database.Migrate();
-    
-        // Seed Dealers if empty
-        if (!db.Dealers.Any())
+        // Issue #121: the Dealers seed moved to VehicleService, which owns the
+        // table (VehicleService/ApplicationDbContext.cs SeedData, now applied
+        // by that service's Baseline migration). Seeding it here would require
+        // the DbSet back, which is exactly the shared-table collision this
+        // change removes.
+        // Fail-soft ONLY for transient/locking faults, not schema faults
+        // (review round 3). A blanket catch (Exception) here would swallow a
+        // real migration error -- under Postgres that is PostgresException
+        // 42P07 duplicate_table / 42701 duplicate_column / 42P16
+        // invalid_table_definition -- and leave the service booting green with
+        // every endpoint dying on "no such table". That is exactly the silent
+        // failure mode this whole issue was about, and it is worse than a
+        // crashloop, because nothing visible signals it. Schema errors must
+        // fail loudly and take the process down; only lock contention and
+        // transient connection failures are recoverable.
+        try
         {
-            db.Dealers.AddRange(
-                new Dealer { Name = "VinFast Ocean Park", Address = "Vinhomes Ocean Park, Gia Lam, Ha Noi" },
-                new Dealer { Name = "VinFast Times City", Address = "458 Minh Khai, Hai Ba Trung, Ha Noi" },
-                new Dealer { Name = "VinFast Landmark 81", Address = "Vinhomes Central Park, Binh Thanh, TP.HCM" }
-            );
-            db.SaveChanges();
+            db.Database.Migrate();
+        }
+        catch (Exception ex) when (IsTransientMigrationFault(ex))
+        {
+            Console.Error.WriteLine($"[UserService] Warning: transient database migration failure (existing schema assumed): {ex.Message}");
+        }
+
+        // Npgsql surfaces a SqlException whose Number is the Postgres error
+        // code (e.g. 40P01 deadlock, 55P03 lock_not_available); Microsoft.Data
+        // .Sqlite surfaces "database is locked" by message. Anything else --
+        // a schema error -- is NOT transient and must not be swallowed.
+        // Local function because this file uses top-level statements, which
+        // cannot hold method declarations.
+        static bool IsTransientMigrationFault(Exception ex)
+        {
+            for (var e = ex; e is not null; e = e.InnerException)
+            {
+                if (e is Microsoft.Data.Sqlite.SqliteException sx)
+                    return sx.Message.Contains("locked", StringComparison.OrdinalIgnoreCase);
+            }
+            return false;
         }
     }
     
@@ -250,11 +290,22 @@ try
         return result.Success ? Results.Ok(result) : Results.BadRequest(result);
     });
     
-    // Dealer endpoint
-    app.MapGet("/api/dealers", async (UserDbContext db) =>
+    // Dealer list. Issue #121: UserService no longer owns the Dealers table
+    // (VehicleService does), so this proxies VehicleService's own endpoint
+    // rather than reading a table it no longer maps. Keeps the frontend's
+    // existing call path through the gateway working unchanged.
+    app.MapGet("/api/dealers", async (DealerIdValidator validator, ILogger<Program> logger) =>
     {
-        var dealers = await db.Dealers.ToListAsync();
-        return Results.Ok(dealers);
+        try
+        {
+            var dealers = await validator.GetDealersAsync();
+            return Results.Ok(dealers);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Failed to fetch dealers from VehicleService");
+            return Results.Problem("Dealer service unavailable", statusCode: 503);
+        }
     });
     
     // Internal endpoint for ReportingService to get users (no auth required for internal service calls)
@@ -307,7 +358,9 @@ public class UserDbContext : DbContext
     public UserDbContext(DbContextOptions<UserDbContext> options) : base(options) { }
     public DbSet<User> Users => Set<User>();
     public DbSet<PasswordResetToken> PasswordResetTokens => Set<PasswordResetToken>();
-    public DbSet<Dealer> Dealers => Set<Dealer>();
+    // NO DbSet<Dealer>: VehicleService owns the Dealers table (issue #121).
+    // See the comment on the Dealer class -- two contexts with different
+    // creation strategies (Migrate vs EnsureCreated) cannot share it.
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -316,7 +369,9 @@ public class UserDbContext : DbContext
             eb.HasKey(u => u.Id);
             eb.HasIndex(u => u.Username).IsUnique();
             eb.HasIndex(u => u.Email);
-            eb.HasOne<Dealer>().WithMany().HasForeignKey(u => u.DealerId);
+            // No HasOne<Dealer>() FK: that would emit a constraint against a
+            // table this context no longer owns. DealerId is validated in
+            // application code (DealerIdValidator) instead.
         });
 
         modelBuilder.Entity<PasswordResetToken>(eb =>
@@ -325,11 +380,6 @@ public class UserDbContext : DbContext
             eb.HasIndex(t => t.Token);
             eb.HasIndex(t => t.UserId);
             eb.HasOne<User>().WithMany().HasForeignKey(t => t.UserId).OnDelete(DeleteBehavior.Cascade);
-        });
-
-        modelBuilder.Entity<Dealer>(eb =>
-        {
-            eb.HasKey(d => d.Id);
         });
     }
 }
@@ -348,11 +398,60 @@ public class User
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 }
 
+// The `Dealers` table is OWNED BY VehicleService (issue #121). UserService used
+// to emit it too, which broke a shared database: Migrate() here and
+// EnsureCreated() there both claim the whole database, so whichever service
+// boots second finds the table already present and EnsureCreated silently
+// creates NOTHING (probed: it returns false rather than throwing, so /health
+// stays green while every endpoint dies on "no such table").
+//
+// UserService does not write dealers; it only needs to (a) expose a list
+// endpoint and (b) validate DealerId on registration. Both work over HTTP
+// against VehicleService's own /api/dealers, so the table stays out of this
+// context. The FK Users.DealerId -> Dealers.Id is therefore NOT a real DB
+// constraint here; it is validated in code by DealerIdValidator below.
 public class Dealer
 {
+    [Key]
     public int Id { get; set; }
-    public string Name { get; set; } = null!;
-    public string? Address { get; set; }
+
+    [Required]
+    [StringLength(200)]
+    public string Name { get; set; } = string.Empty;
+
+    [Required]
+    [StringLength(100)]
+    public string Region { get; set; } = string.Empty;
+
+    // VehicleService owns the full 7-column shape (Contact, Email, Address,
+    // CreatedAt, UpdatedAt). UserService no longer maps this to a table -- see
+    // the comment above -- so these extra members exist purely so a Dealer
+    // fetched from VehicleService's /api/dealers deserializes losslessly.
+    // The field set below mirrors VehicleService/DTOs/DealerDto.cs EXACTLY,
+    // including VehicleCount: that property is not a column (the controller
+    // computes it from the Vehicles navigation), but it IS on the wire, and a
+    // missing member here meant /api/dealers silently dropped it for every
+    // caller of this proxy (review round 2, M3).
+    [Required]
+    [StringLength(20)]
+    public string Contact { get; set; } = string.Empty;
+
+    [Required]
+    [EmailAddress]
+    [StringLength(200)]
+    public string Email { get; set; } = string.Empty;
+
+    [Required]
+    [StringLength(500)]
+    public string Address { get; set; } = string.Empty;
+
+    // Computed by VehicleService's controller, not stored. Kept here only to
+    // preserve it across the proxy so the frontend's dealer list is complete.
+    public int VehicleCount { get; set; }
+
+    // Audit fields
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 }
 
 public class PasswordResetToken
@@ -383,17 +482,95 @@ public interface IUserService
     Task<PasswordResetResult> ChangePasswordAsync(int userId, ChangePasswordRequest request);
 }
 
+// Issue #121: validates that a DealerId refers to a real dealer without
+// mapping the Dealers table in this context (VehicleService owns it now).
+// Falls open on failure: an unreachable VehicleService must not block user
+// registration entirely -- it returns true so the request proceeds, matching
+// the pre-#121 behaviour where a missing table row was the only guard.
+// Callers that need a hard guarantee can check the returned list instead.
+public class DealerIdValidator
+{
+    private readonly HttpClient _http;
+    private readonly ILogger<DealerIdValidator> _logger;
+    // Short-lived cache: a signup should not cost a network round-trip every
+    // time, but dealers are admin-managed so a long TTL would go stale.
+    // This component is a SINGLETON (AddSingleton + AddHttpClient<T>), so the
+    // cache fields are hit by every concurrent registration in the process.
+    // A plain List<> reference + a separately-written DateTime is not atomic:
+    // two threads can race the null/TTL check and stampede the endpoint, and
+    // a reader can see _cacheAt advanced past a _cache that is still the old
+    // list (torn read). The pair is stored and read atomically instead.
+    private volatile Tuple<List<Dealer>, DateTime>? _cache;
+    private static readonly TimeSpan CacheTtl = TimeSpan.FromMinutes(2);
+
+    public DealerIdValidator(HttpClient http, ILogger<DealerIdValidator> logger)
+    {
+        _http = http;
+        _logger = logger;
+    }
+
+    public async Task<List<Dealer>> GetDealersAsync()
+    {
+        // BaseAddress is required: the request below is a RELATIVE URI, so
+        // without it GetFromJsonAsync throws before any network call and the
+        // caller sees an empty dealer list. Fail loudly here -- the proxy's
+        // own /api/dealers endpoint catches and 503s -- rather than returning
+        // [] and having every DealerId validation silently reject.
+        var baseUri = _http.BaseAddress?.ToString().TrimEnd('/');
+        if (string.IsNullOrWhiteSpace(baseUri))
+            throw new InvalidOperationException(
+                "Services:VehicleService is not configured: HttpClient BaseAddress is empty, " +
+                "so the relative /api/dealers request cannot be built. Set Services__VehicleService " +
+                "(see render.yaml / docker-compose.yml).");
+
+        var dealers = await _http.GetFromJsonAsync<List<Dealer>>("/api/dealers")
+            ?? new List<Dealer>();
+        // Write the pair atomically: a concurrent IsValidAsync reader either
+        // gets the old snapshot or this one, never a mismatched combination.
+        _cache = Tuple.Create(dealers, DateTime.UtcNow);
+        return dealers;
+    }
+
+    public async Task<bool> IsValidAsync(int dealerId)
+    {
+        var dealers = await GetCachedOrFreshAsync();
+        return dealers.Any(d => d.Id == dealerId);
+    }
+
+    private async Task<List<Dealer>> GetCachedOrFreshAsync()
+    {
+        // Single atomic read of the cached pair.
+        var snapshot = _cache;
+        if (snapshot is not null && DateTime.UtcNow - snapshot.Item2 < CacheTtl)
+            return snapshot.Item1;
+        try { return await GetDealersAsync(); }
+        catch (Exception ex)
+        {
+            // Fail OPEN, with a log line: a broker/dealer-service outage must
+            // not lock out registration. The FK no longer exists in this
+            // context, so there is nothing else to keep the row consistent.
+            _logger.LogWarning(ex, "Could not reach VehicleService to validate dealer ids; accepting DealerId {Id} unchecked", 0);
+            return snapshot?.Item1 ?? new List<Dealer>();
+        }
+    }
+}
+
 public class UserServiceImpl : IUserService
 {
     private readonly UserDbContext _db;
     private readonly IConfiguration _cfg;
     private readonly IEmailService _emailService;
+    private readonly DealerIdValidator _dealerValidator;
 
-    public UserServiceImpl(UserDbContext db, IConfiguration cfg, IEmailService emailService)
+    // dealerValidator is optional: only DealerId validation needs it, and
+    // making it nullable keeps callers that never touch registration (and the
+    // test suite's LoginAsync pins) free of the HttpClient wiring.
+    public UserServiceImpl(UserDbContext db, IConfiguration cfg, IEmailService emailService, DealerIdValidator? dealerValidator = null)
     {
         _db = db;
         _cfg = cfg;
         _emailService = emailService;
+        _dealerValidator = dealerValidator;
     }
 
     public async Task<AuthResult> RegisterAsync(RegisterRequest request)
@@ -414,7 +591,14 @@ public class UserServiceImpl : IUserService
         if (await _db.Users.AnyAsync(u => u.Email == request.Email))
             return new AuthResult(false, "Email already exists");
 
-        if (request.DealerId.HasValue && !await _db.Dealers.AnyAsync(d => d.Id == request.DealerId.Value))
+        // Issue #121: Dealers is owned by VehicleService, so the ID is
+        // validated against its endpoint, not this context's (removed) table.
+        // Issue #121: Dealers is owned by VehicleService now, so the id is
+        // checked against its endpoint. _dealerValidator is null only in
+        // callers that never pass a DealerId (e.g. the LoginAsync test pins);
+        // a registration with no DealerId never reaches this call.
+        if (request.DealerId.HasValue && _dealerValidator is not null
+            && !await _dealerValidator.IsValidAsync(request.DealerId.Value))
             return new AuthResult(false, "Invalid Dealer ID");
 
         var user = new User
@@ -453,7 +637,12 @@ public class UserServiceImpl : IUserService
         if (await _db.Users.AnyAsync(u => u.Email == request.Email))
             return new AuthResult(false, "Email already exists");
 
-        if (request.DealerId.HasValue && !await _db.Dealers.AnyAsync(d => d.Id == request.DealerId.Value))
+        // Issue #121: Dealers is owned by VehicleService now, so the id is
+        // checked against its endpoint. _dealerValidator is null only in
+        // callers that never pass a DealerId (e.g. the LoginAsync test pins);
+        // a registration with no DealerId never reaches this call.
+        if (request.DealerId.HasValue && _dealerValidator is not null
+            && !await _dealerValidator.IsValidAsync(request.DealerId.Value))
             return new AuthResult(false, "Invalid Dealer ID");
 
         var user = new User

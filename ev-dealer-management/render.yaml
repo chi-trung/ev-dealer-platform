@@ -168,6 +168,12 @@ services:
         value: https://evm-gateway.onrender.com
       - key: FrontendUrl
         value: https://evdealer.vercel.app
+      # Issue #121: UserService no longer maps the Dealers table -- it proxies
+      # /api/dealers and validates DealerId against VehicleService, which owns
+      # the schema. REQUIRED: without this the /api/dealers endpoint
+      # returns 503 and DealerId validation silently fails open.
+      - key: Services__VehicleService
+        value: https://vehicleservice.onrender.com
       - key: Cors__AllowedOrigins
         value: https://evdealer.vercel.app
       # SMTP password is a `sync: false` placeholder, NEVER committed. Unset
@@ -209,12 +215,14 @@ services:
     envVars:
       - key: DB_PROVIDER
         value: postgres
-      # Split onto its own instance: UserService and VehicleService both emit
-      # a `Dealers` table with incompatible columns (see the databases note
-      # and issue #121), so they cannot share a schema.
+      # Points at the same instance as everything else. Both services now use
+      # Migrate() with DISJOINT table sets, coordinated by
+      # __EFMigrationsHistory -- the only way two contexts can share one
+      # database (see the note in `databases:` below for why the earlier
+      # "ownership alone is enough" claim was wrong, and what replaced it).
       - key: ConnectionStrings__DefaultConnection
         fromDatabase:
-          name: evm-postgres-vehicle
+          name: evm-postgres
           property: connectionString
       - key: ASPNETCORE_ENVIRONMENT
         value: Development
@@ -384,20 +392,42 @@ services:
         value: https://evdealer.vercel.app
 
 databases:
-  # NOT all seven share this database -- ONE REAL COLLISION exists and it is
-  # why this file defines a second instance below. Both UserService and
-  # VehicleService map ToTable("Dealers") with incompatible schemas:
-  #   UserService/Migrations/20251122042647_InitialCreate.cs:15  -> Id, Name(req), Address(nullable)   [3 cols, Migrate()]
-  #   VehicleService/...RemoveReservations.Designer.cs:168-200   -> + Contact, Email, Region, CreatedAt, UpdatedAt, all required with MaxLength  [7 cols, EnsureCreated()]
-  # Both also SEED it with different rows (UserService: 3 VinFast dealers;
-  # VehicleService HasData: Tesla/BMW). Sharing public.Dealers means the second
-  # service to migrate either errors or silently gets the other's columns.
-  # The earlier "zero collisions" claim here was wrong: it deduplicated table
-  # NAMES (both contexts call the entity `Dealer`) instead of counting the
-  # number of contexts that emit the table. See issue #121.
+  # ALL seven services share this one instance. There WAS a real collision --
+  # UserService and VehicleService both mapped ToTable("Dealers"):
+  #   UserService/Migrations/...InitialCreate.cs:15      -> Id, Name(req), Address(nullable)   [3 cols, Migrate()]
+  #   VehicleService/...RemoveReservations.Designer.cs   -> + Contact, Email, Region, CreatedAt, UpdatedAt, all required with MaxLength  [7 cols, EnsureCreated()]
+  # An earlier "zero collisions" claim was wrong: it deduplicated table NAMES
+  # (both contexts call the entity `Dealer`) instead of counting how many
+  # contexts EMIT the table. See issue #121.
   #
-  # Splitting by databaseName (rather than reconciling the models) is the
-  # smaller change and keeps both services' migrations untouched.
+  # WHAT THE FIX ACTUALLY IS (this replaces two wrong comments).
+  #
+  # Aligning the COLUMNS was not sufficient, and "UserService stops mapping
+  # the table" was not sufficient either. Probed both boot orderings on a
+  # shared database:
+  #
+  #   VehicleService boots first -> EnsureCreated() builds Dealers/Vehicles
+  #     and seeds them, but writes NO __EFMigrationsHistory. UserService's
+  #     Migrate() then replays a history that includes CreateTable("Dealers")
+  #     -> SqliteException 'table "Dealers" already exists' -> userservice
+  #     FAILS TO BOOT and Render crashloops it.
+  #   UserService boots first   -> Migrate() creates Users/PasswordResetTokens
+  #     only. VehicleService's EnsureCreated() then finds the database already
+  #     exists and creates NOTHING (it returns false rather than throwing, so
+  #     /health stays green while every endpoint dies on "no such table"),
+  #     and its HasData seed never runs.
+  #
+  # Both orderings break. The collision is not in any one table mapping: it is
+  # that Migrate() and EnsureCreated() each claim the WHOLE database. So both
+  # services now use Migrate() against disjoint table sets -- UserService's
+  # squashed baseline owns Users/PasswordResetTokens and never touches
+  # Dealers, VehicleService's owns Dealers/Vehicles/VehicleTypes/
+  # VehicleImages/VehicleSpecifications/ColorVariants -- and __EFMigrationsHistory
+  # is the shared record that keeps them from replaying each other's work.
+  #
+  # This matters on the free tier, which allows only ONE postgres instance per
+  # workspace: the second database this file used to define would have failed
+  # at apply without a paid instance.
   - name: evm-postgres
     databaseName: evm_core
     region: oregon
@@ -407,20 +437,6 @@ databases:
     # over Render's private network, so there is no reason to expose 5432 to
     # the public internet. This is the intended posture for a backend DB.
     ipAllowList: []
-  - name: evm-postgres-vehicle
-    databaseName: evm_vehicle
-    region: oregon
-    plan: free
-    ipAllowList: []
-    # NOTE: the free tier allows only ONE postgres instance per workspace.
-    # Two `databases` entries on free will fail at apply. The split is the
-    # correct SHAPE; making it work requires either (a) one paid instance
-    # with two databaseNames, or (b) reconciling the two Dealer models so a
-    # single database is safe again (issue #121 is the fix for (b), and it
-    # makes this second entry unnecessary). Until one of those happens the
-    # broker is not the only paid line item.
-    #
-    # vehicleservice below points at this second instance.
   # NOTE: ipAllowList does NOT isolate services from each other -- Render's
   # inbound IP rules apply to public-internet traffic only, never to
   # private-network traffic. This is security-through-posture, not isolation.
