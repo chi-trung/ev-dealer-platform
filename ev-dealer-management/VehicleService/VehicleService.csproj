@@ -25,6 +25,19 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- EnableDefaultContentItems=false above suppresses the SDK's default
+         globbing, which is what keeps wwwroot/ out of the default item set.
+         It also silently excluded appsettings*.json, so the published image
+         shipped WITHOUT any configuration file: the container lost
+         ConnectionStrings:DefaultConnection, every RabbitMQ:* default, the
+         Serilog file-sink config and AllowedHosts, and booted on an empty
+         configuration tree (Issue #99). Restore them explicitly here. -->
+    <Content Include="appsettings.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="appsettings.Development.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
     <Content Include="wwwroot\**">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
