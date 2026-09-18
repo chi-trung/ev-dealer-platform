@@ -45,10 +45,14 @@ try
                 // trailing slash and no wildcard patterns (WithOrigins stores
                 // them verbatim, so e.g. "https://*.vercel.app" silently never
                 // matches). Same pattern as APIGatewayService (Issue #77).
+                // Vite defaults to 5173 and increments (5174, 5175...) when the
+                // port is busy, so all three are listed, matching the gateway's
+                // defaults exactly.
                 var defaultOrigins = new[]
                 {
                     "http://localhost:5173",
                     "http://localhost:5174",
+                    "http://localhost:5175",
                 };
                 var configured = (builder.Configuration["Cors:AllowedOrigins"] ?? "")
                     .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
