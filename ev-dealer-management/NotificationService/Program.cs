@@ -97,9 +97,26 @@ try
     {
         options.AddPolicy("AllowFrontend", policy =>
         {
-            policy.WithOrigins("http://localhost:5173", "http://localhost:5174")
+            // Origins come from config as one comma-separated string
+            // (Cors__AllowedOrigins="https://a,https://b") so a deployed
+            // frontend (e.g. the Vercel app) can be permitted without a
+            // rebuild. Default keeps the Vite dev ports working unchanged.
+            // Origins must be exact "scheme://host[:port]" values: no
+            // trailing slash and no wildcard patterns (WithOrigins stores
+            // them verbatim, so e.g. "https://*.vercel.app" silently never
+            // matches). Same pattern as APIGatewayService (Issue #77).
+            var defaultOrigins = new[]
+            {
+                "http://localhost:5173",
+                "http://localhost:5174",
+            };
+            var configured = (builder.Configuration["Cors:AllowedOrigins"] ?? "")
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            var origins = configured.Length > 0 ? configured : defaultOrigins;
+            policy.WithOrigins(origins)
                   .AllowAnyHeader()
-                  .AllowAnyMethod();
+                  .AllowAnyMethod()
+                  .AllowCredentials();
         });
     });
 
