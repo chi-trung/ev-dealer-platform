@@ -49,7 +49,7 @@ converted URL shapes return the payload shapes the call sites expect:
 |---|---|---|
 | `/api/Orders`, `/Orders/{id}`, `/Orders/complete` | SalesService :5003 | `$id/$values` list / object / 400-on-empty-POST (route exists) |
 | `/api/Quotes`, `/Quotes/{id}` | SalesService | `$id/$values`; `{id}` 404 on empty DB (proves wiring, not failure) |
-| `/api/Contracts…`, `/Promotions`, `/Deliveries`, `/Payments…`, `/Sales…`, `/ProcessedReservations` | SalesService | 200 on live endpoints (notification-only ones accumulate by design) |
+| `/api/Contracts…`, `/Promotions`, `/Deliveries`, `/Payments…`, `/Sales…` | SalesService | 200 on live endpoints (notification-only ones accumulate by design) |
 | `/api/customers`, `/TestDrives…`, `/Complaints…`, `/CustomerService/Complaints…` | CustomerService :5039 | arrays / object |
 | `/api/vehicles…` | VehicleService :5068 | `{items,totalCount,page,pageSize}` — matches `response.items` |
 | `/api/users`, `/users/{id}`, `/auth/…` | UserService :7001 | 200 authenticated (`/users` is Admin-guarded; anonymous 401 proves routing) |
