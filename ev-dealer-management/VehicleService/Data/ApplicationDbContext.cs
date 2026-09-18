@@ -50,6 +50,14 @@ public class ApplicationDbContext : DbContext
         SeedData(modelBuilder);
     }
 
+    // Seed timestamps are pinned to a constant, not DateTime.UtcNow. HasData
+    // values become part of the model, so a UtcNow seed makes the snapshot
+    // non-reproducible and every future migration emit UpdateData rows that
+    // rewrite these timestamps to whatever instant it was scaffolded at
+    // (Issue #97). Pinned values keep existing DBs untouched too.
+    private static readonly DateTime SeedTimestamp =
+        new(2026, 9, 18, 0, 0, 0, DateTimeKind.Utc);
+
     private void SeedData(ModelBuilder modelBuilder)
     {
         // Seed VehicleTypes
@@ -72,8 +80,8 @@ public class ApplicationDbContext : DbContext
                 Contact = "0901234567",
                 Email = "hcmc@tesla.com",
                 Address = "123 Nguyen Hue, District 1, HCMC",
-                CreatedAt = DateTime.UtcNow,
-                UpdatedAt = DateTime.UtcNow
+                CreatedAt = SeedTimestamp,
+                UpdatedAt = SeedTimestamp
             },
             new Dealer
             {
@@ -83,8 +91,8 @@ public class ApplicationDbContext : DbContext
                 Contact = "0902345678",
                 Email = "district1@bmw.com",
                 Address = "456 Le Loi, District 1, HCMC",
-                CreatedAt = DateTime.UtcNow,
-                UpdatedAt = DateTime.UtcNow
+                CreatedAt = SeedTimestamp,
+                UpdatedAt = SeedTimestamp
             },
             new Dealer
             {
@@ -94,8 +102,8 @@ public class ApplicationDbContext : DbContext
                 Contact = "0903456789",
                 Email = "district2@audi.com",
                 Address = "789 Dong Khoi, District 2, HCMC",
-                CreatedAt = DateTime.UtcNow,
-                UpdatedAt = DateTime.UtcNow
+                CreatedAt = SeedTimestamp,
+                UpdatedAt = SeedTimestamp
             },
             new Dealer
             {
@@ -105,8 +113,8 @@ public class ApplicationDbContext : DbContext
                 Contact = "0904567890",
                 Email = "district3@mercedes.com",
                 Address = "321 Nguyen Van Cu, District 3, HCMC",
-                CreatedAt = DateTime.UtcNow,
-                UpdatedAt = DateTime.UtcNow
+                CreatedAt = SeedTimestamp,
+                UpdatedAt = SeedTimestamp
             }
         );
 
@@ -123,8 +131,8 @@ public class ApplicationDbContext : DbContext
                 StockQuantity = 12,
                 Description = "Premium electric sedan with autopilot capabilities",
                 DealerId = 1,
-                CreatedAt = DateTime.UtcNow,
-                UpdatedAt = DateTime.UtcNow
+                CreatedAt = SeedTimestamp,
+                UpdatedAt = SeedTimestamp
             },
             new Vehicle
             {
@@ -137,8 +145,8 @@ public class ApplicationDbContext : DbContext
                 StockQuantity = 8,
                 Description = "Versatile electric SUV perfect for families",
                 DealerId = 1,
-                CreatedAt = DateTime.UtcNow,
-                UpdatedAt = DateTime.UtcNow
+                CreatedAt = SeedTimestamp,
+                UpdatedAt = SeedTimestamp
             },
             new Vehicle
             {
@@ -151,8 +159,8 @@ public class ApplicationDbContext : DbContext
                 StockQuantity = 6,
                 Description = "Luxury electric sedan with BMW's signature driving dynamics",
                 DealerId = 2,
-                CreatedAt = DateTime.UtcNow,
-                UpdatedAt = DateTime.UtcNow
+                CreatedAt = SeedTimestamp,
+                UpdatedAt = SeedTimestamp
             },
             new Vehicle
             {
@@ -165,8 +173,8 @@ public class ApplicationDbContext : DbContext
                 StockQuantity = 4,
                 Description = "Premium electric SUV with quattro all-wheel drive",
                 DealerId = 3,
-                CreatedAt = DateTime.UtcNow,
-                UpdatedAt = DateTime.UtcNow
+                CreatedAt = SeedTimestamp,
+                UpdatedAt = SeedTimestamp
             },
             new Vehicle
             {
@@ -179,8 +187,8 @@ public class ApplicationDbContext : DbContext
                 StockQuantity = 2,
                 Description = "Ultra-luxury electric sedan with cutting-edge technology",
                 DealerId = 4,
-                CreatedAt = DateTime.UtcNow,
-                UpdatedAt = DateTime.UtcNow
+                CreatedAt = SeedTimestamp,
+                UpdatedAt = SeedTimestamp
             }
         );
 

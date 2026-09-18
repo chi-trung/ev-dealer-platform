@@ -18,6 +18,11 @@ public class Vehicle
 
     [Required]
     [Range(0, double.MaxValue)]
+    // Precision is required under Postgres: an untyped decimal maps to
+    // `numeric` with no scale, and Npgsql's default scale rounds cents away
+    // (45000.75 -> 45001) because the provider's built-in scale is 0 for a
+    // store type without one. SQLite stores TEXT and is unaffected either way.
+    [Column(TypeName = "decimal(18, 2)")]
     public decimal Price { get; set; }
 
     [Required]

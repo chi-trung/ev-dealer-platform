@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations.Schema;
 
 namespace CustomerService.Models;
 
@@ -37,6 +38,9 @@ public class Purchase
     public int Id { get; set; }
     public int CustomerId { get; set; }
     public string Vehicle { get; set; } = string.Empty;
+    // Same precision reason as the other money columns: a scale-less numeric
+    // under Postgres drops the cents half of the amount.
+    [Column(TypeName = "decimal(18, 2)")]
     public decimal Amount { get; set; }
     public DateTime PurchaseDate { get; set; }
 }
