@@ -5,7 +5,12 @@ services:
   # onto the in-network container addresses; a To may also be scheme-qualified
   # "https://host" for public URLs (Issue #78, see docs/GATEWAY.md).
   apigateway:
-    build: ./APIGatewayService
+    # Build context is the management root: APIGatewayService.csproj has no
+    # ProjectReference, but a root context keeps all seven services identical
+    # and lets the shared .dockerignore at the root apply uniformly.
+    build:
+      context: .
+      dockerfile: APIGatewayService/Dockerfile
     image: evdealer/apigateway:local
     container_name: evm_apigateway
     ports:
@@ -49,7 +54,11 @@ services:
 
   # --- UserService (SQLite; no RabbitMQ — verified zero broker usage) -------
   userservice:
-    build: ./UserService
+    # Root context: UserService.csproj references ../Common/Common.csproj, which
+    # a service-only context cannot supply at restore time (Issue #95).
+    build:
+      context: .
+      dockerfile: UserService/Dockerfile
     image: evdealer/userservice:local
     container_name: evm_userservice
     ports:
@@ -78,7 +87,10 @@ services:
 
   # --- VehicleService (SQLite; producer-only, lazy/non-fatal broker) --------
   vehicleservice:
-    build: ./VehicleService
+    # Root context: VehicleService.csproj references ../Common/Common.csproj.
+    build:
+      context: .
+      dockerfile: VehicleService/Dockerfile
     image: evdealer/vehicleservice:local
     container_name: evm_vehicleservice
     ports:
@@ -104,7 +116,10 @@ services:
 
   # --- SalesService (SQLite; pure producer) ---------------------------------
   salesservice:
-    build: ./SalesService
+    # Root context: SalesService.csproj references ../Common/Common.csproj.
+    build:
+      context: .
+      dockerfile: SalesService/Dockerfile
     image: evdealer/salesservice:local
     container_name: evm_salesservice
     ports:
@@ -142,7 +157,10 @@ services:
   #     validates is rejected. ConnectionStrings honored via the Program.cs
   #     change in this PR (code used to hard-compute ContentRootPath/customers.db).
   customerservice:
-    build: ./CustomerService
+    # Root context: CustomerService.csproj references ../Common/Common.csproj.
+    build:
+      context: .
+      dockerfile: CustomerService/Dockerfile
     image: evdealer/customerservice:local
     container_name: evm_customerservice
     ports:
@@ -181,7 +199,10 @@ services:
   # exactly as the other services' migrations do. REPORTING_DB_PATH lands the
   # SQLite file on the volume instead of the container layer (see Program.cs).
   reportingservice:
-    build: ./ReportingService
+    # Root context: ReportingService.csproj references ../Common/Common.csproj.
+    build:
+      context: .
+      dockerfile: ReportingService/Dockerfile
     image: evdealer/reportingservice:local
     container_name: evm_reportingservice
     ports:
@@ -224,7 +245,10 @@ services:
   #   docker cp firebase-credentials.json evm_notificationservice:/app/firebase-credentials.json
   #   docker compose restart notificationservice
   notificationservice:
-    build: ./NotificationService
+    # Root context: NotificationService.csproj references ../Common/Common.csproj.
+    build:
+      context: .
+      dockerfile: NotificationService/Dockerfile
     image: evdealer/notificationservice:local
     container_name: evm_notificationservice
     ports:

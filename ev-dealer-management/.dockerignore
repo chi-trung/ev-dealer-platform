@@ -1,0 +1,50 @@
+# Build context for every service is the management root (docker-compose:
+# `context: .` + `dockerfile: <Service>/Dockerfile`) so the sibling Common
+# project referenced by six of the seven csproj is inside the context — a
+# service-only context cannot resolve ..\Common\Common.csproj during restore.
+# The rules below replace the service-local .dockerignore files, which only
+# applied when the context WAS the service directory. Patterns are anchored
+# from this root.
+**/bin/
+**/obj/
+**/*.db
+**/*.db-shm
+**/*.db-wal
+**/Logs/
+**/*.user
+**/*.suo
+**/Properties/launchSettings.json
+# Firebase service account key: mounted at runtime, never baked or committed.
+**/firebase-credentials.json
+# Host-side probe/scratch and backup files from local debugging.
+**/*.backup
+**/*.backup2
+resp*.bin
+*.err
+*.bin
+# dotnet publish output from host builds: stale second copy of the app.
+**/publish/
+# Local tooling/scripts that must not reach the image.
+*.ps1
+check-health.ps1
+start-all-services.ps1
+start-testdrive-services.ps1
+test-all-flows.ps1
+test-testdrive-flow.ps1
+report_test.csv
+users.db*
+.env
+.env.example
+.dockerignore
+docker-compose.yml
+DealerSystem.sln
+docs/
+scripts/
+.config/
+# The test project references the services, not the reverse, so restoring or
+# publishing a service never traverses into it — but it is ~hundreds of files
+# of context it does not need.
+DealerSystem.Tests/
+# Stray scratch file a shell redirect left at the repo root.
+C\357\200\272UsersGnurtDesktopevdiff_out.txt
+# Never exclude Common/, the service source dirs, or VehicleService/wwwroot/.

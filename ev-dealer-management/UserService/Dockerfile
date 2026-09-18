@@ -1,13 +1,17 @@
 FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
 WORKDIR /src
 
-# copy csproj and restore as distinct layers
-COPY *.csproj ./
-RUN dotnet restore
+# compose build context is the management root (dockerfile:
+# UserService/Dockerfile): the csproj path is the service subdirectory and
+# the sibling Common project is inside the context for restore. Copy both
+# csproj first so restore is its own cached layer.
+COPY ["UserService/UserService.csproj", "UserService/"]
+COPY ["Common/Common.csproj", "Common/"]
+RUN dotnet restore "UserService/UserService.csproj"
 
 # copy everything else and publish
-COPY . ./
-RUN dotnet publish -c Release -o /app/publish
+COPY . .
+RUN dotnet publish "UserService/UserService.csproj" -c Release -o /app/publish /p:UseAppHost=false
 
 FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS runtime
 WORKDIR /app
