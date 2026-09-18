@@ -38,10 +38,10 @@ COPY --from=publish /app/publish .
 
 # Add health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD curl -f http://localhost:8080/health || exit 1
+  CMD curl -f http://localhost:${PORT:-8080}/health || exit 1
 
 # Expose port 8080
 EXPOSE 8080
 
 # Set the entry point
-ENTRYPOINT ["dotnet", "VehicleService.dll"]
+ENTRYPOINT ["sh", "-c", "ASPNETCORE_URLS=${ASPNETCORE_URLS:-http://+:${PORT:-8080}} dotnet VehicleService.dll"]
