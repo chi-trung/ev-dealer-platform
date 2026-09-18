@@ -22,6 +22,9 @@ namespace SalesService.Models
         public int OrderId { get; set; }
         public Order? Order { get; set; }
 
+        // Scale-less numeric under Postgres rounds cents away; decimal(18,2)
+        // pins it. SQLite is unaffected (TEXT storage honors the CLR value).
+        [Column(TypeName = "decimal(18, 2)")]
         public decimal Amount { get; set; }
         public string Method { get; set; } = string.Empty; // Cash, BankTransfer, Card
         public string Status { get; set; } = "Pending";    // Pending, Paid, Failed

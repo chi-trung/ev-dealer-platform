@@ -22,6 +22,9 @@ namespace SalesService.Models
         public string Type { get; set; } = "Percent";
 
         // Giá trị giảm (vd: 10 -> 10%)
+        // Same precision reason as Payment.Amount / Vehicle.Price: an untyped
+        // decimal becomes scale-less numeric under Postgres and loses cents.
+        [Column(TypeName = "decimal(18, 2)")]
         public decimal Value { get; set; }
 
         public DateTime StartDate { get; set; }
