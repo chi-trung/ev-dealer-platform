@@ -35,12 +35,32 @@ try
     builder.Services.AddCors(options =>
     {
         options.AddPolicy("AllowSpecificOrigin",
-            builder =>
+            policy =>
             {
-                builder.WithOrigins("http://localhost:5173") // Frontend URL
-                       .AllowAnyHeader()
-                       .AllowAnyMethod()
-                       .WithExposedHeaders("Location"); // Expose the Location header for 201 Created responses
+                // Origins come from config as one comma-separated string
+                // (Cors__AllowedOrigins="https://a,https://b") so a deployed
+                // frontend (e.g. the Vercel app) can be permitted without a
+                // rebuild. Default keeps the Vite dev port working unchanged.
+                // Origins must be exact "scheme://host[:port]" values: no
+                // trailing slash and no wildcard patterns (WithOrigins stores
+                // them verbatim, so e.g. "https://*.vercel.app" silently never
+                // matches). Same pattern as APIGatewayService (Issue #77).
+                // Vite defaults to 5173 and increments (5174, 5175...) when the
+                // port is busy, so all three are listed, matching the gateway's
+                // defaults exactly.
+                var defaultOrigins = new[]
+                {
+                    "http://localhost:5173",
+                    "http://localhost:5174",
+                    "http://localhost:5175",
+                };
+                var configured = (builder.Configuration["Cors:AllowedOrigins"] ?? "")
+                    .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                var origins = configured.Length > 0 ? configured : defaultOrigins;
+                policy.WithOrigins(origins)
+                      .AllowAnyHeader()
+                      .AllowAnyMethod()
+                      .WithExposedHeaders("Location"); // Expose the Location header for 201 Created responses
             });
     });
     
