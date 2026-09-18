@@ -2,17 +2,18 @@
 FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
 WORKDIR /src
 
-# compose build context is ./APIGatewayService, so the csproj is at context root
-# (the previously committed COPY of "APIGatewayService/APIGatewayService.csproj"
-# never existed inside this context and aborted every `docker compose build`)
-COPY ["APIGatewayService.csproj", "./"]
-RUN dotnet restore "APIGatewayService.csproj"
+# compose build context is the management root (dockerfile:
+# APIGatewayService/Dockerfile). This service references no sibling project, so
+# a service-local context would also have worked — the root context is used for
+# parity with the other six and so the shared root .dockerignore applies.
+COPY ["APIGatewayService/APIGatewayService.csproj", "APIGatewayService/"]
+RUN dotnet restore "APIGatewayService/APIGatewayService.csproj"
 
 COPY . .
-RUN dotnet build "APIGatewayService.csproj" -c Release -o /app/build
+RUN dotnet build "APIGatewayService/APIGatewayService.csproj" -c Release -o /app/build
 
 FROM build AS publish
-RUN dotnet publish "APIGatewayService.csproj" -c Release -o /app/publish /p:UseAppHost=false
+RUN dotnet publish "APIGatewayService/APIGatewayService.csproj" -c Release -o /app/publish /p:UseAppHost=false
 
 FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS final
 WORKDIR /app

@@ -2,15 +2,18 @@
 FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
 WORKDIR /src
 
-# compose build context is ./NotificationService, so the csproj is at context root
-COPY ["NotificationService.csproj", "./"]
-RUN dotnet restore "NotificationService.csproj"
+# compose build context is the management root (dockerfile:
+# NotificationService/Dockerfile), so the csproj path is the service
+# subdirectory and the sibling Common project is inside the context.
+COPY ["NotificationService/NotificationService.csproj", "NotificationService/"]
+COPY ["Common/Common.csproj", "Common/"]
+RUN dotnet restore "NotificationService/NotificationService.csproj"
 
 COPY . .
-RUN dotnet build "NotificationService.csproj" -c Release -o /app/build
+RUN dotnet build "NotificationService/NotificationService.csproj" -c Release -o /app/build
 
 FROM build AS publish
-RUN dotnet publish "NotificationService.csproj" -c Release -o /app/publish /p:UseAppHost=false
+RUN dotnet publish "NotificationService/NotificationService.csproj" -c Release -o /app/publish /p:UseAppHost=false
 
 FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS final
 WORKDIR /app

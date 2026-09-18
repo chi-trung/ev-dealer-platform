@@ -2,15 +2,18 @@
 FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
 WORKDIR /src
 
-# compose build context is ./ReportingService, so the csproj is at context root
-COPY ["ReportingService.csproj", "./"]
-RUN dotnet restore "ReportingService.csproj"
+# compose build context is the management root (dockerfile:
+# ReportingService/Dockerfile), so the csproj path is the service subdirectory
+# and the sibling Common project is inside the context.
+COPY ["ReportingService/ReportingService.csproj", "ReportingService/"]
+COPY ["Common/Common.csproj", "Common/"]
+RUN dotnet restore "ReportingService/ReportingService.csproj"
 
 COPY . .
-RUN dotnet build "ReportingService.csproj" -c Release -o /app/build
+RUN dotnet build "ReportingService/ReportingService.csproj" -c Release -o /app/build
 
 FROM build AS publish
-RUN dotnet publish "ReportingService.csproj" -c Release -o /app/publish /p:UseAppHost=false
+RUN dotnet publish "ReportingService/ReportingService.csproj" -c Release -o /app/publish /p:UseAppHost=false
 
 FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS final
 WORKDIR /app

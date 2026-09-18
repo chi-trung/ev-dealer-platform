@@ -2,19 +2,22 @@
 FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
 WORKDIR /src
 
-# Copy the project file and restore dependencies
-COPY ["VehicleService.csproj", "./"]
-RUN dotnet restore "VehicleService.csproj"
+# compose build context is the management root (dockerfile:
+# VehicleService/Dockerfile): the csproj path is the service subdirectory and
+# the sibling Common project is inside the context for restore.
+COPY ["VehicleService/VehicleService.csproj", "VehicleService/"]
+COPY ["Common/Common.csproj", "Common/"]
+RUN dotnet restore "VehicleService/VehicleService.csproj"
 
 # Copy the rest of the application code
 COPY . .
 
 # Build the application
-RUN dotnet build "VehicleService.csproj" -c Release -o /app/build
+RUN dotnet build "VehicleService/VehicleService.csproj" -c Release -o /app/build
 
 # Publish the application
 FROM build AS publish
-RUN dotnet publish "VehicleService.csproj" -c Release -o /app/publish /p:UseAppHost=false
+RUN dotnet publish "VehicleService/VehicleService.csproj" -c Release -o /app/publish /p:UseAppHost=false
 
 # Use the official .NET 8 runtime image to run the app
 FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS final
