@@ -1,0 +1,356 @@
+# Render Blueprint for the EV Dealer Platform backend (7 .NET microservices).
+#
+# Repo root is one level up (git toplevel = the repo, NOT this folder), so a
+# Render repo root deploy would make ./APIGatewayService/Dockerfile wrong.
+# Either point the Render service's Root Directory at ev-dealer-management/
+# (then these paths are correct as written) or strip the leading ./ if you
+# deploy from the repo root. docker-compose.yml uses context "." + dockerfile
+# "<Service>/Dockerfile" from THIS directory, which is what the paths below
+# mirror.
+#
+# Blueprint spec: https://render.com/docs/blueprint-spec
+# Validate before applying:  render blueprints validate ./render.yaml
+# from the ev-dealer-management/ directory.
+#
+# NOTHING BILLABLE IS CREATED BY THIS FILE. Secrets are `sync: false`
+# placeholders the owner fills in the Render dashboard; the blueprint itself
+# contains no credential material.
+#
+# PORT binding (issue #117 / PR #118, verified): each Dockerfile ENTRYPOINT is
+#   ["sh","-c","ASPNETCORE_URLS=${ASPNETCORE_URLS:-http://+:${PORT:-80}} dotnet X.dll"]
+# which resolves at CONTAINER START, so Render's injected PORT (10000) is
+# honored. Therefore NO service below sets ASPNETCORE_URLS -- any non-empty
+# value defeats the :- fallback and silently re-binds :80 (probed, twice).
+# docker-compose.yml sets it explicitly because compose has no PORT concept;
+# compose is unaffected by this file.
+
+services:
+  # ==========================================================================
+  # RabbitMQ MUST be created and healthy first (it is a `psrv` below, which
+  # Render starts before web services). Two proven boot-time consequences of a
+  # missing/unreachable broker:
+  #   - SalesService's RabbitMQMessagePublisher ctor throws -> the service
+  #     never finishes startup -> /health never answers.
+  #   - CustomerService's VehicleReservedEventConsumer.ExecuteAsync has ONE
+  #     try/catch: a boot-time failure kills the consumer thread PERMANENTLY
+  #     while /health keeps returning 200 (silent dead consumer).
+  # The `guest` account is loopback-restricted in RabbitMQ, so the broker
+  # needs a non-guest user and RabbitMQ__* env is REQUIRED, not optional.
+  # ==========================================================================
+  # `pserv` is Render's type for a private service (verified against
+  # https://render.com/docs/blueprint-spec; NOT "psrv" or "private").
+  - type: pserv
+    runtime: docker
+    name: evm-rabbitmq
+    region: oregon
+    plan: free
+    dockerfilePath: ./Dockerfile.rabbitmq
+    dockerContext: .
+    autoDeploy: false
+    envVars:
+      - key: RABBITMQ_DEFAULT_USER
+        sync: false
+      - key: RABBITMQ_DEFAULT_PASS
+        sync: false
+      - key: RABBITMQ_DEFAULT_VHOST
+        value: /
+
+  - type: web
+    runtime: docker
+    name: evm-gateway
+    region: oregon
+    plan: free
+    dockerfilePath: ./APIGatewayService/Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    autoDeploy: false
+    envVars:
+      # ocelot.json downstreams are all localhost:<devport>; these six pairs
+      # rewrite them at startup (scheme-qualified To supported since PR #79).
+      # Render does NOT provide cross-instance DNS between web services, so the
+      # To values must be the PUBLIC https URLs of the target services, not
+      # bare hostnames. Swap the .onrender.com values once the services exist.
+      - key: Gateway__Rewrites__0__From
+        value: localhost:7001
+      - key: Gateway__Rewrites__0__To
+        value: https://userservice.onrender.com
+      - key: Gateway__Rewrites__1__From
+        value: localhost:5068
+      - key: Gateway__Rewrites__1__To
+        value: https://vehicleservice.onrender.com
+      - key: Gateway__Rewrites__2__From
+        value: localhost:5003
+      - key: Gateway__Rewrites__2__To
+        value: https://salesservice.onrender.com
+      - key: Gateway__Rewrites__3__From
+        value: localhost:5039
+      - key: Gateway__Rewrites__3__To
+        value: https://customerservice.onrender.com
+      - key: Gateway__Rewrites__4__From
+        value: localhost:5208
+      - key: Gateway__Rewrites__4__To
+        value: https://reportingservice.onrender.com
+      - key: Gateway__Rewrites__5__From
+        value: localhost:5051
+      - key: Gateway__Rewrites__5__To
+        value: https://notificationservice.onrender.com
+      # Key name verified in all six services' Program.cs:
+      # builder.Configuration["Cors:AllowedOrigins"]. Origins are matched
+      # VERBATIM by WithOrigins -- no trailing slash, no wildcards, exact
+      # scheme://host (PR #77/#105). Unset in every appsettings.json, so this
+      # must be an env var or CORS blocks the deployed frontend.
+      - key: Cors__AllowedOrigins
+        value: https://evdealer.vercel.app
+
+  - type: web
+    runtime: docker
+    name: userservice
+    region: oregon
+    plan: free
+    dockerfilePath: ./UserService/Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    autoDeploy: false
+    envVars:
+      # Common.DbProviderSelector: DB_PROVIDER=postgres hard-fails if the
+      # connection string is missing, and an unknown value throws (PR #90 --
+      # the switch used to silently fall through to SQLite).
+      - key: DB_PROVIDER
+        value: postgres
+      - key: ConnectionStrings__DefaultConnection
+        fromDatabase:
+          name: evm-postgres
+          property: connectionString
+      # Gates Migrate() in several services (CustomerService especially);
+      # compose sets Development for all seven for the same reason.
+      - key: ASPNETCORE_ENVIRONMENT
+        value: Development
+      # The JWT trio must BYTE-MATCH across userservice / customerservice /
+      # notificationservice or tokens minted by one are rejected by the
+      # others. Fill ONE dashboard value and copy it to all three verbatim.
+      - key: Jwt__Key
+        sync: false
+      - key: Jwt__Issuer
+        value: https://evm-gateway.onrender.com
+      - key: Jwt__Audience
+        value: https://evm-gateway.onrender.com
+      - key: FrontendUrl
+        value: https://evdealer.vercel.app
+      - key: Cors__AllowedOrigins
+        value: https://evdealer.vercel.app
+      # SMTP password is a `sync: false` placeholder, NEVER committed. Unset
+      # fails closed: SMTP auth error in the log while forgot-password still
+      # returns generic success to the caller (issue #10). Owner must revoke
+      # the old app password at myaccount.google.com/apppasswords.
+      - key: EmailSettings__SmtpHost
+        value: smtp.gmail.com
+      - key: EmailSettings__SmtpPort
+        value: "587"
+      - key: EmailSettings__SmtpUser
+        value: bata79892@gmail.com
+      - key: EmailSettings__SmtpPassword
+        sync: false
+      - key: EmailSettings__FromEmail
+        value: bata79892@gmail.com
+      - key: EmailSettings__FromName
+        value: EV Dealer
+      - key: EmailSettings__EnableSsl
+        value: "true"
+
+  - type: web
+    runtime: docker
+    name: vehicleservice
+    region: oregon
+    plan: free
+    dockerfilePath: ./VehicleService/Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    autoDeploy: false
+    envVars:
+      - key: DB_PROVIDER
+        value: postgres
+      - key: ConnectionStrings__DefaultConnection
+        fromDatabase:
+          name: evm-postgres
+          property: connectionString
+      - key: ASPNETCORE_ENVIRONMENT
+        value: Development
+      - key: RabbitMQ__HostName
+        value: evm-rabbitmq
+      # 5672 NOT 5671: the broker clients use the plain connection factory
+      # (RabbitMQProducerService / RabbitMQMessagePublisher) with no SslOptions,
+      # so a TLS port would connect nothing.
+      - key: RabbitMQ__Port
+        value: "5672"
+      - key: RabbitMQ__UserName
+        sync: false
+      - key: RabbitMQ__Password
+        sync: false
+
+  - type: web
+    runtime: docker
+    name: salesservice
+    region: oregon
+    plan: free
+    dockerfilePath: ./SalesService/Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    autoDeploy: false
+    envVars:
+      - key: DB_PROVIDER
+        value: postgres
+      - key: ConnectionStrings__DefaultConnection
+        fromDatabase:
+          name: evm-postgres
+          property: connectionString
+      - key: ASPNETCORE_ENVIRONMENT
+        value: Development
+      - key: RabbitMQ__HostName
+        value: evm-rabbitmq
+      - key: RabbitMQ__Port
+        value: "5672"
+      - key: RabbitMQ__UserName
+        sync: false
+      - key: RabbitMQ__Password
+        sync: false
+      # Read as a full BASE URL then path-appended
+      # (SalesService/Controllers/OrdersController.cs:362), so it must be
+      # scheme-qualified.
+      - key: Services__VehicleService
+        value: https://vehicleservice.onrender.com
+      - key: Cors__AllowedOrigins
+        value: https://evdealer.vercel.app
+
+  - type: web
+    runtime: docker
+    name: customerservice
+    region: oregon
+    plan: free
+    dockerfilePath: ./CustomerService/Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    autoDeploy: false
+    envVars:
+      - key: DB_PROVIDER
+        value: postgres
+      - key: ConnectionStrings__DefaultConnection
+        fromDatabase:
+          name: evm-postgres
+          property: connectionString
+      - key: ASPNETCORE_ENVIRONMENT
+        value: Development
+      - key: Jwt__Key
+        sync: false
+      - key: Jwt__Issuer
+        value: https://evm-gateway.onrender.com
+      - key: Jwt__Audience
+        value: https://evm-gateway.onrender.com
+      - key: RabbitMQ__HostName
+        value: evm-rabbitmq
+      - key: RabbitMQ__Port
+        value: "5672"
+      - key: RabbitMQ__UserName
+        sync: false
+      - key: RabbitMQ__Password
+        sync: false
+      - key: RabbitMQ__MaxDeliveryAttempts
+        value: "3"
+      - key: RabbitMQ__RetryTtlMilliseconds
+        value: "5000"
+      - key: Cors__AllowedOrigins
+        value: https://evdealer.vercel.app
+
+  - type: web
+    runtime: docker
+    name: reportingservice
+    region: oregon
+    plan: free
+    dockerfilePath: ./ReportingService/Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    autoDeploy: false
+    envVars:
+      - key: DB_PROVIDER
+        value: postgres
+      # ReportingService passes sqliteFallback to AddApplicationDbContext, but
+      # that fallback only applies on the SQLITE arm (DbProviderSelector:75);
+      # with postgres an unset connection string throws. So this is required.
+      - key: ConnectionStrings__DefaultConnection
+        fromDatabase:
+          name: evm-postgres
+          property: connectionString
+      - key: ASPNETCORE_ENVIRONMENT
+        value: Development
+      # ReportingService has NO RabbitMQ dependency (verified: zero broker
+      # code), which is why it is absent here unlike the other consumers.
+      # All four are read as full base URLs (Services/*.cs), so https:// form.
+      - key: Services__SalesService
+        value: https://salesservice.onrender.com
+      - key: Services__VehicleService
+        value: https://vehicleservice.onrender.com
+      - key: Services__UserService
+        value: https://userservice.onrender.com
+      - key: Services__CustomerService
+        value: https://customerservice.onrender.com
+      - key: Cors__AllowedOrigins
+        value: https://evdealer.vercel.app
+
+  - type: web
+    runtime: docker
+    name: notificationservice
+    region: oregon
+    plan: free
+    dockerfilePath: ./NotificationService/Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    autoDeploy: false
+    envVars:
+      - key: DB_PROVIDER
+        value: postgres
+      - key: ConnectionStrings__DefaultConnection
+        fromDatabase:
+          name: evm-postgres
+          property: connectionString
+      - key: ASPNETCORE_ENVIRONMENT
+        value: Development
+      - key: Jwt__Key
+        sync: false
+      - key: Jwt__Issuer
+        value: https://evm-gateway.onrender.com
+      - key: Jwt__Audience
+        value: https://evm-gateway.onrender.com
+      - key: RabbitMQ__HostName
+        value: evm-rabbitmq
+      - key: RabbitMQ__Port
+        value: "5672"
+      - key: RabbitMQ__UserName
+        sync: false
+      - key: RabbitMQ__Password
+        sync: false
+      - key: RabbitMQ__MaxDeliveryAttempts
+        value: "3"
+      - key: RabbitMQ__RetryTtlMilliseconds
+        value: "5000"
+      # Credential file does not exist in the repo (secret) and is NOT
+      # mountable on Render: boot is fine, but push endpoints 500 on the first
+      # lazy FCM use and consumed events cycle retry -> DLQ. Leave unset until
+      # the owner provisions it; do NOT point it at a nonexistent path.
+      - key: Firebase__CredentialPath
+        sync: false
+      - key: Cors__AllowedOrigins
+        value: https://evdealer.vercel.app
+
+databases:
+  # ALL SEVEN services share ONE database -- verified safe: 25 table names
+  # across 6 contexts, ZERO collisions (conventional DbSet names, no
+  # explicit ToTable anywhere), and all 10 migration IDs are globally unique
+  # (the three AddDecimalPrecision IDs differ by timestamp) so the shared
+  # __EFMigrationsHistory never conflicts. The free tier allows exactly one
+  # postgres instance, so this is also the only option.
+  - name: evm-postgres
+    region: oregon
+    plan: free
+    ipAllowList: []
+    # Render does not template a per-service Database= into the connection
+    # string, so every service lands in the same default DB -- which is
+    # exactly what the collision audit above says is safe.

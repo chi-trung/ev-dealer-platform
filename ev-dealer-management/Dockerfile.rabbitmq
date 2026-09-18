@@ -1,0 +1,20 @@
+# Private RabbitMQ broker for Render. Referenced by render.yaml as a `psrv`
+# (private service), which Render starts BEFORE web services -- required
+# because SalesService's publisher ctor throws if the broker is unreachable at
+# startup and CustomerService's consumer has a single try/catch whose failure
+# kills the consumer thread permanently while /health stays 200.
+#
+# 3-management gives the management UI on 15672 (handy; the AMQP port 5672 is
+# the one the services connect to). Kept identical to docker-compose.yml's
+# broker image so local compose and Render run the same broker.
+#
+# The `guest` account is loopback-restricted in RabbitMQ, so
+# RABBITMQ_DEFAULT_USER / RABBITMQ_DEFAULT_PASS MUST be set to a non-guest
+# pair (sync:false placeholders in render.yaml -- owner fills them in the
+# Render dashboard, never in this repo).
+FROM rabbitmq:3-management
+
+# Render's health check for a private service is TCP connectivity to the
+# exposed port, so no in-image HEALTHCHECK is needed here.
+EXPOSE 5672
+EXPOSE 15672
