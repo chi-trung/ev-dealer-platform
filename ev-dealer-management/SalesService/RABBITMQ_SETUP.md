@@ -3,8 +3,10 @@
 > **Cập nhật 2026-09 (docs sweep #52):** container RabbitMQ trong
 > `docker-compose.yml` tên **`evm_rabbitmq`** (compose service là `rabbitmq`);
 > key cấu hình broker là **`RabbitMQ:HostName`** (không phải `Host`);
-> VehicleService chạy port dev **5068** — value mặc định `http://localhost:5001`
-> trong `appsettings.json` là port cũ, compose đã override bằng
+> VehicleService chạy port dev **5068** (xem `Properties/launchSettings.json`);
+> `appsettings.json` của SalesService ghi `Services:VehicleService =
+> http://localhost:5068` — đã đúng cho `dotnet run` trần (Issue #109 sửa từ
+> `5001` cũ). Trong compose, value này bị override bởi
 > `Services__VehicleService=http://vehicleservice:8080`.
 
 ## 📋 Điều Kiện Cần Thiết
@@ -59,11 +61,11 @@ cd ev-dealer-management\VehicleService
 dotnet run
 ```
 
-Port dev (launchSettings): `http://localhost:5068`. *(appsettings của
-SalesService còn ghi `Services:VehicleService = http://localhost:5001` —
-port cũ; khi chạy dev manual, override bằng
-`$env:Services__VehicleService="http://localhost:5068"` trước `dotnet run`,
-hoặc đơn giản là chạy cả stack qua compose.)*
+Port dev (launchSettings): `http://localhost:5068`. *(Kể từ Issue #109,
+`appsettings.json` của SalesService ghi `Services:VehicleService =
+http://localhost:5068` — khớp luôn với port dev, nên `dotnet run` trần không
+cần override nữa. Compose vẫn override bằng
+`Services__VehicleService=http://vehicleservice:8080`.)*
 
 ### 4. **Database SQLite** (Tự động tạo)
 
@@ -166,7 +168,7 @@ Mở RabbitMQ Management UI: http://localhost:15672
     }
   },
   "Services": {
-    "VehicleService": "http://localhost:5001"
+    "VehicleService": "http://localhost:5068"
   }
 }
 ```

@@ -155,7 +155,7 @@ $reservationBody = @{
     quantity = 1
 } | ConvertTo-Json
 
-Invoke-RestMethod -Uri "http://localhost:5002/api/vehicles/1/reservations" `
+Invoke-RestMethod -Uri "http://localhost:5068/api/vehicles/1/reservations" `
     -Method Post `
     -Body $reservationBody `
     -ContentType "application/json"
