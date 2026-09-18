@@ -68,10 +68,16 @@ services:
     dockerContext: .
     autoDeploy: false
     envVars:
+      # generateValue (not sync:false): RabbitMQ with no default user has NO
+      # usable account at all -- guest is loopback-restricted, so unlike the
+      # other placeholders in this file (which fail closed and degrade), an
+      # empty broker credential takes the whole event fabric down at boot.
+      # Render mints these once; the four consuming services' RabbitMQ__*
+      # values must then be pasted to match, or wired with fromService.
       - key: RABBITMQ_DEFAULT_USER
-        sync: false
+        generateValue: true
       - key: RABBITMQ_DEFAULT_PASS
-        sync: false
+        generateValue: true
       - key: RABBITMQ_DEFAULT_VHOST
         value: /
 
@@ -142,7 +148,13 @@ services:
           name: evm-postgres
           property: connectionString
       # Gates Migrate() in several services (CustomerService especially);
-      # compose sets Development for all seven for the same reason.
+      # compose sets Development for all seven for the same reason. SIDE EFFECT
+      # to accept deliberately: IsDevelopment() also enables Swagger UI at
+      # /swagger on a PUBLIC url (verified gates: CustomerService:120,
+      # UserService:131, SalesService:143, NotificationService:192,
+      # ReportingService:116, APIGatewayService:128, VehicleService:57). The
+      # Migrate() gates are load-bearing, so this stays Development -- the
+      # API docs exposure is the trade-off, not an oversight.
       - key: ASPNETCORE_ENVIRONMENT
         value: Development
       # The JWT trio must BYTE-MATCH across userservice / customerservice /
@@ -165,6 +177,14 @@ services:
       - key: EmailSettings__SmtpHost
         value: smtp.gmail.com
       - key: EmailSettings__SmtpPort
+        # KNOWN FREE-TIER LIMITATION, not a mistake: Render blocks outbound
+        # traffic on SMTP ports 25/465/587 for FREE web services (changelog
+        # 2025-09-16, live in all regions since 2025-09-26). UserService
+        # connects with ConnectAsync(host, port, StartTls), so password-reset
+        # email CANNOT work while userservice is on free, even with the app
+        # password correctly set. Options: move userservice to a paid plan,
+        # or switch email to an HTTP API (SendGrid et al). 587 stays here
+        # because it is the correct port for every other host.
         value: "587"
       - key: EmailSettings__SmtpUser
         value: bata79892@gmail.com
@@ -189,9 +209,12 @@ services:
     envVars:
       - key: DB_PROVIDER
         value: postgres
+      # Split onto its own instance: UserService and VehicleService both emit
+      # a `Dealers` table with incompatible columns (see the databases note
+      # and issue #121), so they cannot share a schema.
       - key: ConnectionStrings__DefaultConnection
         fromDatabase:
-          name: evm-postgres
+          name: evm-postgres-vehicle
           property: connectionString
       - key: ASPNETCORE_ENVIRONMENT
         value: Development
@@ -361,20 +384,43 @@ services:
         value: https://evdealer.vercel.app
 
 databases:
-  # ALL SEVEN services share ONE database -- verified safe: 25 table names
-  # across 6 contexts, ZERO collisions (conventional DbSet names, no
-  # explicit ToTable anywhere), and all 10 migration IDs are globally unique
-  # (the three AddDecimalPrecision IDs differ by timestamp) so the shared
-  # __EFMigrationsHistory never conflicts. The free tier allows exactly one
-  # postgres instance, so this is also the only option.
+  # NOT all seven share this database -- ONE REAL COLLISION exists and it is
+  # why this file defines a second instance below. Both UserService and
+  # VehicleService map ToTable("Dealers") with incompatible schemas:
+  #   UserService/Migrations/20251122042647_InitialCreate.cs:15  -> Id, Name(req), Address(nullable)   [3 cols, Migrate()]
+  #   VehicleService/...RemoveReservations.Designer.cs:168-200   -> + Contact, Email, Region, CreatedAt, UpdatedAt, all required with MaxLength  [7 cols, EnsureCreated()]
+  # Both also SEED it with different rows (UserService: 3 VinFast dealers;
+  # VehicleService HasData: Tesla/BMW). Sharing public.Dealers means the second
+  # service to migrate either errors or silently gets the other's columns.
+  # The earlier "zero collisions" claim here was wrong: it deduplicated table
+  # NAMES (both contexts call the entity `Dealer`) instead of counting the
+  # number of contexts that emit the table. See issue #121.
+  #
+  # Splitting by databaseName (rather than reconciling the models) is the
+  # smaller change and keeps both services' migrations untouched.
   - name: evm-postgres
+    databaseName: evm_core
     region: oregon
     plan: free
     # EMPTY list = "only allow internal/private connections" per the blueprint
-    # spec (NOT deny-all, and NOT a mistake): the seven services reach the DB
+    # spec (NOT allow-all, and NOT deny-all): the seven services reach the DB
     # over Render's private network, so there is no reason to expose 5432 to
     # the public internet. This is the intended posture for a backend DB.
     ipAllowList: []
-    # Render does not template a per-service Database= into the connection
-    # string, so every service lands in the same default DB -- which is
-    # exactly what the collision audit above says is safe.
+  - name: evm-postgres-vehicle
+    databaseName: evm_vehicle
+    region: oregon
+    plan: free
+    ipAllowList: []
+    # NOTE: the free tier allows only ONE postgres instance per workspace.
+    # Two `databases` entries on free will fail at apply. The split is the
+    # correct SHAPE; making it work requires either (a) one paid instance
+    # with two databaseNames, or (b) reconciling the two Dealer models so a
+    # single database is safe again (issue #121 is the fix for (b), and it
+    # makes this second entry unnecessary). Until one of those happens the
+    # broker is not the only paid line item.
+    #
+    # vehicleservice below points at this second instance.
+  # NOTE: ipAllowList does NOT isolate services from each other -- Render's
+  # inbound IP rules apply to public-internet traffic only, never to
+  # private-network traffic. This is security-through-posture, not isolation.
