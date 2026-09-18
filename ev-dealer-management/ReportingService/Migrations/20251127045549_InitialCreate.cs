@@ -58,7 +58,8 @@ namespace ReportingService.Migrations
                 columns: table => new
                 {
                     Id = table.Column<int>(type: "INTEGER", nullable: false)
-                        .Annotation("Sqlite:Autoincrement", true),
+                        .Annotation("Sqlite:Autoincrement", true)
+                       .Annotation("Npgsql:ValueGenerationStrategy", Npgsql.EntityFrameworkCore.PostgreSQL.Metadata.NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
                     Type = table.Column<string>(type: "TEXT", maxLength: 100, nullable: false),
                     From = table.Column<DateTime>(type: "TEXT", nullable: true),
                     To = table.Column<DateTime>(type: "TEXT", nullable: true),
@@ -97,7 +98,8 @@ namespace ReportingService.Migrations
                 columns: table => new
                 {
                     Id = table.Column<int>(type: "INTEGER", nullable: false)
-                        .Annotation("Sqlite:Autoincrement", true),
+                        .Annotation("Sqlite:Autoincrement", true)
+                       .Annotation("Npgsql:ValueGenerationStrategy", Npgsql.EntityFrameworkCore.PostgreSQL.Metadata.NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
                     ReportRequestId = table.Column<int>(type: "INTEGER", nullable: true),
                     FileName = table.Column<string>(type: "TEXT", maxLength: 255, nullable: false),
                     ContentType = table.Column<string>(type: "TEXT", nullable: false),
