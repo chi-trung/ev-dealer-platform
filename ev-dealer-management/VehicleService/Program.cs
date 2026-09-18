@@ -70,8 +70,19 @@ try
     
     using (var scope = app.Services.CreateScope())
     {
+        // Issue #121: Migrate(), not EnsureCreated(). Both this service and
+        // UserService point at one database, and the two creation strategies
+        // cannot co-own it. EnsureCreated() gates on the WHOLE database
+        // existing: on a DB the other service already made it creates NOTHING
+        // (returns false, does not throw, so /health stays green while every
+        // endpoint dies on "no such table"), and it never writes
+        // __EFMigrationsHistory, so UserService.Migrate() could not see the
+        // work and replayed its own history into a crash. Both boot orderings
+        // were broken (probed). Migrate() on both sides with disjoint table
+        // sets is the fix; the Baseline migration carries the seed data that
+        // EnsureCreated used to apply via HasData.
         var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-        dbContext.Database.EnsureCreated();
+        dbContext.Database.Migrate();
     }
     
     app.Run();

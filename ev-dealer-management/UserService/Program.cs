@@ -127,10 +127,23 @@ try
     {
         var db = scope.ServiceProvider.GetRequiredService<UserDbContext>();
         // Issue #121: the Dealers seed moved to VehicleService, which owns the
-        // table (VehicleService/ApplicationDbContext.cs SeedData, applied by
-        // EnsureCreated). Seeding it here would require the DbSet back, which
-        // is exactly the shared-table collision this change removes.
-        db.Database.Migrate();
+        // table (VehicleService/ApplicationDbContext.cs SeedData, now applied
+        // by that service's Baseline migration). Seeding it here would require
+        // the DbSet back, which is exactly the shared-table collision this
+        // change removes.
+        // Fail-soft, same as SalesService/ReportingService/NotificationService:
+        // a locked or corrupt database file must not stop the process from
+        // booting, because the alternative is a crashloop that takes the
+        // whole service down while the other six stay healthy. Migration
+        // failures surface in the log and in "no such table" endpoint errors.
+        try
+        {
+            db.Database.Migrate();
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[UserService] Warning: could not apply database migrations (existing schema assumed): {ex.Message}");
+        }
     }
     
     // Configure middleware
@@ -393,6 +406,11 @@ public class Dealer
     // CreatedAt, UpdatedAt). UserService no longer maps this to a table -- see
     // the comment above -- so these extra members exist purely so a Dealer
     // fetched from VehicleService's /api/dealers deserializes losslessly.
+    // The field set below mirrors VehicleService/DTOs/DealerDto.cs EXACTLY,
+    // including VehicleCount: that property is not a column (the controller
+    // computes it from the Vehicles navigation), but it IS on the wire, and a
+    // missing member here meant /api/dealers silently dropped it for every
+    // caller of this proxy (review round 2, M3).
     [Required]
     [StringLength(20)]
     public string Contact { get; set; } = string.Empty;
@@ -405,6 +423,10 @@ public class Dealer
     [Required]
     [StringLength(500)]
     public string Address { get; set; } = string.Empty;
+
+    // Computed by VehicleService's controller, not stored. Kept here only to
+    // preserve it across the proxy so the frontend's dealer list is complete.
+    public int VehicleCount { get; set; }
 
     // Audit fields
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
@@ -451,8 +473,13 @@ public class DealerIdValidator
     private readonly ILogger<DealerIdValidator> _logger;
     // Short-lived cache: a signup should not cost a network round-trip every
     // time, but dealers are admin-managed so a long TTL would go stale.
-    private List<Dealer>? _cache;
-    private DateTime _cacheAt = DateTime.MinValue;
+    // This component is a SINGLETON (AddSingleton + AddHttpClient<T>), so the
+    // cache fields are hit by every concurrent registration in the process.
+    // A plain List<> reference + a separately-written DateTime is not atomic:
+    // two threads can race the null/TTL check and stampede the endpoint, and
+    // a reader can see _cacheAt advanced past a _cache that is still the old
+    // list (torn read). The pair is stored and read atomically instead.
+    private volatile Tuple<List<Dealer>, DateTime>? _cache;
     private static readonly TimeSpan CacheTtl = TimeSpan.FromMinutes(2);
 
     public DealerIdValidator(HttpClient http, ILogger<DealerIdValidator> logger)
@@ -463,12 +490,23 @@ public class DealerIdValidator
 
     public async Task<List<Dealer>> GetDealersAsync()
     {
-        var baseUri = _http.BaseAddress?.ToString().TrimEnd('/')
-            ?? throw new InvalidOperationException("Services:VehicleService is not configured");
+        // BaseAddress is required: the request below is a RELATIVE URI, so
+        // without it GetFromJsonAsync throws before any network call and the
+        // caller sees an empty dealer list. Fail loudly here -- the proxy's
+        // own /api/dealers endpoint catches and 503s -- rather than returning
+        // [] and having every DealerId validation silently reject.
+        var baseUri = _http.BaseAddress?.ToString().TrimEnd('/');
+        if (string.IsNullOrWhiteSpace(baseUri))
+            throw new InvalidOperationException(
+                "Services:VehicleService is not configured: HttpClient BaseAddress is empty, " +
+                "so the relative /api/dealers request cannot be built. Set Services__VehicleService " +
+                "(see render.yaml / docker-compose.yml).");
+
         var dealers = await _http.GetFromJsonAsync<List<Dealer>>("/api/dealers")
             ?? new List<Dealer>();
-        _cache = dealers;
-        _cacheAt = DateTime.UtcNow;
+        // Write the pair atomically: a concurrent IsValidAsync reader either
+        // gets the old snapshot or this one, never a mismatched combination.
+        _cache = Tuple.Create(dealers, DateTime.UtcNow);
         return dealers;
     }
 
@@ -480,8 +518,10 @@ public class DealerIdValidator
 
     private async Task<List<Dealer>> GetCachedOrFreshAsync()
     {
-        if (_cache is not null && DateTime.UtcNow - _cacheAt < CacheTtl)
-            return _cache;
+        // Single atomic read of the cached pair.
+        var snapshot = _cache;
+        if (snapshot is not null && DateTime.UtcNow - snapshot.Item2 < CacheTtl)
+            return snapshot.Item1;
         try { return await GetDealersAsync(); }
         catch (Exception ex)
         {
@@ -489,7 +529,7 @@ public class DealerIdValidator
             // not lock out registration. The FK no longer exists in this
             // context, so there is nothing else to keep the row consistent.
             _logger.LogWarning(ex, "Could not reach VehicleService to validate dealer ids; accepting DealerId {Id} unchecked", 0);
-            return _cache ?? new List<Dealer>();
+            return snapshot?.Item1 ?? new List<Dealer>();
         }
     }
 }

@@ -169,8 +169,8 @@ services:
       - key: FrontendUrl
         value: https://evdealer.vercel.app
       # Issue #121: UserService no longer maps the Dealers table -- it proxies
-      # /api/dealers and validates DealerId against VehicleService, which now
-      # owns the schema. REQUIRED: without this the /api/dealers endpoint
+      # /api/dealers and validates DealerId against VehicleService, which owns
+      # the schema. REQUIRED: without this the /api/dealers endpoint
       # returns 503 and DealerId validation silently fails open.
       - key: Services__VehicleService
         value: https://vehicleservice.onrender.com
@@ -215,9 +215,11 @@ services:
     envVars:
       - key: DB_PROVIDER
         value: postgres
-      # Points at the same instance as everything else: the Dealers collision
-      # is resolved (issue #121 / c78dae3), so UserService and VehicleService
-      # now emit an identical Dealers table and can share one schema safely.
+      # Points at the same instance as everything else. Both services now use
+      # Migrate() with DISJOINT table sets, coordinated by
+      # __EFMigrationsHistory -- the only way two contexts can share one
+      # database (see the note in `databases:` below for why the earlier
+      # "ownership alone is enough" claim was wrong, and what replaced it).
       - key: ConnectionStrings__DefaultConnection
         fromDatabase:
           name: evm-postgres
@@ -398,15 +400,30 @@ databases:
   # (both contexts call the entity `Dealer`) instead of counting how many
   # contexts EMIT the table. See issue #121.
   #
-  # IMPORTANT: aligning the COLUMNS was NOT sufficient, and the comment that
-  # used to live here claiming it was, was wrong. Two contexts sharing a table
-  # also share a CREATION strategy, and Migrate() vs EnsureCreated() cannot
-  # co-own one database: EnsureCreated gates on the whole database existing,
-  # so whichever service boots second creates NOTHING (probed: it returns
-  # false rather than throwing, so /health stays green while every endpoint
-  # dies on "no such table"). The real fix was ownership, not schema --
-  # VehicleService owns Dealers and UserService stopped mapping it, reading
-  # dealers over HTTP instead (Services__VehicleService above).
+  # WHAT THE FIX ACTUALLY IS (this replaces two wrong comments).
+  #
+  # Aligning the COLUMNS was not sufficient, and "UserService stops mapping
+  # the table" was not sufficient either. Probed both boot orderings on a
+  # shared database:
+  #
+  #   VehicleService boots first -> EnsureCreated() builds Dealers/Vehicles
+  #     and seeds them, but writes NO __EFMigrationsHistory. UserService's
+  #     Migrate() then replays a history that includes CreateTable("Dealers")
+  #     -> SqliteException 'table "Dealers" already exists' -> userservice
+  #     FAILS TO BOOT and Render crashloops it.
+  #   UserService boots first   -> Migrate() creates Users/PasswordResetTokens
+  #     only. VehicleService's EnsureCreated() then finds the database already
+  #     exists and creates NOTHING (it returns false rather than throwing, so
+  #     /health stays green while every endpoint dies on "no such table"),
+  #     and its HasData seed never runs.
+  #
+  # Both orderings break. The collision is not in any one table mapping: it is
+  # that Migrate() and EnsureCreated() each claim the WHOLE database. So both
+  # services now use Migrate() against disjoint table sets -- UserService's
+  # squashed baseline owns Users/PasswordResetTokens and never touches
+  # Dealers, VehicleService's owns Dealers/Vehicles/VehicleTypes/
+  # VehicleImages/VehicleSpecifications/ColorVariants -- and __EFMigrationsHistory
+  # is the shared record that keeps them from replaying each other's work.
   #
   # This matters on the free tier, which allows only ONE postgres instance per
   # workspace: the second database this file used to define would have failed
