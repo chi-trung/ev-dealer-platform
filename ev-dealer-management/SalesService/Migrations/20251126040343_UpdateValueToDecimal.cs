@@ -16,7 +16,8 @@ namespace SalesService.Migrations
                 columns: table => new
                 {
                     ContractId = table.Column<int>(type: "INTEGER", nullable: false)
-                        .Annotation("Sqlite:Autoincrement", true),
+                        .Annotation("Sqlite:Autoincrement", true)
+                       .Annotation("Npgsql:ValueGenerationStrategy", Npgsql.EntityFrameworkCore.PostgreSQL.Metadata.NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
                     OrderId = table.Column<int>(type: "INTEGER", nullable: false),
                     CustomerId = table.Column<int>(type: "INTEGER", nullable: false),
                     DealerId = table.Column<int>(type: "INTEGER", nullable: false),
@@ -40,7 +41,8 @@ namespace SalesService.Migrations
                 columns: table => new
                 {
                     OrderId = table.Column<int>(type: "INTEGER", nullable: false)
-                        .Annotation("Sqlite:Autoincrement", true),
+                        .Annotation("Sqlite:Autoincrement", true)
+                       .Annotation("Npgsql:ValueGenerationStrategy", Npgsql.EntityFrameworkCore.PostgreSQL.Metadata.NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
                     QuoteId = table.Column<int>(type: "INTEGER", nullable: false),
                     CustomerId = table.Column<int>(type: "INTEGER", nullable: false),
                     DealerId = table.Column<int>(type: "INTEGER", nullable: false),
@@ -98,7 +100,8 @@ namespace SalesService.Migrations
                 columns: table => new
                 {
                     QuoteId = table.Column<int>(type: "INTEGER", nullable: false)
-                        .Annotation("Sqlite:Autoincrement", true),
+                        .Annotation("Sqlite:Autoincrement", true)
+                       .Annotation("Npgsql:ValueGenerationStrategy", Npgsql.EntityFrameworkCore.PostgreSQL.Metadata.NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
                     CustomerId = table.Column<int>(type: "INTEGER", nullable: false),
                     DealerId = table.Column<int>(type: "INTEGER", nullable: false),
                     SalespersonId = table.Column<int>(type: "INTEGER", nullable: false),
