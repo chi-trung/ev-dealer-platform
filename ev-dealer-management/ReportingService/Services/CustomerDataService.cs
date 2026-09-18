@@ -21,7 +21,11 @@ namespace ev_dealer_reporting.Services
             _configuration = configuration;
             _logger = logger;
 
-            var customerServiceUrl = _configuration["Services:CustomerService"] ?? "http://localhost:5004";
+            // Fallback must match CustomerService's real http profile port
+            // (Properties/launchSettings.json). docker compose overrides this
+            // with Services__CustomerService=http://customerservice:80; the old
+            // 5004 only mattered for a bare `dotnet run` and was wrong there.
+            var customerServiceUrl = _configuration["Services:CustomerService"] ?? "http://localhost:5039";
             _httpClient.BaseAddress = new Uri(customerServiceUrl);
             _httpClient.Timeout = TimeSpan.FromSeconds(30);
         }

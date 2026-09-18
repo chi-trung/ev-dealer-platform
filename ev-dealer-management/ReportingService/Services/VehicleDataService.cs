@@ -16,7 +16,12 @@ public class VehicleDataService : IVehicleDataService
         _configuration = configuration;
         _logger = logger;
         
-        var vehicleServiceUrl = _configuration["Services:VehicleService"] ?? "http://localhost:5002";
+        // Fallback must match VehicleService's real http profile port
+        // (Properties/launchSettings.json). docker compose overrides this with
+        // Services__VehicleService=http://vehicleservice:8080, so this default
+        // only matters for a bare `dotnet run` ReportingService -- where the
+        // old 5002 pointed at a port nothing listens on.
+        var vehicleServiceUrl = _configuration["Services:VehicleService"] ?? "http://localhost:5068";
         _httpClient.BaseAddress = new Uri(vehicleServiceUrl);
         _httpClient.Timeout = TimeSpan.FromSeconds(30);
     }
