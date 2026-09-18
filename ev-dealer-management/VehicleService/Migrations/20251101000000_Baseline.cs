@@ -87,20 +87,23 @@ namespace VehicleService.Migrations
     /// VehicleTypeId property and no VehicleType navigation. That makes
     /// VehicleTypeId a real part of the model (shadow property, ClientSetNull
     /// delete behaviour) and the pre-baseline EnsureCreated schema created
-    /// both the column and its index. An earlier revision of this baseline
+    /// both the column and its index (probed: data/vehicles.db has
+    /// VehicleTypeId INTEGER NULL plus IX_Vehicles_VehicleTypeId). An earlier revision of this baseline
     /// omitted them because "the VehicleType navigation is absent" was
     /// misread as "the relationship is absent" -- it is one-sided, not gone.
     /// Fresh databases were silently short one column + one index, and
     /// GetPendingMigrations() reported none, so nothing would have self-healed.
     ///
-    /// WHAT Up RUNS AGAINST
-    /// The only existing VehicleService databases were built by EnsureCreated:
-    /// they already hold these six tables and have NO __EFMigrationsHistory.
-    /// This migration's id is new, so Migrate() runs it, and the CreateTable
-    /// calls are plain (not IF NOT EXISTS) -- they throw 'table already
-    /// exists' on such a database (measured: SqliteException 'table
-    /// "Dealers" already exists'; data is left untouched, but no history row
-    /// is written, so the service retries the same throw on every boot).
+    /// WHAT Up RUNS AGAINST (probed against both DB files present in this
+    /// repo checkout -- see below; both are gitignored, so a clean clone has
+    /// neither and hits the empty-DB path).
+    ///
+    /// Migrate() can only ever apply this migration to a database that has NO
+    /// history row for it, and its CreateTable calls are plain (not
+    /// IF NOT EXISTS). So any database that already holds these six tables
+    /// throws (measured: SqliteException 'table "Dealers" already exists';
+    /// data is left untouched, but no history row is written, so the service
+    /// retries the same throw on every boot).
     ///
     /// That is DELIBERATE: an earlier draft guarded every statement with IF
     /// NOT EXISTS, which bought in-place upgradability at the cost of
@@ -110,11 +113,33 @@ namespace VehicleService.Migrations
     /// Postgres instance where the tables cannot exist yet.
     ///
     /// RECOVERY for a developer holding a stale local vehicles.db: delete the
-    /// file ONCE (VehicleService/data/vehicles.db). The next boot rebuilds
-    /// all six tables and reseeds 6/4/5/5/11/14 rows from the guarded INSERTs
-    /// below. This is a one-time dev-side consequence of a schema baseline,
-    /// never a production path -- production starts from the empty instance.
-    /// Down leaves the tables in place for the same reason.
+    /// file ONCE. The next boot rebuilds all six tables and reseeds
+    /// 6/4/5/5/11/14 rows from the guarded INSERTs below. This is a one-time
+    /// dev-side consequence of a schema baseline, never a production path --
+    /// production starts from the empty instance. Down leaves the tables in
+    /// place for the same reason.
+    ///
+    /// THE FILE TO DELETE depends on how the service was last run, because
+    /// the two layouts coexist in this repo (both paths are relative to the
+    /// VehicleService working directory):
+    ///   - dotnet run / appsettings.json  -> vehicles.db          (this file)
+    ///   - docker compose                 -> data/vehicles.db     (volume)
+    /// (docker-compose.yml mounts /app/data and overrides
+    /// ConnectionStrings__DefaultConnection to point there.) A stale copy in
+    /// the *other* layout still throws on its next use, so delete both if
+    /// both exist.
+    ///
+    /// WHAT THE TWO LOCAL FILES ACTUALLY HOLD (probed 2026-09-18, both
+    /// gitignored -- these are dev artifacts, not inputs to the migration):
+    ///   vehicles.db      __EFMigrationsHistory = 20251120094458_Initial,
+    ///                     7 tables incl. Reservations (a table this baseline
+    ///                     does not create), Vehicles 14 rows (Ids 28-42).
+    ///                     Built by an older migration set, NOT EnsureCreated.
+    ///   data/vehicles.db NO __EFMigrationsHistory, 6 tables (no
+    ///                     Reservations), Vehicles 5 rows, VehicleTypeId
+    ///                     column + IX_Vehicles_VehicleTypeId present. This
+    ///                     one IS the EnsureCreated shape the original
+    ///                     comment described.
     /// </summary>
     [DbContext(typeof(ApplicationDbContext))]
     [Migration("20251101000000_Baseline")]
