@@ -37,13 +37,33 @@ services:
   # The `guest` account is loopback-restricted in RabbitMQ, so the broker
   # needs a non-guest user and RabbitMQ__* env is REQUIRED, not optional.
   # ==========================================================================
-  # `pserv` is Render's type for a private service (verified against
-  # https://render.com/docs/blueprint-spec; NOT "psrv" or "private").
+  # ==========================================================================
+  # COST DECISION THE OWNER MUST MAKE -- read before applying.
+  #
+  # The blueprint spec is explicit: `free` is "not available for private
+  # services, background workers, or cron jobs". A `pserv` needs at minimum
+  # `starter`, and `render blueprints validate` enforces it by failing with
+  # `need_payment_info` when the workspace has no card on file (our workspace
+  # currently has none -- all existing services are free).
+  #
+  # There is no free Render-side option for an AMQP broker:
+  #   - `worker` on free can't receive connections at all, so AMQP is dead.
+  #   - `web` on free WOULD work, but it publishes the broker (and its
+  #     management UI) on a public onrender.com subdomain. Do not do this --
+  #     anyone who learns the hostname can publish/consume on our queues.
+  #
+  # So the real choice is: (a) add payment info and pay for this one starter
+  # instance, or (b) use a free external broker (e.g. CloudAMQP) and replace
+  # the four RabbitMQ__HostName/Port/User/Password blocks with its values,
+  # then delete this service. Option (b) keeps the whole stack free but puts
+  # the broker outside Render; our clients use a plain ConnectionFactory with
+  # no SslOptions, so it must offer plain AMQP on 5672, not only 5671.
+  # ==========================================================================
   - type: pserv
     runtime: docker
     name: evm-rabbitmq
     region: oregon
-    plan: free
+    plan: starter
     dockerfilePath: ./Dockerfile.rabbitmq
     dockerContext: .
     autoDeploy: false
@@ -350,6 +370,10 @@ databases:
   - name: evm-postgres
     region: oregon
     plan: free
+    # EMPTY list = "only allow internal/private connections" per the blueprint
+    # spec (NOT deny-all, and NOT a mistake): the seven services reach the DB
+    # over Render's private network, so there is no reason to expose 5432 to
+    # the public internet. This is the intended posture for a backend DB.
     ipAllowList: []
     # Render does not template a per-service Database= into the connection
     # string, so every service lands in the same default DB -- which is
