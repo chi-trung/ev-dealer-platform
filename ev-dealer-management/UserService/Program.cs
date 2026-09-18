@@ -131,18 +131,39 @@ try
         // by that service's Baseline migration). Seeding it here would require
         // the DbSet back, which is exactly the shared-table collision this
         // change removes.
-        // Fail-soft, same as SalesService/ReportingService/NotificationService:
-        // a locked or corrupt database file must not stop the process from
-        // booting, because the alternative is a crashloop that takes the
-        // whole service down while the other six stay healthy. Migration
-        // failures surface in the log and in "no such table" endpoint errors.
+        // Fail-soft ONLY for transient/locking faults, not schema faults
+        // (review round 3). A blanket catch (Exception) here would swallow a
+        // real migration error -- under Postgres that is PostgresException
+        // 42P07 duplicate_table / 42701 duplicate_column / 42P16
+        // invalid_table_definition -- and leave the service booting green with
+        // every endpoint dying on "no such table". That is exactly the silent
+        // failure mode this whole issue was about, and it is worse than a
+        // crashloop, because nothing visible signals it. Schema errors must
+        // fail loudly and take the process down; only lock contention and
+        // transient connection failures are recoverable.
         try
         {
             db.Database.Migrate();
         }
-        catch (Exception ex)
+        catch (Exception ex) when (IsTransientMigrationFault(ex))
         {
-            Console.Error.WriteLine($"[UserService] Warning: could not apply database migrations (existing schema assumed): {ex.Message}");
+            Console.Error.WriteLine($"[UserService] Warning: transient database migration failure (existing schema assumed): {ex.Message}");
+        }
+
+        // Npgsql surfaces a SqlException whose Number is the Postgres error
+        // code (e.g. 40P01 deadlock, 55P03 lock_not_available); Microsoft.Data
+        // .Sqlite surfaces "database is locked" by message. Anything else --
+        // a schema error -- is NOT transient and must not be swallowed.
+        // Local function because this file uses top-level statements, which
+        // cannot hold method declarations.
+        static bool IsTransientMigrationFault(Exception ex)
+        {
+            for (var e = ex; e is not null; e = e.InnerException)
+            {
+                if (e is Microsoft.Data.Sqlite.SqliteException sx)
+                    return sx.Message.Contains("locked", StringComparison.OrdinalIgnoreCase);
+            }
+            return false;
         }
     }
     
