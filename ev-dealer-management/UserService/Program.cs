@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Mvc;
 using System.Text;
 using MailKit.Security;
 using System.Linq;
+using System.ComponentModel.DataAnnotations;
 
 // Issue #63: Serilog bootstrap — the convention NotificationService has
 // run since well before this repo’s CI era: sinks configured from
@@ -118,10 +119,13 @@ try
         // Seed Dealers if empty
         if (!db.Dealers.Any())
         {
+            // Issue #121: Region/Contact/Email are required on the aligned
+            // model, so the seed must populate them or SaveChanges throws on a
+            // fresh database.
             db.Dealers.AddRange(
-                new Dealer { Name = "VinFast Ocean Park", Address = "Vinhomes Ocean Park, Gia Lam, Ha Noi" },
-                new Dealer { Name = "VinFast Times City", Address = "458 Minh Khai, Hai Ba Trung, Ha Noi" },
-                new Dealer { Name = "VinFast Landmark 81", Address = "Vinhomes Central Park, Binh Thanh, TP.HCM" }
+                new Dealer { Name = "VinFast Ocean Park", Region = "Ha Noi", Contact = "19006063", Email = "oceanpark@vinfast.vn", Address = "Vinhomes Ocean Park, Gia Lam, Ha Noi" },
+                new Dealer { Name = "VinFast Times City", Region = "Ha Noi", Contact = "19006063", Email = "timescity@vinfast.vn", Address = "458 Minh Khai, Hai Ba Trung, Ha Noi" },
+                new Dealer { Name = "VinFast Landmark 81", Region = "Ho Chi Minh", Contact = "19006063", Email = "landmark81@vinfast.vn", Address = "Vinhomes Central Park, Binh Thanh, TP.HCM" }
             );
             db.SaveChanges();
         }
@@ -348,11 +352,42 @@ public class User
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 }
 
+// Issue #121: UserService and VehicleService BOTH map ToTable("Dealers"), and
+// this class was the narrow one (3 columns vs VehicleService's 7). Sharing one
+// database therefore broke whichever service migrated second, silently. This
+// is now byte-compatible with VehicleService/Models/Dealer.cs -- same members,
+// same nullability, same StringLength caps -- so both contexts emit the same
+// schema. Keep the two files in lockstep; a future divergence recreates the
+// collision.
 public class Dealer
 {
+    [Key]
     public int Id { get; set; }
-    public string Name { get; set; } = null!;
-    public string? Address { get; set; }
+
+    [Required]
+    [StringLength(200)]
+    public string Name { get; set; } = string.Empty;
+
+    [Required]
+    [StringLength(100)]
+    public string Region { get; set; } = string.Empty;
+
+    [Required]
+    [StringLength(20)]
+    public string Contact { get; set; } = string.Empty;
+
+    [Required]
+    [EmailAddress]
+    [StringLength(200)]
+    public string Email { get; set; } = string.Empty;
+
+    [Required]
+    [StringLength(500)]
+    public string Address { get; set; } = string.Empty;
+
+    // Audit fields
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 }
 
 public class PasswordResetToken
