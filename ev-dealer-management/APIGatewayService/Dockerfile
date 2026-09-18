@@ -27,8 +27,6 @@ RUN apt-get update \
 
 COPY --from=publish /app/publish .
 
-ENV ASPNETCORE_URLS=http://+:80
-
 # Liveness ONLY: the aggregate /health returns 503 until all six upstreams
 # answer 2xx (Program.cs), so `curl -f` would mark a perfectly-routing gateway
 # unhealthy. Any HTTP response, 200 or 503, proves it is alive.
@@ -37,4 +35,4 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
 
 EXPOSE 80
 
-ENTRYPOINT ["dotnet", "APIGatewayService.dll"]
+ENTRYPOINT ["sh", "-c", "ASPNETCORE_URLS=\${ASPNETCORE_URLS:-http://+:\${PORT:-80}} dotnet APIGatewayService.dll"]

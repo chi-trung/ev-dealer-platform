@@ -26,8 +26,6 @@ RUN apt-get update \
 
 COPY --from=build /app/publish ./
 
-ENV ASPNETCORE_URLS=http://+:80
-
 # SQLite Migrate() at Program.cs:91 writes Data Source=/app/data/users.db. Compose
 # masks a missing dir via the bind mount; without it (docker run, or a host that
 # does not mount /app/data) the file cannot be created and startup throws before
@@ -43,4 +41,4 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=15s --retries=3 \
 EXPOSE 80
 EXPOSE 443
 
-ENTRYPOINT ["dotnet", "UserService.dll"]
+ENTRYPOINT ["sh", "-c", "ASPNETCORE_URLS=\${ASPNETCORE_URLS:-http://+:\${PORT:-80}} dotnet UserService.dll"]

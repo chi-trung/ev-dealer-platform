@@ -32,12 +32,10 @@ RUN mkdir -p /app/Logs
 
 COPY --from=publish /app/publish .
 
-ENV ASPNETCORE_URLS=http://+:80
-
 # /health is NotificationService's custom JSON liveness endpoint (Program.cs:70)
 HEALTHCHECK --interval=30s --timeout=3s --start-period=15s --retries=3 \
   CMD curl -f http://localhost:80/health || exit 1
 
 EXPOSE 80
 
-ENTRYPOINT ["dotnet", "NotificationService.dll"]
+ENTRYPOINT ["sh", "-c", "ASPNETCORE_URLS=\${ASPNETCORE_URLS:-http://+:\${PORT:-80}} dotnet NotificationService.dll"]

@@ -34,11 +34,10 @@ COPY --from=publish /app/publish .
 
 # Kestrel binds 80 in-container (docs/GATEWAY.md rewrite: customerservice:80);
 # compose's ASPNETCORE_URLS repeats this — the ENV makes the image self-sufficient.
-ENV ASPNETCORE_URLS=http://+:80
 
 HEALTHCHECK --interval=30s --timeout=3s --start-period=15s --retries=3 \
   CMD curl -f http://localhost:80/health || exit 1
 
 EXPOSE 80
 
-ENTRYPOINT ["dotnet", "CustomerService.dll"]
+ENTRYPOINT ["sh", "-c", "ASPNETCORE_URLS=\${ASPNETCORE_URLS:-http://+:\${PORT:-80}} dotnet CustomerService.dll"]

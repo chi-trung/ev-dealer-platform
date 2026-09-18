@@ -55,5 +55,5 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
 EXPOSE 80
 
 # Set the entry point
-ENTRYPOINT ["dotnet", "SalesService.dll"]
+ENTRYPOINT ["sh", "-c", "ASPNETCORE_URLS=\${ASPNETCORE_URLS:-http://+:\${PORT:-80}} dotnet SalesService.dll"]
 
