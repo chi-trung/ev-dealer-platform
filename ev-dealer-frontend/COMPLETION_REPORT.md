@@ -37,14 +37,18 @@
 | **Context** | 1 | AuthContext.jsx |
 | **Routing** | 3 | routes/index.jsx, App.jsx, main.jsx |
 | **Barrels** | 2 | common/index.js, Notifications/index.js barrels |
-| **Styles** | 4 css | index.css, App.css, Auth/Auth.css, common/NotificationBell.css |
-| **Assets** | 9 | 5 png, 3 jpg, 1 svg |
+| **Styles** | 3 css | index.css, App.css, Auth/Auth.css |
+| **Assets** | 6 | 5 webp (bg-hero, car1-4), 1 svg (react.svg) |
 | **Docs (frontend root)** | 3 md | DOCS_INDEX.md (entry point), AUTH_MODULE_README.md, this file |
 | **Config** | 4 | package.json, vite.config.js, eslint.config.js, .env.example |
 
-**src total: 113 tracked files** (78 jsx · 22 js · 4 css · 9 images). After the
-Issue #67 delete (Settings/temp.jsx fragment + 0-byte
-services/DemandForecastChart.jsx stub); header's 53ac11c count was 115.
+**src total: 106 tracked files** (76 jsx · 21 js · 3 css · 6 images), counted
+with `git ls-files` on main after Issue #107. Earlier counts in this report
+were maintained by hand and drifted; the breakdown above is measured, so
+prefer re-running `git ls-files` over trusting the old numbers. History:
+115 at 53ac11c → 113 after Issue #67 (Settings/temp.jsx fragment + 0-byte
+DemandForecastChart.jsx stub) → 106 after #107 removed the NotificationBell
+trio (DemandForecastChart was wired in by #76 along the way).
 `tailwind.config.js` / `postcss.config.js` never existed — and see Known gaps:
 Tailwind itself is declared but not wired in.
 
@@ -68,9 +72,14 @@ Tailwind itself is declared but not wired in.
 ## Common components (actual list)
 
 Badge, Button, DashboardStatCard, DataTable, Dropdown, Footer, Form, Header,
-Hero, Input, Layout, Modal, ModernCard, NotificationBell (+ .test.jsx, .css),
-PageHeader, ProtectedRoute, Section, StatCard, StatisticCard, Table, Tabs,
-Toast — barrel `index.js`.
+Hero, Input, Layout, Modal, ModernCard, PageHeader, ProtectedRoute, Section,
+StatCard, StatisticCard, Table, Tabs, Toast — barrel `index.js`.
+
+Deleted: `NotificationBell` (+ its `.css` and `.test.jsx`, Issue #107). It was
+never imported by any page, layout, route, or the `common/index.js` barrel, and
+could not have compiled — it imported `antd` and `framer-motion`, neither of
+which is in `package.json`. The header bell was always a plain MUI `IconButton`
+in `MainLayout.jsx` that navigates to `/Notifications`.
 
 Not present (old report claimed them): Card, Sidebar, Topbar, Pagination,
 Loading, SearchBar, FilterPanel, DateRangePicker. Search exists inside page
@@ -96,7 +105,10 @@ Note: `@types/react` 19.x are dev-deps only; the runtime is React 18.3.1.
   Vehicles/VehicleDetail as the "Mô hình 3D" tab, lazy-loaded, Issue #69.)
 - Zustand is installed but state lives mostly in context/page code.
 - Mock data files (mockVehicles/mockDataSales/mockNotifications) coexist with real service calls.
-- Tests: a single component test (`NotificationBell.test.jsx`) — no frontend test suite yet.
+- Tests: none. There is no frontend test runner installed (no vitest/jest/
+  @testing-library in `package.json`) and CI runs only `npm run build` for the
+  frontend. The former `NotificationBell.test.jsx` had 18 `no-undef` errors and
+  never executed; it was deleted with the component in Issue #107.
 
 ---
 
