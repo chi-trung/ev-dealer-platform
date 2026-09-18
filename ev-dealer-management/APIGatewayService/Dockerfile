@@ -31,8 +31,8 @@ COPY --from=publish /app/publish .
 # answer 2xx (Program.cs), so `curl -f` would mark a perfectly-routing gateway
 # unhealthy. Any HTTP response, 200 or 503, proves it is alive.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD curl -s -o /dev/null http://localhost:80/health || exit 1
+  CMD curl -s -o /dev/null http://localhost:${PORT:-80}/health || exit 1
 
 EXPOSE 80
 
-ENTRYPOINT ["sh", "-c", "ASPNETCORE_URLS=\${ASPNETCORE_URLS:-http://+:\${PORT:-80}} dotnet APIGatewayService.dll"]
+ENTRYPOINT ["sh", "-c", "ASPNETCORE_URLS=${ASPNETCORE_URLS:-http://+:${PORT:-80}} dotnet APIGatewayService.dll"]

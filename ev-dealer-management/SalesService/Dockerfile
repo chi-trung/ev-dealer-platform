@@ -49,11 +49,11 @@ COPY --from=publish /app/publish .
 # [HttpGet("health")], an anonymous 200) — either answers 200 to curl -f.
 # /health is the canonical one the gateway polls and the other six use.
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD curl -f http://localhost:80/health || exit 1
+  CMD curl -f http://localhost:${PORT:-80}/health || exit 1
 
 # Expose port 80
 EXPOSE 80
 
 # Set the entry point
-ENTRYPOINT ["sh", "-c", "ASPNETCORE_URLS=\${ASPNETCORE_URLS:-http://+:\${PORT:-80}} dotnet SalesService.dll"]
+ENTRYPOINT ["sh", "-c", "ASPNETCORE_URLS=${ASPNETCORE_URLS:-http://+:${PORT:-80}} dotnet SalesService.dll"]
 

@@ -32,8 +32,8 @@ RUN mkdir -p /app/data
 COPY --from=publish /app/publish .
 
 HEALTHCHECK --interval=30s --timeout=3s --start-period=15s --retries=3 \
-  CMD curl -f http://localhost:80/health || exit 1
+  CMD curl -f http://localhost:${PORT:-80}/health || exit 1
 
 EXPOSE 80
 
-ENTRYPOINT ["sh", "-c", "ASPNETCORE_URLS=\${ASPNETCORE_URLS:-http://+:\${PORT:-80}} dotnet ReportingService.dll"]
+ENTRYPOINT ["sh", "-c", "ASPNETCORE_URLS=${ASPNETCORE_URLS:-http://+:${PORT:-80}} dotnet ReportingService.dll"]
