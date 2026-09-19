@@ -162,12 +162,19 @@ try
     // (render.yaml healthCheckPath) requires 2xx/3xx and CANCELS a deploy
     // whose checks stay failing past 15 minutes — so pointing it at the
     // aggregate would make the gateway's deploy hinge on all six upstreams
-    // and the RabbitMQ pserv being healthy within one window, with no
-    // existing instance to fall back to on a first `render blueprint apply`
-    // (SalesService's publisher ctor throws without a broker, per
-    // render.yaml's own notes). /health/live answers 200 the moment the
-    // process is up, listening on PORT, and Ocelot has loaded its routes —
-    // which is all a deploy gate can honestly require of a routing gateway.
+    // being healthy within one window, with no existing instance to fall
+    // back to on a first `render blueprint apply`. (The broker note in
+    // render.yaml is directionally right but imprecise: SalesService's
+    // RabbitMQMessagePublisher is an AddSingleton that nothing resolves at
+    // startup, so its ctor — which rethrows on an unreachable broker — only
+    // runs on the FIRST controller request, not at boot, and /health answers
+    // fine with the broker down. CustomerService's consumer is the eager one:
+    // AddHostedService<VehicleReservedEventConsumer> starts at boot.) Either
+    // way the conclusion stands: the gateway's deploy gate must not depend on
+    // upstream readiness.
+    // /health/live answers 200 the moment the process is up, listening on
+    // PORT, and Ocelot has loaded its routes — which is all a deploy gate can
+    // honestly require of a routing gateway.
     // The Docker HEALTHCHECK stays on /health with `curl -s` (any status
     // proves the process answers) and the aggregate /health remains the
     // readiness/monitoring view.

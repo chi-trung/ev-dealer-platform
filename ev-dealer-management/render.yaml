@@ -27,13 +27,21 @@
 services:
   # ==========================================================================
   # RabbitMQ MUST be created and healthy first (it is a `psrv` below, which
-  # Render starts before web services). Two proven boot-time consequences of a
-  # missing/unreachable broker:
-  #   - SalesService's RabbitMQMessagePublisher ctor throws -> the service
-  #     never finishes startup -> /health never answers.
-  #   - CustomerService's VehicleReservedEventConsumer.ExecuteAsync has ONE
-  #     try/catch: a boot-time failure kills the consumer thread PERMANENTLY
-  #     while /health keeps returning 200 (silent dead consumer).
+  # Render starts before web services). Two boot-time consequences of a
+  # missing/unreachable broker (the first CORRECTED — the claim it could not
+  # finish startup was wrong, see below):
+  #   - CustomerService's VehicleReservedEventConsumer is an AddHostedService,
+  #     so it starts EAGERLY at boot. Its ExecuteAsync has ONE try/catch: a
+  #     boot-time failure kills the consumer thread PERMANENTLY while /health
+  #     keeps returning 200 (silent dead consumer). This is the real reason
+  #     the broker must be up first.
+  #   - SalesService's RabbitMQMessagePublisher ctor rethrows on an
+  #     unreachable broker, BUT it is an AddSingleton that nothing resolves
+  #     during startup — controllers take it as a ctor param, and no request
+  #     arrives before the gateway routes one. So the throw lands on the FIRST
+  #     request, not at boot, and /health answers fine with the broker down.
+  #     (Verified by reading SalesService/Program.cs:97 against its DI graph:
+  #     no IHostedService or eager GetService pulls IMessagePublisher.)
   # The `guest` account is loopback-restricted in RabbitMQ, so the broker
   # needs a non-guest user and RabbitMQ__* env is REQUIRED, not optional.
   # ==========================================================================
