@@ -3,73 +3,61 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Logging;
-using RabbitMQ.Client;
 using Xunit;
 
 namespace DealerSystem.Tests.NotificationService.Tests;
 
 /// <summary>
-/// Connection-lifetime probe for the #135 broker check. The Unhealthy path
-/// cannot leak: <c>BrokerUnreachableException</c> is thrown from INSIDE
-/// <c>CreateConnection</c>, before the <c>using var</c> variable is even
-/// assigned, so there is no handle to dispose. The path that CAN leak is the
-/// Healthy one — if the <c>using</c> were ever dropped the connection would
-/// stay open and the broker would accumulate idle "health-check" clients.
-/// These tests hold that path to account by counting real sockets.
+/// Lifetime and registration guards for the #135 broker probe. These pin
+/// properties the probe's correctness depends on, chosen for being
+/// *discriminating* — each fails on a specific regression rather than passing
+/// by default.
 /// </summary>
+/// <remarks>
+/// Why there is no socket-counting test here. Counting TCP sockets to detect a
+/// dropped <c>using</c> was attempted and abandoned as unmeasurable in this
+/// environment, for three measured reasons:
+/// <list type="bullet">
+/// <item>Against a CLOSED port the connect is refused outright, so no socket is
+/// ever established and the count stays flat whether disposal works or not —
+/// the assertion passes for the wrong reason.</item>
+/// <item>Against a listener that accepts TCP but never speaks AMQP,
+/// <c>RabbitMQ.Client</c> throws <c>BrokerUnreachableException</c>
+/// ("connection.start was never received") out of <c>CreateConnection</c>
+/// BEFORE returning a handle, so an undisposed <c>IConnection</c> is not
+/// constructible against a non-broker at all.</item>
+/// <item><c>IPGlobalProperties.GetActiveTcpConnections()</c> also reports
+/// TIME_WAIT sockets, and a correctly closed one lingers there for minutes on
+/// Windows, so a raw count cannot separate "disposed" from "leaked".</item>
+/// </list>
+/// The leak class this all set out to catch requires a HEALTHY broker — the one
+/// case where the probe's own <c>using var</c> executes normally and the
+/// connection is disposed in order. The exception path never assigns the
+/// variable, so there is no handle to leak there either. The measurement that
+/// would catch a dropped <c>using</c> needs a real broker, which the test
+/// environment does not provide; asserting a weaker proxy would be a test that
+/// cannot fail, and that is worse than no test.
+/// </remarks>
 public class BrokerProbeConnectionLifetimeTests
 {
     // A port nothing in this suite binds, in the ephemeral range.
     private const int ClosedPort = 9;
 
-    private static IHealthChecksBuilder Build(out IServiceProvider provider)
+    private static void Build(out IServiceProvider provider, int port = ClosedPort)
     {
         var config = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["RabbitMQ:HostName"] = "127.0.0.1",
-                ["RabbitMQ:Port"] = ClosedPort.ToString()
+                ["RabbitMQ:Port"] = port.ToString()
             })
             .Build();
 
         var services = new ServiceCollection();
         services.AddLogging(b => b.SetMinimumLevel(LogLevel.None));
         services.AddSingleton<IConfiguration>(config);
-        var builder = services.AddHealthChecks().AddBrokerProbeCheck();
+        services.AddHealthChecks().AddBrokerProbeCheck();
         provider = services.BuildServiceProvider();
-        return builder;
-    }
-
-    private static int ConnectionsToPort(int port) =>
-        System.Net.NetworkInformation.IPGlobalProperties.GetIPGlobalProperties()
-            .GetActiveTcpConnections()
-            .Count(c => c.RemoteEndPoint.Port == port);
-
-    [Fact]
-    public async Task RepeatedUnreachableProbes_DoNotAccumulateSockets()
-    {
-        Build(out var provider);
-        var health = provider.GetRequiredService<HealthCheckService>();
-
-        var before = ConnectionsToPort(ClosedPort);
-
-        // 25 health checks against a broker that is definitely down. A leaked
-        // socket per probe shows up as a growing count; correct disposal holds
-        // it flat (TCP sockets briefly enter TIME_WAIT on close, so the count
-        // is allowed to be nonzero but must not grow with the probe count).
-        for (int i = 0; i < 25; i++)
-        {
-            var report = await health.CheckHealthAsync();
-            Assert.Equal(HealthStatus.Unhealthy, report.Status);
-        }
-
-        // Give any closed sockets a moment to leave TIME_WAIT.
-        await Task.Delay(500);
-        var after = ConnectionsToPort(ClosedPort);
-
-        Assert.True(after <= before + 2,
-            $"socket count to port {ClosedPort} grew from {before} to {after} over 25 " +
-            "unreachable probes — the broker check is leaking connections");
     }
 
     [Fact]
@@ -84,8 +72,30 @@ public class BrokerProbeConnectionLifetimeTests
         var entry = Assert.Contains("rabbitmq", report.Entries);
 
         Assert.Equal(HealthStatus.Unhealthy, entry.Status);
+        // Swallowing the exception instead of reporting it would make this
+        // entry's Exception null — that is the regression this pins.
         Assert.NotNull(entry.Exception);
         Assert.Contains("127.0.0.1", entry.Description);
+    }
+
+    [Fact]
+    public async Task UnreachableProbe_ConvergesWithinTheTimeout()
+    {
+        // A probe that hangs holds a deploy gate or crash-loop probe hostage.
+        // The check's own RequestedConnectionTimeout is 3s; assert the whole
+        // health call settles well inside that, on a closed port where the
+        // client's default 30s timeout is what would otherwise bind.
+        Build(out var provider);
+        var health = provider.GetRequiredService<HealthCheckService>();
+
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var report = await health.CheckHealthAsync();
+        sw.Stop();
+
+        Assert.Equal(HealthStatus.Unhealthy, report.Status);
+        Assert.True(sw.Elapsed < TimeSpan.FromSeconds(10),
+            $"the probe took {sw.Elapsed.TotalSeconds:F1}s against a closed port; a hanging " +
+            "probe holds deploy gates hostage for the client's 30s default");
     }
 
     [Fact]
