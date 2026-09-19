@@ -168,14 +168,6 @@
       "DownstreamHttpVersion": "1.1"
     },
     {
-      "DownstreamPathTemplate": "/api/ProcessedReservations/{everything}",
-      "DownstreamScheme": "http",
-      "DownstreamHostAndPorts": [ { "Host": "localhost", "Port": 5003 } ],
-      "UpstreamPathTemplate": "/api/ProcessedReservations/{everything}",
-      "UpstreamHttpMethod": [ "GET", "POST", "PUT", "DELETE" ],
-      "DownstreamHttpVersion": "1.1"
-    },
-    {
       "DownstreamPathTemplate": "/api/Sales/{everything}",
       "DownstreamScheme": "http",
       "DownstreamHostAndPorts": [ { "Host": "localhost", "Port": 5003 } ],
