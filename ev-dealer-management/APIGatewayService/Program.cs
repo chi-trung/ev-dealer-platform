@@ -168,13 +168,23 @@ try
     // RabbitMQMessagePublisher is an AddSingleton that nothing resolves at
     // startup, so its ctor — which rethrows on an unreachable broker — only
     // runs on the FIRST controller request, not at boot, and /health answers
-    // fine with the broker down. CustomerService's consumer is the eager one:
-    // AddHostedService<VehicleReservedEventConsumer> starts at boot.) Either
-    // way the conclusion stands: the gateway's deploy gate must not depend on
-    // upstream readiness.
-    // /health/live answers 200 the moment the process is up, listening on
-    // PORT, and Ocelot has loaded its routes — which is all a deploy gate can
-    // honestly require of a routing gateway.
+    // fine with the broker down. The eager ones are CustomerService's and
+    // NotificationService's consumers: CustomerService is
+    // AddHostedService<VehicleReservedEventConsumer> (its ExecuteAsync catch
+    // logs WITHOUT rethrowing, so a boot-time failure ends the hosted service
+    // permanently — /health stays 200 while the consumer is dead), and
+    // NotificationService is AddHostedService<RabbitMQConsumerHostedService>
+    // whose StartAsync calls StartConsuming() — which returns silently when
+    // the connection is not open (its InitializeRabbitMQ catch swallows),
+    // while NotificationService's /health is a hardcoded 200 with no broker
+    // check at all. Either way the conclusion stands: the gateway's deploy
+    // gate must not depend on upstream readiness.
+    // /health/live answers 200 once the process has built its pipeline and
+    // reached app.Run() — which is all a deploy gate can honestly require of
+    // a routing gateway. (Not "the moment the process is up": nothing answers
+    // before app.Run() binds the port, which follows the awaited UseOcelot()
+    // below. The builder-phase work — the ocelot.json rewrite loop and the
+    // Serilog bootstrap — runs earlier still, so it cannot delay listening.)
     // The Docker HEALTHCHECK stays on /health with `curl -s` (any status
     // proves the process answers) and the aggregate /health remains the
     // readiness/monitoring view.
@@ -229,7 +239,14 @@ try
 }
 catch (Exception ex)
 {
+    // Rethrow, matching the other six services since #90 (VehicleService was
+    // already this shape): AddOcelot/UseOcelot or a missing ocelot.json
+    // (JObject.Parse above) otherwise exits the process with code 0 and no
+    // listener — indistinguishable from a clean shutdown to a crash-loop or
+    // deploy gate, which is exactly what /health/live exists to inform. The
+    // finally block still flushes Serilog before the exception escapes.
     Log.Fatal(ex, "APIGatewayService failed to start");
+    throw;
 }
 finally
 {

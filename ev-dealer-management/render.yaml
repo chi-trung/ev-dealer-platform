@@ -30,11 +30,17 @@ services:
   # Render starts before web services). Two boot-time consequences of a
   # missing/unreachable broker (the first CORRECTED — the claim it could not
   # finish startup was wrong, see below):
-  #   - CustomerService's VehicleReservedEventConsumer is an AddHostedService,
-  #     so it starts EAGERLY at boot. Its ExecuteAsync has ONE try/catch: a
-  #     boot-time failure kills the consumer thread PERMANENTLY while /health
-  #     keeps returning 200 (silent dead consumer). This is the real reason
-  #     the broker must be up first.
+  #   - TWO services have eager broker consumers that die silently at boot:
+  #     CustomerService's VehicleReservedEventConsumer is an
+  #     AddHostedService whose ExecuteAsync catch logs WITHOUT rethrowing, so
+  #     a boot-time failure ends the hosted service permanently; and
+  #     NotificationService's AddHostedService<RabbitMQConsumerHostedService>
+  #     calls StartConsuming() from StartAsync, which returns silently when
+  #     the connection is not open (its InitializeRabbitMQ catch swallows).
+  #     Both keep answering /health 200 with a dead consumer — CustomerService
+  #     via a plain MapHealthChecks that checks nothing about the broker,
+  #     NotificationService via a hardcoded MapGet 200. THIS is the real
+  #     reason the broker must be up first.
   #   - SalesService's RabbitMQMessagePublisher ctor rethrows on an
   #     unreachable broker, BUT it is an AddSingleton that nothing resolves
   #     during startup — controllers take it as a ctor param, and no request

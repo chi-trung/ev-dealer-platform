@@ -23,15 +23,32 @@ restart.
 
 ## Health
 
-- **Gateway:** `GET /health` — aggregates all six services by calling their
+The gateway exposes two health endpoints with different meanings — do not
+substitute one for the other:
+
+- **`GET /health/live` — liveness.** Answers `200` with
+  `{"status":"healthy",...}` as soon as the process has built its pipeline and
+  reached `app.Run()`. Depends on **nothing** upstream. This is what a deploy
+  gate or crash-loop probe should poll: a routing gateway's own readiness says
+  nothing about whether its upstreams are up.
+- **`GET /health` — readiness.** Aggregates all six services by calling their
   `/health` in parallel (3s timeout). `200` when every service is healthy,
   otherwise `503` with a JSON body listing each service as
   `healthy | degraded | unreachable`. Implemented as a `Map()` branch
   **before** `UseOcelot` — Ocelot's responder 404s any path mapped after it.
-- **Per service:** every service exposes `GET /health` via
-  `AddHealthChecks()`/`MapHealthChecks` (NotificationService keeps its custom
-  JSON endpoint; VehicleService already had it). Gateway routes listed above
-  proxy them one level down as `/api/health/<name>`.
+
+Both are prefix branches under `app.Map`, and `branch.Run()` is terminal with
+no fallthrough, so **the more specific path must register first**:
+`/health/live` is registered before `/health`, or the `"/health"` prefix
+swallows it (by `PathString.StartsWithSegments`, not exact equality) and the
+liveness endpoint silently answers the aggregate's `503` — the failure mode
+issue #133 was opened for. Add any further `/health/*` route at the top of
+that block.
+
+**Per service:** every service exposes `GET /health` via
+`AddHealthChecks()`/`MapHealthChecks` (NotificationService keeps its custom
+JSON endpoint; VehicleService already had it). Gateway routes listed above
+proxy them one level down as `/api/health/<name>`.
 
 ## Endpoint rewrites (docker-compose readiness)
 
@@ -58,7 +75,8 @@ only a host-side mapping):
 or env vars `Gateway__Rewrites__0__From=localhost:7001` +
 `Gateway__Rewrites__0__To=userservice:80`. `Program.cs` applies the rewrites
 to every `DownstreamHostAndPorts` entry in the loaded file and to the
-gateway's own `/health` probe list.
+gateway's own `/health` aggregate probe list (not `/health/live`, which
+probes nothing upstream).
 
 Since Issue #78 a `To` may also be **scheme-qualified** —
 `https://userservice.onrender.com` (bare host defaults to port 443; `http://`
