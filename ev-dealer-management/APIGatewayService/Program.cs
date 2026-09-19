@@ -147,14 +147,50 @@ try
     // Enable CORS - must be before UseOcelot()
     app.UseCors("AllowFrontend");
     
-    // Liveness endpoint. Must be a Map() branch BEFORE UseOcelot: Ocelot's
-    // responder short-circuits unknown paths with its own 404, so an endpoint
-    // route mapped after it never runs. Aggregate: pings every service's /health.
+    // ORDER MATTERS: app.Map() branches match by path PREFIX
+    // (PathString.StartsWithSegments), not exact equality, and branch.Run()
+    // is terminal — there is no fallthrough. So /health/live MUST be
+    // registered BEFORE /health, or the "/health" prefix swallows it and
+    // the liveness route answers the aggregate's 503 instead. Probed: with
+    // the branches in the wrong order /health/live returned the aggregate
+    // body and a 503, i.e. the fix was a silent no-op. A more specific path
+    // always goes first under this branching style.
+
+    // Liveness WITHOUT the aggregate dependency. The /health branch below
+    // returns 503 unless every upstream answers 2xx (Program.cs), which
+    // makes it a READINESS signal, not a liveness one. Render's health check
+    // (render.yaml healthCheckPath) requires 2xx/3xx and CANCELS a deploy
+    // whose checks stay failing past 15 minutes — so pointing it at the
+    // aggregate would make the gateway's deploy hinge on all six upstreams
+    // and the RabbitMQ pserv being healthy within one window, with no
+    // existing instance to fall back to on a first `render blueprint apply`
+    // (SalesService's publisher ctor throws without a broker, per
+    // render.yaml's own notes). /health/live answers 200 the moment the
+    // process is up, listening on PORT, and Ocelot has loaded its routes —
+    // which is all a deploy gate can honestly require of a routing gateway.
+    // The Docker HEALTHCHECK stays on /health with `curl -s` (any status
+    // proves the process answers) and the aggregate /health remains the
+    // readiness/monitoring view.
+    app.Map("/health/live", branch => branch.Run(async context =>
+    {
+        context.Response.StatusCode = 200;
+        await context.Response.WriteAsJsonAsync(new
+        {
+            status = "healthy",
+            service = "apigateway",
+            timestamp = DateTime.UtcNow
+        });
+    }));
+
+    // Aggregate readiness endpoint: pings every service's /health in parallel.
+    // Must stay a Map() branch BEFORE UseOcelot: Ocelot's responder
+    // short-circuits unknown paths with its own 404, so an endpoint route
+    // mapped after it never runs.
     app.Map("/health", branch => branch.Run(async context =>
     {
         var writer = context.RequestServices.GetRequiredService<HcHealthCheckWriter>();
         var client = context.RequestServices.GetRequiredService<IHttpClientFactory>().CreateClient("health");
-    
+
         var results = await Task.WhenAll(writer.Upstreams.Select(async t =>
         {
             try
@@ -167,7 +203,7 @@ try
                 return new GatewayServiceHealth(t.Service, "unreachable", 0, ex.GetType().Name);
             }
         }));
-    
+
         var healthy = results.Count(r => r.status == "healthy");
         context.Response.StatusCode = healthy == results.Length ? 200 : 503;
         await context.Response.WriteAsJsonAsync(new

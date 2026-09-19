@@ -88,7 +88,16 @@ services:
     plan: free
     dockerfilePath: ./APIGatewayService/Dockerfile
     dockerContext: .
-    healthCheckPath: /health
+    # Liveness, deliberately NOT the aggregate /health: that branch returns 503
+    # unless all six upstreams answer 2xx (Program.cs), so it is a readiness
+    # signal. Render requires 2xx/3xx from this path and cancels a deploy whose
+    # checks stay failing past 15 minutes — a first `render blueprint apply`
+    # would then hinge on every upstream AND the RabbitMQ pserv being healthy
+    # inside one window, with no existing instance to roll back to. /health/live
+    # answers 200 once the process is up, bound to PORT, and Ocelot has loaded.
+    # The Docker HEALTHCHECK still probes /health with `curl -s` (any status
+    # proves the process answers) and /health stays the readiness view.
+    healthCheckPath: /health/live
     autoDeploy: false
     envVars:
       # ocelot.json downstreams are all localhost:<devport>; these six pairs
