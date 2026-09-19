@@ -26,15 +26,18 @@ RUN apt-get update \
 
 COPY --from=build /app/publish ./
 
-# SQLite Migrate() at Program.cs:91 writes Data Source=/app/data/users.db. Compose
+# SQLite db.Database.Migrate() writes Data Source=/app/data/users.db. Compose
 # masks a missing dir via the bind mount; without it (docker run, or a host that
 # does not mount /app/data) the file cannot be created and startup throws before
 # /health can answer. Every sibling service already has this line.
+# Named by symbol, not line number: a line cite here drifted (see issue #131).
 RUN mkdir -p /app/data
 
-# /health is the MapHealthChecks liveness probe (Program.cs:118) the gateway's
-# aggregate /health polls (APIGatewayService/Program.cs:286-312 probes /health on
-# every upstream); userservice was the only service of seven without a probe.
+# /health is the app.MapHealthChecks("/health") liveness probe the gateway's
+# aggregate /health polls — the HcHealthCheckWriter.Services table in
+# APIGatewayService/Program.cs (~:289, a static array literal) lists every
+# upstream it pings. userservice was the only service of seven without a
+# probe. Line numbers drift; grep the symbol instead.
 HEALTHCHECK --interval=30s --timeout=3s --start-period=15s --retries=3 \
   CMD curl -f http://localhost:${PORT:-80}/health || exit 1
 

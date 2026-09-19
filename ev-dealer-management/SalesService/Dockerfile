@@ -43,11 +43,16 @@ RUN apt-get update \
 
 COPY --from=publish /app/publish .
 
-# Health check. SalesService actually maps BOTH /health (MapHealthChecks at
-# Program.cs:129, the one the gateway's aggregate probe hits) and
-# /api/orders/health (OrdersController's [Route("api/[controller]")] +
-# [HttpGet("health")], an anonymous 200) — either answers 200 to curl -f.
-# /health is the canonical one the gateway polls and the other six use.
+# Health check. SalesService actually maps BOTH /health (the
+# app.MapHealthChecks("/health") call, the one the gateway's aggregate
+# probe hits) and /api/orders/health (OrdersController's
+# [Route("api/[controller]")] + [HttpGet("health")], an anonymous 200) —
+# either answers 200 to curl -f. /health is the canonical one the gateway
+# polls and the other six use. Named by symbol, not line number: the cite
+# was CORRECT when it was written (e757c04, issue #86 — MapHealthChecks
+# really did sit on Program.cs:129 then) and went stale only as later
+# commits inserted lines above it (#90, #106). A line number is a claim
+# about every line above it, not just about its own symbol. See #131.
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
   CMD curl -f http://localhost:${PORT:-80}/health || exit 1
 
