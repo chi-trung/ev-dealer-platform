@@ -62,10 +62,13 @@ try
                     hp["Port"] = newPort;
                     if (newScheme != null)
                     {
-                        // Single-entry-per-route assumed (all 36 routes in
-                        // ocelot.json have exactly one DownstreamHostAndPorts
-                        // object); with two, the last scheme-qualified entry
-                        // would win route-wide.
+                        // Single-entry-per-route assumed: every route in
+                        // ocelot.json carries exactly one DownstreamHostAndPorts
+                        // object (verified by grep, not maintained by hand --
+                        // a stale hard-coded route count here drifted from 36
+                        // to 34 without anyone noticing). With two entries,
+                        // this loop would rewrite only the first and the last
+                        // scheme-qualified entry would win route-wide.
                         route["DownstreamScheme"] = newScheme;
                     }
                 }
