@@ -1,5 +1,7 @@
 using Serilog;
 using Common.Data;
+using Common.Health;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using SalesService.Data;
 using SalesService.Services;
 using Microsoft.EntityFrameworkCore;
@@ -80,7 +82,15 @@ try
     
     builder.Services.AddEndpointsApiExplorer();
     builder.Services.AddSwaggerGen();
-    builder.Services.AddHealthChecks();
+    builder.Services.AddHealthChecks()
+        // #135: an empty AddHealthChecks() answers 200 unconditionally. The
+        // broker probe matters most for THIS service: its publisher's ctor
+        // THROWS when the broker is unreachable, so a misconfigured
+        // RabbitMQ__* takes the whole process down (the #90 rethrow then
+        // makes that a non-zero exit). When the publisher did construct, the
+        // probe is what tells an operator the broker is the cause.
+        .AddBrokerProbeCheck()
+        .AddDatabaseCheck<SalesDbContext>();
     
     // Issue #89: provider switch centralised in Common.DbProviderSelector.
     // The .LogTo/.EnableSensitiveDataLogging that was chained onto UseSqlite
@@ -154,7 +164,10 @@ try
     app.MapControllers();
     
     // Liveness probe for the API gateway aggregate /health (docs/GATEWAY.md).
-    app.MapHealthChecks("/health");
+    app.MapHealthChecks("/health", new HealthCheckOptions
+    {
+        ResponseWriter = BrokerHealthCheckExtensions.WriteHealthReportAsync
+    });
     
     app.Run();
 }

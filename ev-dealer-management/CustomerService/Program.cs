@@ -1,5 +1,7 @@
 using Serilog;
 using Common.Data;
+using Common.Health;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using System.Text;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -27,7 +29,22 @@ try
     // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
     builder.Services.AddEndpointsApiExplorer();
     builder.Services.AddSwaggerGen();
-    builder.Services.AddHealthChecks();
+    builder.Services.AddHealthChecks()
+        // #135: an empty AddHealthChecks() answers 200 unconditionally. These
+        // two checks make /health a readiness signal for the two dependencies
+        // every endpoint actually needs.
+        // The broker check opens its OWN connection rather than asking the
+        // registered producer for its IConnection state: the producer is an
+        // AddSingleton that .NET constructs on first resolution, and nothing
+        // in startup resolves it (only two controllers take IMessageProducer),
+        // so the container legitimately returns null at boot even with a
+        // healthy broker. The consumer is AddHostedService<T>, which registers
+        // only IHostedService and is not resolvable by its own type at all.
+        // A self-contained probe reports what the endpoint actually depends
+        // on — can this process reach the broker — with no construction-timing
+        // dependency.
+        .AddBrokerProbeCheck()
+        .AddDatabaseCheck<CustomerService.Data.CustomerDbContext>();
     
     builder.Services.AddControllers();
     
@@ -145,7 +162,12 @@ try
     app.MapControllers();
     
     // Liveness probe for the API gateway aggregate /health (docs/GATEWAY.md).
-    app.MapHealthChecks("/health");
+    // The JSON writer carries per-check detail so a 503 explains WHICH
+    // dependency is down (#135) instead of the bare "Unhealthy" string.
+    app.MapHealthChecks("/health", new HealthCheckOptions
+    {
+        ResponseWriter = BrokerHealthCheckExtensions.WriteHealthReportAsync
+    });
     
     var summaries = new[]
     {

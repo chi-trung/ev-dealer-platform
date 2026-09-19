@@ -1,5 +1,7 @@
 using Serilog;
 using Common.Data;
+using Common.Health;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.EntityFrameworkCore;
 using VehicleService.Data;
 using VehicleService.Services;
@@ -38,8 +40,15 @@ try
     // exchange (see Events/EventNames.cs and docs/EVENTS.md).
     builder.Services.AddSingleton<VehicleService.Services.IMessageProducer, VehicleService.Services.RabbitMQProducerService>();
     
-    builder.Services.AddHealthChecks();
-    
+    builder.Services.AddHealthChecks()
+        // #135: an empty AddHealthChecks() answers 200 unconditionally — even
+        // for this service's publisher, whose InitializeRabbitMQ catches and
+        // logs a failure without rethrowing, leaving every publish a silent
+        // no-op. The broker probe answers connectivity independently of that
+        // lazy singleton (see the notes in Common.Health).
+        .AddBrokerProbeCheck()
+        .AddDatabaseCheck<VehicleService.Data.ApplicationDbContext>();
+
     // REMOVED: Add CORS services
     // builder.Services.AddCors(options =>
     // {
@@ -66,7 +75,10 @@ try
     app.UseStaticFiles();
     
     app.MapControllers();
-    app.MapHealthChecks("/health");
+    app.MapHealthChecks("/health", new HealthCheckOptions
+    {
+        ResponseWriter = BrokerHealthCheckExtensions.WriteHealthReportAsync
+    });
     
     using (var scope = app.Services.CreateScope())
     {

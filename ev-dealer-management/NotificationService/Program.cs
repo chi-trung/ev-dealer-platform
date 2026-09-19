@@ -1,5 +1,7 @@
 using Serilog;
 using Common.Data;
+using Common.Health;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
@@ -40,6 +42,17 @@ try
     builder.Services.AddApplicationDbContext<NotificationService.Data.NotificationDbContext>(
         builder.Configuration,
         sqliteFallback: $"Data Source={Path.Combine(builder.Environment.ContentRootPath, "notifications.db")}");
+    builder.Services.AddHealthChecks()
+        // #135: NotificationService had NO AddHealthChecks at all, so /health
+        // was a MapGet returning a hardcoded 200 — it answered "healthy" for a
+        // process whose broker consumer had permanently died at boot (its
+        // StartConsuming returns silently on a null connection) and whose DB
+        // was unreachable. The broker probe answers connectivity independently
+        // of that hosted service; MapHealthChecks turns the same path into a
+        // readiness signal whose 503 body names the dependency that is down.
+        .AddBrokerProbeCheck()
+        .AddDatabaseCheck<NotificationService.Data.NotificationDbContext>();
+
     builder.Services.AddScoped<IDeviceTokenRegistry, DeviceTokenRegistry>();
     builder.Services.AddScoped<INotificationPreferencesStore, NotificationPreferencesStore>();
     // Issue #56: the read-side of preferences — turns #51's stored documents
@@ -204,12 +217,16 @@ try
     app.UseHttpsRedirection();
     app.MapControllers();
 
-    // Health check endpoint
-    app.MapGet("/health", () => Results.Ok(new { 
-        status = "healthy", 
-        service = "NotificationService",
-        timestamp = DateTime.UtcNow 
-    }))
+    // #135: this used to be a MapGet returning a hardcoded 200 — it answered
+    // "healthy" for a process whose broker consumer had permanently died at
+    // boot (its StartConsuming returns silently on a null connection) and
+    // whose DB was unreachable. MapHealthChecks makes the same path a real
+    // readiness signal, and the JSON writer explains WHICH dependency is
+    // down instead of the framework's bare "Unhealthy".
+    app.MapHealthChecks("/health", new HealthCheckOptions
+    {
+        ResponseWriter = BrokerHealthCheckExtensions.WriteHealthReportAsync
+    })
     .WithName("HealthCheck")
     .WithOpenApi();
 

@@ -37,17 +37,27 @@ services:
   #     NotificationService's AddHostedService<RabbitMQConsumerHostedService>
   #     calls StartConsuming() from StartAsync, which returns silently when
   #     the connection is not open (its InitializeRabbitMQ catch swallows).
-  #     Both keep answering /health 200 with a dead consumer — CustomerService
-  #     via a plain MapHealthChecks that checks nothing about the broker,
-  #     NotificationService via a hardcoded MapGet 200. THIS is the real
-  #     reason the broker must be up first.
+  #     Both keep the process alive and listening with a dead consumer. Since
+  #     #135 their /health no longer hides that: it runs a broker probe that
+  #     opens its OWN connection to the RabbitMQ__* values below, so a dead
+  #     consumer or an unreachable broker shows up as a 503 whose JSON body
+  #     names "rabbitmq". THIS is the real reason the broker must be up first:
+  #     with the broker down, these two services answer /health 503 and a
+  #     healthCheckPath deploy gate (below) never turns green.
   #   - SalesService's RabbitMQMessagePublisher ctor rethrows on an
   #     unreachable broker, BUT it is an AddSingleton that nothing resolves
   #     during startup — controllers take it as a ctor param, and no request
   #     arrives before the gateway routes one. So the throw lands on the FIRST
-  #     request, not at boot, and /health answers fine with the broker down.
+  #     request, not at boot. Its /health still reports the broker probe, so
+  #     it does not need the broker at boot either — it needs it before the
+  #     first request.
   #     (Verified by reading SalesService/Program.cs:97 against its DI graph:
   #     no IHostedService or eager GetService pulls IMessagePublisher.)
+  # The broker probe deliberately does NOT ask those publisher/consumer
+  # singletons for their connection state: they are constructed on first
+  # resolution, so at boot the container legitimately has none to report and
+  # a reporter-based check would be a false negative (#135's live probe
+  # proved exactly this). Probing the endpoint directly is dependency-free.
   # The `guest` account is loopback-restricted in RabbitMQ, so the broker
   # needs a non-guest user and RabbitMQ__* env is REQUIRED, not optional.
   # ==========================================================================
