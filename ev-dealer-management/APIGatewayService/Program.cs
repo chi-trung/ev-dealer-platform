@@ -64,15 +64,17 @@ try
                     {
                         // Single-entry-per-route assumed: every route in
                         // ocelot.json carries exactly one DownstreamHostAndPorts
-                        // object (verified by grep, not maintained by hand --
-                        // a stale hard-coded route count here drifted from 36
-                        // to 34 without anyone noticing). This loop DOES visit
-                        // every entry, so with two the scheme would be set on
-                        // each -- but they would all resolve to the same host,
-                        // because the Rewrite is keyed on host:port and entries
-                        // differ only by port. The real hazard with two entries
-                        // is a route reachable at two authorities, only one of
-                        // which the rewrite table names.
+                        // object. Do NOT hard-code the route count here -- the
+                        // previous comment said "all 36 routes" when the file
+                        // held 35, and survived the 35 -> 34 change in #127
+                        // (git log -S on this file, not a guess). This loop
+                        // visits every entry, so a second one is not a broken
+                        // rewrite but an unrewritten one: an entry whose
+                        // authority the table omits keeps its localhost address
+                        // while its sibling is redirected, silently splitting
+                        // one route across two destinations. If you add a
+                        // second entry, grep DownstreamHostAndPorts across the
+                        // routes first.
                         route["DownstreamScheme"] = newScheme;
                     }
                 }
