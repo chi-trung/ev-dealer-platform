@@ -32,7 +32,10 @@ RUN mkdir -p /app/Logs
 
 COPY --from=publish /app/publish .
 
-# /health is NotificationService's custom JSON liveness endpoint (Program.cs:70)
+# /health is NotificationService's custom JSON liveness endpoint
+# (app.MapGet("/health", ...) — its own Results.Ok object, not the
+# MapHealthChecks("/health") the six sibling services register). Named by
+# symbol, not line number: a line cite here drifted (see issue #131).
 HEALTHCHECK --interval=30s --timeout=3s --start-period=15s --retries=3 \
   CMD curl -f http://localhost:${PORT:-80}/health || exit 1
 

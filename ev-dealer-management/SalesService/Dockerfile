@@ -43,11 +43,13 @@ RUN apt-get update \
 
 COPY --from=publish /app/publish .
 
-# Health check. SalesService actually maps BOTH /health (MapHealthChecks at
-# Program.cs:129, the one the gateway's aggregate probe hits) and
-# /api/orders/health (OrdersController's [Route("api/[controller]")] +
-# [HttpGet("health")], an anonymous 200) — either answers 200 to curl -f.
-# /health is the canonical one the gateway polls and the other six use.
+# Health check. SalesService actually maps BOTH /health (the
+# app.MapHealthChecks("/health") call, the one the gateway's aggregate
+# probe hits) and /api/orders/health (OrdersController's
+# [Route("api/[controller]")] + [HttpGet("health")], an anonymous 200) —
+# either answers 200 to curl -f. /health is the canonical one the gateway
+# polls and the other six use. Named by symbol, not line number: a line
+# cite here drifted three times already (see issue #131).
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
   CMD curl -f http://localhost:${PORT:-80}/health || exit 1
 
