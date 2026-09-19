@@ -134,7 +134,7 @@ public static class BrokerHealthCheckExtensions
                     Password = _configuration["RabbitMQ:Password"] ?? "guest",
                     RequestedConnectionTimeout = ProbeTimeout,
                     // One-shot probe: no recovery loop, no background threads
-                    // to clean up — the connection is closed in the finally.
+                    // to clean up — the connection is closed by the using.
                     AutomaticRecoveryEnabled = false,
                     // Names the connection in the broker's management UI so
                     // these probes are distinguishable from real clients.
@@ -142,9 +142,19 @@ public static class BrokerHealthCheckExtensions
                 };
 
                 // RabbitMQ.Client's IConnection/IModel predate IAsyncDisposable,
-                // so the probe uses a synchronous using; both Close gracefully
-                // and the finally below closes the channel before the
+                // so the probe uses a synchronous using; both Close
+                // gracefully, and the channel is disposed before the
                 // connection so the broker logs no unexpected client close.
+                //
+                // The exception path cannot leak a connection even though this
+                // `using` sits inside the try: CreateConnection throws from
+                // inside the AMQP handshake (a non-broker listener that
+                // accepts the TCP socket still fails "connection.start was
+                // never received"), so the variable is never assigned on the
+                // path the catch handles. A handle is only ever handed back
+                // when a real broker answered — the case where this using
+                // disposes it in order. Verified by trying to construct the
+                // leak, which is not possible against a non-broker.
                 using var connection = factory.CreateConnection("health-check");
                 using var channel = connection.CreateModel();
                 return await Task.FromResult(HealthCheckResult.Healthy(
