@@ -31,8 +31,10 @@ public static class DbProviderSelector
 {
     // "sqlite" (or unset) keeps every existing local, CI and compose path
     // byte-identical. "postgres" switches the provider AND hard-fails if the
-    // server is unreachable — deliberately NOT ReportingService's
-    // probe-and-silently-fall-back-to-SQLite pattern (Program.cs:84-96): in
+    // server is unreachable — deliberately NOT ReportingService's old
+    // probe-and-silently-fall-back-to-SQLite pattern (removed in #89/#90,
+    // when the switch moved here; naming the issue, not a line number,
+    // because the cited lines no longer exist — see #131): in
     // production a silent fallback means a misconfigured service quietly boots
     // on SQLite and loses everything written to the container layer on the next
     // redeploy. Failing loudly is the correct failure mode.
