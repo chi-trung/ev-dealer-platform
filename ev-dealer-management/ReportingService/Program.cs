@@ -1,5 +1,7 @@
 using Serilog;
 using Common.Data;
+using Common.Health;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using System.Text;
 using System.Text.Json;
 using System.Linq;
@@ -42,7 +44,13 @@ try
     // Add services to the container.
     builder.Services.AddEndpointsApiExplorer();
     builder.Services.AddSwaggerGen();
-    builder.Services.AddHealthChecks();
+    builder.Services.AddHealthChecks()
+        // #135: this service's /health was bare MapHealthChecks with NO
+        // registered checks, so it answered 200 for a process whose DB was
+        // unreachable — while Migrate() at startup had already hard-failed it.
+        // ReportingService has no broker client of its own (it pulls the other
+        // services over HTTP), so only its own DB is probed.
+        .AddDatabaseCheck<ReportingDbContext>();
     
     // Add custom services
     builder.Services.AddScoped<IForecastingService, ForecastingService>();
@@ -123,7 +131,12 @@ try
     app.UseCors("AllowFrontend");
     
     // Liveness probe for the API gateway aggregate /health (docs/GATEWAY.md).
-    app.MapHealthChecks("/health");
+    // The JSON writer carries per-check detail so a 503 explains WHICH
+    // dependency is down (#135) instead of the framework's bare "Unhealthy".
+    app.MapHealthChecks("/health", new HealthCheckOptions
+    {
+        ResponseWriter = BrokerHealthCheckExtensions.WriteHealthReportAsync
+    });
     
     // Apply database migrations and ensure database is created
     using (var scope = app.Services.CreateScope())

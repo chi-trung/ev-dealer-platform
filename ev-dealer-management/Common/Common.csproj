@@ -11,6 +11,20 @@
     <PackageReference Include="Microsoft.EntityFrameworkCore" Version="8.0.10" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="8.0.10" />
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="8.0.10" />
+    <!-- HealthChecks abstractions for Common.Health (issue #135): the
+         AddBrokerProbeCheck/AddDatabaseCheck helpers live here so all seven
+         services register the same check shapes. Pinned to match EF's
+         transitive 8.0.x band to avoid a downgrade-as-error (NU1605). -->
+    <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks" Version="8.0.10" />
+    <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks.Abstractions" Version="8.0.10" />
+    <!-- WriteHealthReportAsync takes HttpContext; the health UI contract is
+         Microsoft.AspNetCore.Http.HttpResponseWriter, which lives here. -->
+    <PackageReference Include="Microsoft.AspNetCore.Http.Abstractions" Version="2.2.0" />
+    <!-- BrokerProbeHealthCheck opens its own connection, so Common needs the
+         client. Pinned to 6.8.1 to match the four broker services exactly —
+         a divergence here would mean the probe and the real clients run
+         different protocol versions. -->
+    <PackageReference Include="RabbitMQ.Client" Version="6.8.1" />
     <!-- No explicit Microsoft.Extensions.* pins: EF 8.0.10 pulls
          DependencyInjection/Configuration/Logging abstractions transitively, and
          pinning them lower triggers NU1605 downgrade-as-error. -->

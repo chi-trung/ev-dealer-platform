@@ -46,9 +46,35 @@ issue #133 was opened for. Add any further `/health/*` route at the top of
 that block.
 
 **Per service:** every service exposes `GET /health` via
-`AddHealthChecks()`/`MapHealthChecks` (NotificationService keeps its custom
-JSON endpoint; VehicleService already had it). Gateway routes listed above
-proxy them one level down as `/api/health/<name>`.
+`AddHealthChecks()`/`MapHealthChecks`, and since #135 that endpoint is a real
+readiness probe, not the framework's unconditional 200. Two checks are
+registered through `Common.Health`:
+
+- **`rabbitmq`** — opens its OWN short-lived connection to the configured
+  broker. It deliberately does *not* ask the registered publisher for its
+  connection state: every broker client here is an `AddSingleton` that .NET
+  constructs on first resolution, and nothing at startup resolves one, so the
+  container legitimately returns null at boot even with a healthy broker —
+  reporting that as Unhealthy would be a false negative that fails the first
+  deploy gate. `AddHostedService<T>` consumers are not resolvable by their own
+  type at all.
+- **`database`** — `CanConnect` against the service's own DbContext.
+
+Both are tagged `readiness`. The response is JSON naming the failing
+dependency (`{"status":"Unhealthy","entries":{"rabbitmq":{"status":"Unhealthy",
+"description":"RabbitMQ is unreachable at localhost:5672"}}}`) rather than the
+bare `Unhealthy` string the framework writes by default — which is what makes
+the gateway's 503 actionable. NotificationService's old hardcoded-200 `MapGet`
+was replaced by the same `MapHealthChecks`; UserService and ReportingService,
+which have no broker client, register the database check only. Gateway routes
+listed above proxy them one level down as `/api/health/<name>`.
+
+Note the asymmetry: every service runs `Migrate()`/`EnsureCreated()` before
+`app.Run()`, and #90 made a bad connection string rethrow out of startup, so an
+unreachable DB at boot kills the process and the `database` check's Unhealthy
+arm is reached only when the DB drops after startup. A broker failure at boot
+leaves the process alive and listening, which is exactly why `/health` must
+not answer 200 for it.
 
 ## Endpoint rewrites (docker-compose readiness)
 

@@ -1,5 +1,7 @@
 using Serilog;
 using Common.Data;
+using Common.Health;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using System.Text.Json.Serialization;
@@ -34,7 +36,13 @@ try
     // Add services
     builder.Services.AddEndpointsApiExplorer();
     builder.Services.AddSwaggerGen();
-    builder.Services.AddHealthChecks();
+    builder.Services.AddHealthChecks()
+        // #135: an empty AddHealthChecks() answers 200 unconditionally.
+        // UserService has no broker client, so /health reports its one real
+        // dependency only. The JSON writer below carries per-check detail so
+        // a 503 explains which dependency is down instead of the bare
+        // "Unhealthy" string the framework writes by default.
+        .AddDatabaseCheck<UserDbContext>();
     builder.Services.AddAuthorization();
     builder.Services.AddAuthentication();
     
@@ -180,7 +188,10 @@ try
     app.UseAuthorization();
     
     // Liveness probe for the API gateway aggregate /health (docs/GATEWAY.md).
-    app.MapHealthChecks("/health");
+    app.MapHealthChecks("/health", new HealthCheckOptions
+    {
+        ResponseWriter = BrokerHealthCheckExtensions.WriteHealthReportAsync
+    });
     
     app.MapPost("/api/auth/register", async (RegisterRequest req, IUserService userService) =>
     {
