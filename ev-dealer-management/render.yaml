@@ -27,13 +27,27 @@
 services:
   # ==========================================================================
   # RabbitMQ MUST be created and healthy first (it is a `psrv` below, which
-  # Render starts before web services). Two proven boot-time consequences of a
-  # missing/unreachable broker:
-  #   - SalesService's RabbitMQMessagePublisher ctor throws -> the service
-  #     never finishes startup -> /health never answers.
-  #   - CustomerService's VehicleReservedEventConsumer.ExecuteAsync has ONE
-  #     try/catch: a boot-time failure kills the consumer thread PERMANENTLY
-  #     while /health keeps returning 200 (silent dead consumer).
+  # Render starts before web services). Two boot-time consequences of a
+  # missing/unreachable broker (the first CORRECTED — the claim it could not
+  # finish startup was wrong, see below):
+  #   - TWO services have eager broker consumers that die silently at boot:
+  #     CustomerService's VehicleReservedEventConsumer is an
+  #     AddHostedService whose ExecuteAsync catch logs WITHOUT rethrowing, so
+  #     a boot-time failure ends the hosted service permanently; and
+  #     NotificationService's AddHostedService<RabbitMQConsumerHostedService>
+  #     calls StartConsuming() from StartAsync, which returns silently when
+  #     the connection is not open (its InitializeRabbitMQ catch swallows).
+  #     Both keep answering /health 200 with a dead consumer — CustomerService
+  #     via a plain MapHealthChecks that checks nothing about the broker,
+  #     NotificationService via a hardcoded MapGet 200. THIS is the real
+  #     reason the broker must be up first.
+  #   - SalesService's RabbitMQMessagePublisher ctor rethrows on an
+  #     unreachable broker, BUT it is an AddSingleton that nothing resolves
+  #     during startup — controllers take it as a ctor param, and no request
+  #     arrives before the gateway routes one. So the throw lands on the FIRST
+  #     request, not at boot, and /health answers fine with the broker down.
+  #     (Verified by reading SalesService/Program.cs:97 against its DI graph:
+  #     no IHostedService or eager GetService pulls IMessagePublisher.)
   # The `guest` account is loopback-restricted in RabbitMQ, so the broker
   # needs a non-guest user and RabbitMQ__* env is REQUIRED, not optional.
   # ==========================================================================
@@ -88,7 +102,16 @@ services:
     plan: free
     dockerfilePath: ./APIGatewayService/Dockerfile
     dockerContext: .
-    healthCheckPath: /health
+    # Liveness, deliberately NOT the aggregate /health: that branch returns 503
+    # unless all six upstreams answer 2xx (Program.cs), so it is a readiness
+    # signal. Render requires 2xx/3xx from this path and cancels a deploy whose
+    # checks stay failing past 15 minutes — a first `render blueprint apply`
+    # would then hinge on every upstream AND the RabbitMQ pserv being healthy
+    # inside one window, with no existing instance to roll back to. /health/live
+    # answers 200 once the process is up, bound to PORT, and Ocelot has loaded.
+    # The Docker HEALTHCHECK still probes /health with `curl -s` (any status
+    # proves the process answers) and /health stays the readiness view.
+    healthCheckPath: /health/live
     autoDeploy: false
     envVars:
       # ocelot.json downstreams are all localhost:<devport>; these six pairs
