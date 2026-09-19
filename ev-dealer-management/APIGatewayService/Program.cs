@@ -62,10 +62,19 @@ try
                     hp["Port"] = newPort;
                     if (newScheme != null)
                     {
-                        // Single-entry-per-route assumed (all 36 routes in
-                        // ocelot.json have exactly one DownstreamHostAndPorts
-                        // object); with two, the last scheme-qualified entry
-                        // would win route-wide.
+                        // Single-entry-per-route assumed: every route in
+                        // ocelot.json carries exactly one DownstreamHostAndPorts
+                        // object. Do NOT hard-code the route count here -- the
+                        // previous comment said "all 36 routes" when the file
+                        // held 35, and survived the 35 -> 34 change in #127
+                        // (git log -S on this file, not a guess). This loop
+                        // visits every entry, so a second one is not a broken
+                        // rewrite but an unrewritten one: an entry whose
+                        // authority the table omits keeps its localhost address
+                        // while its sibling is redirected, silently splitting
+                        // one route across two destinations. If you add a
+                        // second entry, grep DownstreamHostAndPorts across the
+                        // routes first.
                         route["DownstreamScheme"] = newScheme;
                     }
                 }
