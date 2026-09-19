@@ -66,9 +66,13 @@ try
                         // ocelot.json carries exactly one DownstreamHostAndPorts
                         // object (verified by grep, not maintained by hand --
                         // a stale hard-coded route count here drifted from 36
-                        // to 34 without anyone noticing). With two entries,
-                        // this loop would rewrite only the first and the last
-                        // scheme-qualified entry would win route-wide.
+                        // to 34 without anyone noticing). This loop DOES visit
+                        // every entry, so with two the scheme would be set on
+                        // each -- but they would all resolve to the same host,
+                        // because the Rewrite is keyed on host:port and entries
+                        // differ only by port. The real hazard with two entries
+                        // is a route reachable at two authorities, only one of
+                        // which the rewrite table names.
                         route["DownstreamScheme"] = newScheme;
                     }
                 }
