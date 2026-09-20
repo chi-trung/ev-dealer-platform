@@ -4,10 +4,15 @@ using System.Linq;
 using VehicleService.DTOs;
 using VehicleService.Services;
 
+using Microsoft.AspNetCore.Authorization;
 namespace VehicleService.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
+// Issue #137: the catalogue reads below are the public shop window the
+// frontend's vehicle list renders before login, so they stay anonymous.
+// Controller-level [Authorize] would close them too; each mutation carries
+// its own attribute instead.
 public class VehiclesController : ControllerBase
 {
     private readonly IVehicleService _vehicleService;
@@ -35,7 +40,10 @@ public class VehiclesController : ControllerBase
         return Ok(vehicle);
     }
 
+    // Issue #137: creating a listing changes inventory and uploads images;
+    // an anonymous caller could fill the catalogue or store arbitrary files.
     [HttpPost]
+    [Authorize]
     public async Task<ActionResult<VehicleDto>> CreateVehicle()
     {
         try
@@ -86,7 +94,9 @@ public class VehiclesController : ControllerBase
         }
     }
 
+    // Issue #137: edit access to a listing (price, status, images).
     [HttpPut("{id}")]
+    [Authorize]
     public async Task<ActionResult<VehicleDto>> UpdateVehicle(int id)
     {
         try
@@ -140,7 +150,9 @@ public class VehiclesController : ControllerBase
         }
     }
 
+    // Issue #137: deleting a listing removes inventory.
     [HttpDelete("{id}")]
+    [Authorize]
     public async Task<IActionResult> DeleteVehicle(int id)
     {
         try
@@ -162,7 +174,10 @@ public class VehiclesController : ControllerBase
         }
     }
 
+    // Issue #137: reserving a vehicle mutates its availability for other
+    // buyers. The frontend only ever calls this from an authenticated page.
     [HttpPost("{id}/reserve")]
+    [Authorize]
     public async Task<ActionResult> ReserveVehicle(int id, [FromBody] ReservationRequestDto request)
     {
         try

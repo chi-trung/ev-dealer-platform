@@ -2,10 +2,15 @@ using Microsoft.AspNetCore.Mvc;
 using VehicleService.DTOs;
 using VehicleService.Services;
 
+using Microsoft.AspNetCore.Authorization;
 namespace VehicleService.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
+// Issue #137: dealer reads stay anonymous -- UserService's DealerIdValidator
+// fetches /api/dealers server-to-server during anonymous registration
+// (UserService/Program.cs DealerIdValidator.GetDealersAsync), so gating the
+// reads would break signup. Writes are admin-only below.
 public class DealersController : ControllerBase
 {
     private readonly IVehicleService _vehicleService;
@@ -33,7 +38,11 @@ public class DealersController : ControllerBase
         return Ok(dealer);
     }
 
+    // Issue #137: creating a dealer is admin-only -- dealer accounts are
+    // scoped to it, so an anonymous dealer creation silently grants a
+    // privileged context to whoever signs up against it.
     [HttpPost]
+    [Authorize(Roles = "Admin")]
     public async Task<ActionResult<DealerDto>> CreateDealer(CreateDealerDto createDto)
     {
         try
@@ -47,7 +56,10 @@ public class DealersController : ControllerBase
         }
     }
 
+    // Issue #137: admin-only, same reason as creation -- a dealer rename or
+    // contact change is what downstream user accounts bind to.
     [HttpPut("{id}")]
+    [Authorize(Roles = "Admin")]
     public async Task<ActionResult<DealerDto>> UpdateDealer(int id, UpdateDealerDto updateDto)
     {
         try
@@ -65,7 +77,10 @@ public class DealersController : ControllerBase
         }
     }
 
+    // Issue #137: admin-only -- deleting a dealer orphans every user account
+    // whose DealerId points at it.
     [HttpDelete("{id}")]
+    [Authorize(Roles = "Admin")]
     public async Task<IActionResult> DeleteDealer(int id)
     {
         var deleted = await _vehicleService.DeleteDealerAsync(id);

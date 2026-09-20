@@ -8,10 +8,14 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 
+using Microsoft.AspNetCore.Authorization;
 namespace SalesService.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
+    // Issue #137: delivery records are fulfilment data behind an order; the
+    // frontend reaches them only from the authenticated sales pages.
+    [Authorize]
     public class DeliveriesController : ControllerBase
     {
         private readonly SalesDbContext _context;

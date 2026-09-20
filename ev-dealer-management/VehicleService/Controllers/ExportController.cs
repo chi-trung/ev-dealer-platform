@@ -4,10 +4,14 @@ using System.Text;
 using VehicleService.Data;
 using VehicleService.Models;
 
+using Microsoft.AspNetCore.Authorization;
 namespace VehicleService.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
+// Issue #137: the export dumps the full inventory with dealer and image
+// metadata into a downloadable file -- staff data, not a public feed.
+[Authorize]
 public class ExportController : ControllerBase
 {
     private readonly ApplicationDbContext _context;

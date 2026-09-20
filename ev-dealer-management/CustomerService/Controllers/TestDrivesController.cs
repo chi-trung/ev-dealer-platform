@@ -7,6 +7,9 @@ namespace CustomerService.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
+    // Issue #137: test-drive slots are dealer inventory (which car is booked
+    // when, and by whom). Anonymous read/write here leaks the booking sheet.
+    [Authorize]
     public class TestDrivesController : ControllerBase
     {
         private readonly ITestDriveService _testDriveService;

@@ -8,6 +8,9 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.IdentityModel.Tokens;
+using System.Text;
 using QuestPDF.Infrastructure; // Required for LicenseType
 using System.Text.Json.Serialization; // Required for ReferenceHandler
 
@@ -105,7 +108,34 @@ try
     
     // Register RabbitMQ Message Publisher
     builder.Services.AddSingleton<IMessagePublisher, RabbitMQMessagePublisher>();
-    
+
+    // JWT authentication (Issue #137): SalesService never registered auth at
+    // all, so every order/quote/contract/payment/promotion/delivery endpoint
+    // was anonymous -- 16 mutation routes reachable through the gateway by
+    // anyone. Same validation parameters as UserService/CustomerService/
+    // NotificationService: tokens are minted only by UserService's
+    // /api/auth/login, and the Jwt__* trio must byte-match across services or
+    // a token one service issued is rejected by the others.
+    var jwtSection = builder.Configuration.GetSection("Jwt");
+    var jwtKey = jwtSection.GetValue<string>("Key") ?? "ReplaceThisWithASecretKeyForDevelopment";
+    var keyBytes = Encoding.UTF8.GetBytes(jwtKey);
+
+    builder.Services.AddAuthentication("JwtBearer")
+        .AddJwtBearer("JwtBearer", options =>
+        {
+            options.TokenValidationParameters = new TokenValidationParameters
+            {
+                ValidateIssuer = true,
+                ValidateAudience = true,
+                ValidateLifetime = true,
+                ValidateIssuerSigningKey = true,
+                ValidIssuer = jwtSection.GetValue<string>("Issuer"),
+                ValidAudience = jwtSection.GetValue<string>("Audience"),
+                IssuerSigningKey = new SymmetricSecurityKey(keyBytes)
+            };
+        });
+    builder.Services.AddAuthorization();
+
     var app = builder.Build();
     
     // Apply migrations at startup (same pattern as UserService). The bind-mounted
@@ -160,7 +190,12 @@ try
     
     // Use CORS
     app.UseCors("AllowFrontend");
-    
+
+    // Issue #137: auth must run before MapControllers -- attribute metadata
+    // on the actions is what [Authorize]/[AllowAnonymous] resolve against.
+    app.UseAuthentication();
+    app.UseAuthorization();
+
     app.MapControllers();
     
     // Liveness probe for the API gateway aggregate /health (docs/GATEWAY.md).

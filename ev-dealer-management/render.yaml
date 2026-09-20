@@ -160,6 +160,15 @@ services:
       # must be an env var or CORS blocks the deployed frontend.
       - key: Cors__AllowedOrigins
         value: https://evdealer.vercel.app
+      # Issue #137: the gateway validates tokens itself as defence in depth
+      # before proxying, so it needs the same trio the services share. Fill
+      # ONE dashboard value and copy it verbatim to every Jwt__Key below.
+      - key: Jwt__Key
+        sync: false
+      - key: Jwt__Issuer
+        value: https://evm-gateway.onrender.com
+      - key: Jwt__Audience
+        value: https://evm-gateway.onrender.com
 
   - type: web
     runtime: docker
@@ -270,6 +279,14 @@ services:
         sync: false
       - key: RabbitMQ__Password
         sync: false
+      # Issue #137: VehicleService's create/update/delete/reserve endpoints now
+      # validate tokens. Same trio as the other services, verbatim.
+      - key: Jwt__Key
+        sync: false
+      - key: Jwt__Issuer
+        value: https://evm-gateway.onrender.com
+      - key: Jwt__Audience
+        value: https://evm-gateway.onrender.com
 
   - type: web
     runtime: docker
@@ -302,6 +319,14 @@ services:
       # scheme-qualified.
       - key: Services__VehicleService
         value: https://vehicleservice.onrender.com
+      # Issue #137: SalesService's order/quote/contract/payment endpoints now
+      # validate tokens. Same trio as the other services, verbatim.
+      - key: Jwt__Key
+        sync: false
+      - key: Jwt__Issuer
+        value: https://evm-gateway.onrender.com
+      - key: Jwt__Audience
+        value: https://evm-gateway.onrender.com
       - key: Cors__AllowedOrigins
         value: https://evdealer.vercel.app
 
@@ -376,6 +401,14 @@ services:
         value: https://userservice.onrender.com
       - key: Services__CustomerService
         value: https://customerservice.onrender.com
+      # Issue #137: the report routes now require a token (the sync/export and
+      # summary-write endpoints especially). Same trio, verbatim.
+      - key: Jwt__Key
+        sync: false
+      - key: Jwt__Issuer
+        value: https://evm-gateway.onrender.com
+      - key: Jwt__Audience
+        value: https://evm-gateway.onrender.com
       - key: Cors__AllowedOrigins
         value: https://evdealer.vercel.app
 

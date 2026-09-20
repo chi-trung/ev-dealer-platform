@@ -10,10 +10,15 @@ using System.Collections.Generic;
 using System.Text.Json;
 using System; // Required for DateTime
 
+using Microsoft.AspNetCore.Authorization;
 namespace SalesService.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
+    // Issue #137: the whole order surface (create, list, status, complete)
+    // is the sales workflow. Note [HttpGet("health")] is left open
+    // explicitly below -- the gateway probes it without a token.
+    [Authorize]
     public class OrdersController : ControllerBase
     {
         private readonly ILogger<OrdersController> _logger;
@@ -343,7 +348,11 @@ namespace SalesService.Controllers
         /// <summary>
         /// Health check endpoint
         /// </summary>
+        // Issue #137: left anonymous deliberately. The API gateway's own
+        // readiness logic and Render's deploy probe poll this without a token;
+        // the real readiness signal is the unauthenticated /health endpoint.
         [HttpGet("health")]
+        [AllowAnonymous]
         public IActionResult Health()
         {
             return Ok(new { status = "healthy", service = "SalesService", timestamp = DateTime.UtcNow });

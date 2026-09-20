@@ -6,6 +6,8 @@ using System.Text;
 using System.Text.Json;
 using System.Linq;
 using System.Collections.Generic;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.IdentityModel.Tokens;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Hosting;
@@ -118,6 +120,32 @@ try
         builder.Configuration,
         sqliteFallback: $"Data Source={sqlitePath}");
 
+    // JWT authentication (Issue #137): ReportingService never registered auth,
+    // so /api/reports/synchronize-data, /api/reports/export and the two
+    // POST summary endpoints were anonymous -- 4 mutation routes. Same
+    // validation parameters as the services that already validate: tokens are
+    // minted only by UserService's /api/auth/login, so the Jwt__* trio must
+    // byte-match across services.
+    var jwtSection = builder.Configuration.GetSection("Jwt");
+    var jwtKey = jwtSection.GetValue<string>("Key") ?? "ReplaceThisWithASecretKeyForDevelopment";
+    var keyBytes = Encoding.UTF8.GetBytes(jwtKey);
+
+    builder.Services.AddAuthentication("JwtBearer")
+        .AddJwtBearer("JwtBearer", options =>
+        {
+            options.TokenValidationParameters = new TokenValidationParameters
+            {
+                ValidateIssuer = true,
+                ValidateAudience = true,
+                ValidateLifetime = true,
+                ValidateIssuerSigningKey = true,
+                ValidIssuer = jwtSection.GetValue<string>("Issuer"),
+                ValidAudience = jwtSection.GetValue<string>("Audience"),
+                IssuerSigningKey = new SymmetricSecurityKey(keyBytes)
+            };
+        });
+    builder.Services.AddAuthorization();
+
     var app = builder.Build();
     
     // Configure the HTTP request pipeline.
@@ -129,6 +157,13 @@ try
     
     app.UseHttpsRedirection();
     app.UseCors("AllowFrontend");
+
+    // Issue #137: auth before the route registrations below -- the minimal-API
+    // .RequireAuthorization() calls attach to endpoint metadata resolved when
+    // the endpoints are built, and UseAuthentication/UseAuthorization must be
+    // in the pipeline before requests reach them.
+    app.UseAuthentication();
+    app.UseAuthorization();
     
     // Liveness probe for the API gateway aggregate /health (docs/GATEWAY.md).
     // The JSON writer carries per-check detail so a 503 explains WHICH
@@ -185,7 +220,7 @@ try
     .WithName("GetDemandForecast")
     .WithOpenApi()
     .Produces<DemandForecastDto>(200)
-    .Produces(500);
+    .Produces(500).RequireAuthorization();
     
     // ============================================================================
     // REPORT ENDPOINTS - Using Real Data from Database
@@ -208,7 +243,7 @@ try
     .WithName("SynchronizeData")
     .WithOpenApi()
     .Produces(200)
-    .Produces(500);
+    .Produces(500).RequireAuthorization();
     
     // New endpoint for Debt Summary Report
     app.MapGet("/api/reports/debt-summary", async (ReportingDbContext db, int? dealerId, int? customerId, string? debtType, string? status, string? from, string? to) =>
@@ -260,7 +295,7 @@ try
     .WithName("GetDebtSummary")
     .WithOpenApi()
     .Produces(200)
-    .Produces(500);
+    .Produces(500).RequireAuthorization();
     
     // New endpoint for Dealer Debt Report (using ReportService)
     app.MapGet("/api/reports/debt-report", async (IReportService reportService, int? dealerId, string? from, string? to) =>
@@ -280,7 +315,7 @@ try
     .WithName("GetDealerDebtReport")
     .WithOpenApi()
     .Produces<DealerDebtReportDto>(200)
-    .Produces(500);
+    .Produces(500).RequireAuthorization();
     
     // New endpoint for Sales by Dealer (using ReportService)
     app.MapGet("/api/reports/sales-by-dealer", async (IReportService reportService, IVehicleDataService vehicleDataService, int? dealerId, string? period, DateTime? fromDate, DateTime? toDate) =>
@@ -326,7 +361,7 @@ try
     .WithName("GetSalesByDealer")
     .WithOpenApi()
     .Produces<DealerSalesReportDto>(200)
-    .Produces(500);
+    .Produces(500).RequireAuthorization();
     
     // New endpoint for Inventory Trends (using ReportService)
     app.MapGet("/api/reports/inventory-trends", async (IReportService reportService) =>
@@ -345,7 +380,7 @@ try
     .WithName("GetInventoryTrends")
     .WithOpenApi()
     .Produces<InventoryAnalysisDto>(200)
-    .Produces(500);
+    .Produces(500).RequireAuthorization();
     
     // Endpoint for Sales by Staff (using ReportService)
     app.MapGet("/api/reports/sales-by-staff", async (IReportService reportService, string? from, string? to) =>
@@ -371,7 +406,7 @@ try
     })
     .WithName("GetSalesByStaff")
     .WithOpenApi()
-    .Produces(501);
+    .Produces(501).RequireAuthorization();
     
     
     // Summary endpoint - Tính toán từ dữ liệu thật trong database
@@ -447,7 +482,7 @@ try
     .WithName("GetReportSummary")
     .WithOpenApi()
     .Produces(200)
-    .Produces(500);
+    .Produces(500).RequireAuthorization();
     
     // Sales by region (grouped by Region) - for bar chart
     app.MapGet("/api/reports/sales-by-region", async (ReportingDbContext db, string? from, string? to) =>
@@ -504,7 +539,7 @@ try
     .WithName("GetSalesByRegion")
     .WithOpenApi()
     .Produces(200)
-    .Produces(500);
+    .Produces(500).RequireAuthorization();
     
     // Sales proportion by region - for donut chart
     app.MapGet("/api/reports/sales-proportion", async (ReportingDbContext db, string? from, string? to) =>
@@ -572,7 +607,7 @@ try
     .WithName("GetSalesProportion")
     .WithOpenApi()
     .Produces(200)
-    .Produces(500);
+    .Produces(500).RequireAuthorization();
     
     // Top vehicles - Lấy từ InventorySummaries, sắp xếp theo StockCount
     app.MapGet("/api/reports/top-vehicles", async (ReportingDbContext db, int? limit) =>
@@ -626,7 +661,7 @@ try
     .WithName("GetTopVehicles")
     .WithOpenApi()
     .Produces(200)
-    .Produces(500);
+    .Produces(500).RequireAuthorization();
     
     // Export endpoint - Export dữ liệu thật từ database
     app.MapPost("/api/reports/export", async (HttpRequest req, ReportingDbContext db) =>
@@ -764,7 +799,7 @@ try
     .WithName("ExportReport")
     .WithOpenApi()
     .Produces(200)
-    .Produces(500);
+    .Produces(500).RequireAuthorization();
     
     // ============================================================================
     // NEW API ENDPOINTS FOR SALES SUMMARY AND INVENTORY SUMMARY
@@ -804,7 +839,7 @@ try
     .WithName("GetSalesSummary")
     .WithOpenApi()
     .Produces(200)
-    .Produces(500);
+    .Produces(500).RequireAuthorization();
     
     // GET /api/reports/sales-summary/{id} - Lấy chi tiết một doanh số
     app.MapGet("/api/reports/sales-summary/{id}", async (Guid id, ReportingDbContext db) =>
@@ -828,7 +863,7 @@ try
     .WithOpenApi()
     .Produces(200)
     .Produces(404)
-    .Produces(500);
+    .Produces(500).RequireAuthorization();
     
     // GET /api/reports/inventory-summary - Lấy tất cả dữ liệu tồn kho tổng hợp
     app.MapGet("/api/reports/inventory-summary", async (ReportingDbContext db, int? dealerId, int? vehicleId) => // Changed Guid? to int? for both
@@ -861,7 +896,7 @@ try
     .WithName("GetInventorySummary")
     .WithOpenApi()
     .Produces(200)
-    .Produces(500);
+    .Produces(500).RequireAuthorization();
     
     // GET /api/reports/inventory-summary/{id} - Lấy chi tiết một tồn kho
     app.MapGet("/api/reports/inventory-summary/{id}", async (Guid id, ReportingDbContext db) =>
@@ -885,7 +920,7 @@ try
     .WithOpenApi()
     .Produces(200)
     .Produces(404)
-    .Produces(500);
+    .Produces(500).RequireAuthorization();
     
     // POST /api/reports/sales-summary - Thêm dữ liệu tổng hợp doanh số mới (cho test)
     app.MapPost("/api/reports/sales-summary", async (ReportingDbContext db, SalesSummary salesSummary) =>
@@ -916,7 +951,7 @@ try
     .WithOpenApi()
     .Produces(201)
     .Produces(400)
-    .Produces(500);
+    .Produces(500).RequireAuthorization();
     
     // POST /api/reports/inventory-summary - Thêm dữ liệu tồn kho mới (cho test)
     app.MapPost("/api/reports/inventory-summary", async (ReportingDbContext db, InventorySummary inventorySummary) =>
@@ -947,7 +982,7 @@ try
     .WithOpenApi()
     .Produces(201)
     .Produces(400)
-    .Produces(500);
+    .Produces(500).RequireAuthorization();
     
     // ============================================================================
     // END OF NEW API ENDPOINTS

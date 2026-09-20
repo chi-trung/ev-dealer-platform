@@ -11,10 +11,14 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 
+using Microsoft.AspNetCore.Authorization;
 namespace SalesService.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
+    // Issue #137: payment records are financial data; both the list and the
+    // recording of a payment are staff actions.
+    [Authorize]
     public class PaymentsController : ControllerBase
     {
         private readonly SalesDbContext _context;
