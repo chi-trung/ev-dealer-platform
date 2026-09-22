@@ -10,10 +10,14 @@ using System;
 using System.Threading.Tasks;
 using System.Collections.Generic; // Added for IEnumerable
 
+using Microsoft.AspNetCore.Authorization;
 namespace SalesService.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
+    // Issue #137: contract creation, status edits and the PDF body are dealer
+    // sales workflow data -- no anonymous path needs any of it.
+    [Authorize]
     public class ContractsController : ControllerBase
     {
         private readonly SalesDbContext _context;

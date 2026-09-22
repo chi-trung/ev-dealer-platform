@@ -4,10 +4,15 @@ using CustomerService.Data;
 using CustomerService.Models;
 using CustomerService.DTOs;
 
+using Microsoft.AspNetCore.Authorization;
 namespace CustomerService.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
+    // Issue #137: complaints are customer PII submitted by staff, and the
+    // complaints list exposes it. Public complaint *submission* is not a
+    // route here -- it goes through the authenticated frontend only.
+    [Authorize]
     public class ComplaintsController : ControllerBase
     {
         private readonly CustomerDbContext _context;

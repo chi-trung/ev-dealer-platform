@@ -3,6 +3,9 @@ using Microsoft.AspNetCore.Builder;
 using Newtonsoft.Json.Linq;
 using Ocelot.DependencyInjection;
 using Ocelot.Middleware;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.IdentityModel.Tokens;
+using System.Text;
 
 // Issue #63: Serilog bootstrap — the convention NotificationService has
 // run since well before this repo's CI era: sinks configured from
@@ -96,6 +99,34 @@ try
         .Build();
     
     builder.Services.AddOcelot(ocelotConfiguration);
+
+    // Issue #137: gateway-level token validation as defence in depth. The
+    // services now enforce their own [Authorize], but this is the single
+    // public entry point every route goes through, so a token rejected here
+    // never reaches a downstream at all. Same Jwt__* trio as the services:
+    // tokens are minted only by UserService's /api/auth/login, and a mismatch
+    // between this and any service means the same request passes one gate and
+    // fails the other. The /health and /health/live Map() branches below are
+    // registered before this middleware runs and are not covered by it.
+    var jwtSection = builder.Configuration.GetSection("Jwt");
+    var jwtKey = jwtSection.GetValue<string>("Key") ?? "ReplaceThisWithASecretKeyForDevelopment";
+    var keyBytes = Encoding.UTF8.GetBytes(jwtKey);
+
+    builder.Services.AddAuthentication("JwtBearer")
+        .AddJwtBearer("JwtBearer", options =>
+        {
+            options.TokenValidationParameters = new TokenValidationParameters
+            {
+                ValidateIssuer = true,
+                ValidateAudience = true,
+                ValidateLifetime = true,
+                ValidateIssuerSigningKey = true,
+                ValidIssuer = jwtSection.GetValue<string>("Issuer"),
+                ValidAudience = jwtSection.GetValue<string>("Audience"),
+                IssuerSigningKey = new SymmetricSecurityKey(keyBytes)
+            };
+        });
+    builder.Services.AddAuthorization();
     
     // Aggregate health endpoint: pings every service's /health in parallel.
     builder.Services.AddSingleton<HcHealthCheckWriter>();
@@ -146,6 +177,13 @@ try
     
     // Enable CORS - must be before UseOcelot()
     app.UseCors("AllowFrontend");
+
+    // Issue #137: auth before the /health Map() branches below and before
+    // UseOcelot. The health branches are terminal Run() handlers, so they are
+    // not affected either way; the ordering that matters is relative to
+    // UseOcelot, whose responder short-circuits everything after it.
+    app.UseAuthentication();
+    app.UseAuthorization();
     
     // ORDER MATTERS: app.Map() branches match by path PREFIX
     // (PathString.StartsWithSegments), not exact equality, and branch.Run()

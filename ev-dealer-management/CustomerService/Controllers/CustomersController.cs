@@ -3,10 +3,15 @@ using CustomerService.Services;
 using CustomerService.DTOs;
 using CustomerService.Models; // Required for the event model if it's not in DTOs
 
+using Microsoft.AspNetCore.Authorization;
 namespace CustomerService.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
+    // Issue #137: every customer route is staff-only data. Register goes
+    // through UserService's /api/auth/register -- this controller's reads and
+    // writes are the dealer CRM surface, not the public signup path.
+    [Authorize]
     public class CustomersController : ControllerBase
     {
         private readonly ICustomerService _customerService;

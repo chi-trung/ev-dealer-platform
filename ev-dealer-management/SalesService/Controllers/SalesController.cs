@@ -11,10 +11,14 @@ using System.Linq;
 using System.Threading.Tasks;
 using System.Collections.Generic;
 
+using Microsoft.AspNetCore.Authorization;
 namespace SalesService.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
+    // Issue #137: the composite quote/order/contract endpoints mutate sales
+    // state and generate PDFs; every route here is staff-only.
+    [Authorize]
     public class SalesController : ControllerBase
     {
         private readonly SalesDbContext _context;

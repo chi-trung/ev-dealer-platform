@@ -8,10 +8,14 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 
+using Microsoft.AspNetCore.Authorization;
 namespace SalesService.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
+    // Issue #137: promotions change pricing shown to customers, so only staff
+    // may create or list them.
+    [Authorize]
     public class PromotionsController : ControllerBase
     {
         private readonly SalesDbContext _context;

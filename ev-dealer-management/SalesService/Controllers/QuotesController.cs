@@ -8,10 +8,14 @@ using SalesService.Services;
 using Microsoft.Extensions.Configuration;
 using System; // Required for DateTime
 
+using Microsoft.AspNetCore.Authorization;
 namespace SalesService.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
+    // Issue #137: quotes carry customer identity, vehicle pricing and discount
+    // amounts -- the whole controller is the sales workflow.
+    [Authorize]
     public class QuotesController : ControllerBase
     {
         private readonly SalesDbContext _context;
