@@ -45,3 +45,7 @@ TestResults/
 # ── OS ───────────────────────────────────────────────
 Thumbs.db
 .DS_Store
+
+# ── Local scratch & tool caches (never commit) ─────────
+_scratch/
+.vercel/
