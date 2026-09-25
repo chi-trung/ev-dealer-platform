@@ -1,10 +1,11 @@
 using RabbitMQ.Client;
+
+using Common.Events;
 using RabbitMQ.Client.Events;
 using System.Text;
 using System.Text.Json;
 using NotificationService.DTOs;
 using NotificationService.Consumers;
-using NotificationService.Events;
 using Serilog;
 
 namespace NotificationService.Services
@@ -202,11 +203,16 @@ namespace NotificationService.Services
         }
         public void StartConsuming()
         {
-            if (_connection == null || !_connection.IsOpen)
+            if (!IsConnected)
             {
                 Log.Warning("RabbitMQ connection is not open. Attempting to re-initialize.");
+                // Tear the previous generation down first. InitializeRabbitMQ
+                // assigns fresh channels to the same fields, so without this
+                // every reconnect would leak the 14 old channels (and any
+                // consumers still attached to them) for the life of the process.
+                Dispose();
                 InitializeRabbitMQ();
-                if (_connection == null || !_connection.IsOpen)
+                if (!IsConnected)
                 {
                     Log.Error("Failed to start consuming: RabbitMQ connection is still not open.");
                     return;
@@ -346,6 +352,13 @@ namespace NotificationService.Services
         private static string Truncate(string value, int max = 512) =>
             value.Length <= max ? value : value.Substring(0, max) + "...[truncated]";
 
+        /// <summary>
+        /// Whether the broker connection is currently usable. Read on every
+        /// poll by <see cref="RabbitMQConsumerHostedService"/>; also reflects a
+        /// connection that InitializeRabbitMQ failed to open (null).
+        /// </summary>
+        public bool IsConnected => _connection is { IsOpen: true };
+
         public void StopConsuming()
         {
             Log.Information("Stopping RabbitMQ consumer.");
@@ -354,22 +367,35 @@ namespace NotificationService.Services
 
         public void Dispose()
         {
-            _saleChannel?.Close();
-            _reservationChannel?.Close();
-            _testDriveChannel?.Close();
-            _orderChannel?.Close();
-            _quoteChannel?.Close();
-            _contractChannel?.Close();
-            _customerCreatedChannel?.Close();
-            _customerUpdatedChannel?.Close();
-            _customerDeletedChannel?.Close();
-            _paymentReceivedChannel?.Close();
-            _orderStatusChangedChannel?.Close();
-            _vehicleCreatedChannel?.Close();
-            _vehicleUpdatedChannel?.Close();
-            _vehicleDeletedChannel?.Close();
-            _connection?.Close();
+            // Every Close is guarded: this runs on the shutdown path, where the
+            // broker may already be gone, and an AlreadyClosedException thrown
+            // here would abort host shutdown and skip the remaining services.
+            CloseQuietly(_saleChannel);
+            CloseQuietly(_reservationChannel);
+            CloseQuietly(_testDriveChannel);
+            CloseQuietly(_orderChannel);
+            CloseQuietly(_quoteChannel);
+            CloseQuietly(_contractChannel);
+            CloseQuietly(_customerCreatedChannel);
+            CloseQuietly(_customerUpdatedChannel);
+            CloseQuietly(_customerDeletedChannel);
+            CloseQuietly(_paymentReceivedChannel);
+            CloseQuietly(_orderStatusChangedChannel);
+            CloseQuietly(_vehicleCreatedChannel);
+            CloseQuietly(_vehicleUpdatedChannel);
+            CloseQuietly(_vehicleDeletedChannel);
+            CloseQuietly(_connection);
             Log.Information("RabbitMQ consumer connection closed.");
+        }
+
+        private static void CloseQuietly(IModel? channel)
+        {
+            try { channel?.Close(); } catch { }
+        }
+
+        private static void CloseQuietly(IConnection? connection)
+        {
+            try { connection?.Close(); } catch { }
         }
     }
 }

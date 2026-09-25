@@ -2,7 +2,7 @@ using RabbitMQ.Client;
 using RabbitMQ.Client.Events;
 using System.Text;
 
-namespace NotificationService.Events;
+namespace Common.Events;
 
 /// <summary>
 /// Dead-letter retry topology shared by all consumers (docs/EVENTS.md):
@@ -11,15 +11,18 @@ namespace NotificationService.Events;
 ///       ^                                  | TTL expires
 ///       +-------------(dead-letter)--------+
 ///
-///   "&lt;queue&gt;.retry" --(attempts exhausted)--> "&lt;queue&gt;.dlq" (parked for ops)
+///   "&lt;queue&gt;.retry" --(attempts exhausted)--&gt; "&lt;queue&gt;.dlq" (parked for ops)
 ///
 /// The MAIN queues are untouched: they already exist on live brokers without
 /// x-dead-letter arguments, and RabbitMQ refuses to redeclare an existing
 /// queue with different arguments. So the retry hop is done by re-publishing
 /// to the retry queue and acking the original delivery, and the round counter
 /// is the x-death header the broker maintains on the retry queue itself.
-/// (Duplicate of CustomerService/Events/EventRetryPolicy.cs - services share
-/// no assembly, same convention as EventNames.cs.)
+///
+/// Previously duplicated byte-for-byte in NotificationService/Events/ and
+/// CustomerService/Events/ (their own doc comments called it out as a
+/// duplicate). Both services reference Common, so one copy is the whole fix;
+/// the two copies could not drift because nothing compared them.
 /// </summary>
 public static class EventRetryPolicy
 {
@@ -35,8 +38,8 @@ public static class EventRetryPolicy
     /// THROWAWAY channel and swallows declare failures: redeclaring an existing
     /// queue with a different x-message-ttl is a channel-level
     /// PRECONDITION_FAILED soft error, and both consumers call this inside
-    /// their single top-level try. On the consumer's own channel an operator's
-    /// RabbitMQ:RetryTtlMilliseconds edit would therefore kill every later
+    /// their top-level try. On the consumer's own channel an operator's
+    /// RabbitMQ:RetryTtlMilliseconds edit would otherwise kill every later
     /// queue (NotificationService) or the whole consumer thread
     /// (CustomerService) while /health keeps returning 200. Fail-soft means the
     /// broker keeps its existing TTL and the consumer keeps running; the

@@ -1,0 +1,150 @@
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using UserService.Data;
+using UserService.DTOs;
+using UserService.Services;
+
+namespace UserService.Endpoints;
+
+public static class UserEndpoints
+{
+    public static void MapUserEndpoints(this WebApplication app)
+    {
+app.MapPost("/api/auth/register", async (RegisterRequest req, IUserService userService) =>
+{
+    var result = await userService.RegisterAsync(req);
+    return result.Success ? Results.Created($"/api/users/{result.UserId}", result) : Results.BadRequest(result);
+});
+
+app.MapPost("/api/auth/login", async (LoginRequest req, IUserService userService) =>
+{
+    var result = await userService.LoginAsync(req);
+    return result.Success ? Results.Ok(result) : Results.BadRequest(result);
+});
+
+app.MapPost("/api/auth/forgot-password", async ([FromBody] ForgotPasswordRequest req, IUserService userService) =>
+{
+    var result = await userService.ForgotPasswordAsync(req);
+    return Results.Ok(result);
+});
+
+app.MapPost("/api/auth/reset-password", async ([FromBody] ResetPasswordRequest req, IUserService userService) =>
+{
+    var result = await userService.ResetPasswordAsync(req);
+    return result.Success ? Results.Ok(result) : Results.BadRequest(result);
+});
+
+// Issue #50: authenticated in-session password change (Settings page posts
+// {currentPassword, newPassword} with the login JWT attached by services/api.js).
+// Unlike reset-password, no email token is involved: the current password IS
+// the proof of ownership, and a wrong one is a plain 400 — the same shape the
+// login endpoint uses so the frontend toast wording stays consistent.
+app.MapPost("/api/auth/change-password", [Microsoft.AspNetCore.Authorization.Authorize] async (System.Security.Claims.ClaimsPrincipal user, ChangePasswordRequest req, IUserService userService) =>
+{
+    var userIdClaim = user.FindFirst("id")?.Value;
+    if (!int.TryParse(userIdClaim, out var userId))
+        return Results.Unauthorized();
+
+    var result = await userService.ChangePasswordAsync(userId, req);
+    return result.Success ? Results.Ok(result) : Results.BadRequest(result);
+});
+
+app.MapGet("/api/users/me", [Microsoft.AspNetCore.Authorization.Authorize] async (System.Security.Claims.ClaimsPrincipal user, IUserService userService) =>
+{
+    var userIdClaim = user.FindFirst("id")?.Value;
+    if (!int.TryParse(userIdClaim, out var userId))
+        return Results.Unauthorized();
+
+    var result = await userService.GetUserByIdAsync(userId);
+    return result.Success ? Results.Ok(result.User) : Results.NotFound(result.Message);
+});
+
+// User management endpoints - Admin only
+app.MapGet("/api/users", [Microsoft.AspNetCore.Authorization.Authorize(Roles = "Admin")] async (IUserService userService) =>
+{
+    var result = await userService.GetUsersAsync();
+    return result.Success ? Results.Ok(result) : Results.BadRequest(result);
+});
+
+// New endpoint for Admin to create approved users
+app.MapPost("/api/admin/users", [Microsoft.AspNetCore.Authorization.Authorize(Roles = "Admin")] async (RegisterRequest req, IUserService userService) =>
+{
+    var result = await userService.CreateApprovedUserAsync(req);
+    return result.Success ? Results.Created($"/api/users/{result.UserId}", result) : Results.BadRequest(result);
+});
+
+app.MapGet("/api/users/{id:int}", [Microsoft.AspNetCore.Authorization.Authorize] async (int id, System.Security.Claims.ClaimsPrincipal user, IUserService userService) =>
+{
+    var currentUserRole = user.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value ?? "";
+    var currentUserIdClaim = user.FindFirst("id")?.Value;
+    if (!int.TryParse(currentUserIdClaim, out var currentUserId))
+        return Results.Unauthorized();
+
+    if (currentUserRole != "Admin" && currentUserId != id)
+        return Results.Forbid();
+
+    var result = await userService.GetUserByIdAsync(id);
+    return result.Success ? Results.Ok(result) : Results.NotFound(result.Message);
+});
+
+app.MapPut("/api/users/{id:int}", [Microsoft.AspNetCore.Authorization.Authorize] async (int id, UpdateUserRequest request, System.Security.Claims.ClaimsPrincipal user, IUserService userService) =>
+{
+    var currentUserRole = user.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value ?? "";
+    var currentUserIdClaim = user.FindFirst("id")?.Value;
+    if (!int.TryParse(currentUserIdClaim, out var currentUserId))
+        return Results.Unauthorized();
+
+    var result = await userService.UpdateUserAsync(id, request, currentUserRole, currentUserId);
+    return result.Success ? Results.Ok(result) : Results.BadRequest(result);
+});
+
+app.MapDelete("/api/users/{id:int}", [Microsoft.AspNetCore.Authorization.Authorize(Roles = "Admin")] async (int id, System.Security.Claims.ClaimsPrincipal user, IUserService userService) =>
+{
+    var currentUserRole = user.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value ?? "";
+
+    var result = await userService.DeleteUserAsync(id, currentUserRole);
+    return result.Success ? Results.Ok(result) : Results.BadRequest(result);
+});
+
+app.MapPut("/api/users/{id:int}/role", [Microsoft.AspNetCore.Authorization.Authorize(Roles = "Admin")] async (int id, ChangeRoleRequest request, IUserService userService) =>
+{
+    var result = await userService.ChangeUserRoleAsync(id, request);
+    return result.Success ? Results.Ok(result) : Results.BadRequest(result);
+});
+
+app.MapPut("/api/users/{id:int}/approve", [Microsoft.AspNetCore.Authorization.Authorize(Roles = "Admin")] async (int id, IUserService userService) =>
+{
+    var result = await userService.ApproveUserAsync(id);
+    return result.Success ? Results.Ok(result) : Results.BadRequest(result);
+});
+
+// Dealer list. Issue #121: UserService no longer owns the Dealers table
+// (VehicleService does), so this proxies VehicleService's own endpoint
+// rather than reading a table it no longer maps. Keeps the frontend's
+// existing call path through the gateway working unchanged.
+app.MapGet("/api/dealers", async (DealerIdValidator validator, ILogger<Program> logger) =>
+{
+    try
+    {
+        var dealers = await validator.GetDealersAsync();
+        return Results.Ok(dealers);
+    }
+    catch (Exception ex)
+    {
+        logger.LogError(ex, "Failed to fetch dealers from VehicleService");
+        return Results.Problem("Dealer service unavailable", statusCode: 503);
+    }
+});
+
+// Internal endpoint for ReportingService to get users (no auth required for internal service calls)
+app.MapGet("/api/internal/users", async (UserDbContext db) =>
+{
+    var users = await db.Users
+        .Select(u => new UserDto(u.Id, u.Username, u.Email, u.FullName, u.Role, u.IsActive, u.DealerId, u.CreatedAt, u.UpdatedAt))
+        .ToListAsync();
+    return Results.Ok(users);
+});
+
+
+    }
+}
