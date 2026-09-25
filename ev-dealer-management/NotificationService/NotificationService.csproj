@@ -10,6 +10,16 @@
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="8.0.20" />
     <PackageReference Include="FirebaseAdmin" Version="3.0.1" />
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="8.0.10" />
+    <!-- Issue #92 (P2): this service had NO migrations at all (EnsureCreated()
+         wrote none) so it carried no Design package. It now ships a baseline
+         migration, so it needs the same tool the other four migration-owning
+         services already reference (CustomerService, SalesService, UserService;
+         VehicleService has it transitively). PrivateAssets=all keeps it out of
+         the published container image, matching their pattern. -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="8.0.10">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
     <PackageReference Include="Serilog.AspNetCore" Version="9.0.0" />
     <PackageReference Include="Serilog.Sinks.Console" Version="6.1.1" />
     <PackageReference Include="Serilog.Sinks.File" Version="7.0.0" />

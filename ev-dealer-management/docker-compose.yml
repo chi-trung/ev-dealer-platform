@@ -1,3 +1,24 @@
+# --- Shared internal service-to-service key (Issue #92, P2) -----------------
+# ReportingService's data-sync fan-out is machine-to-machine traffic with no
+# user JWT, so Sales/Vehicle/Customer authenticate it with this shared key
+# (Common/Auth/InternalServiceAuth.cs) instead of a user token.
+#
+# Referenced through ${INTERNAL_SERVICE_KEY:-<default>} at the four services
+# that take part, so the value cannot drift between them. The `:-default` form
+# is deliberate: a developer gets a working key with no setup, and a deployment
+# that exports INTERNAL_SERVICE_KEY gets its own value everywhere at once.
+#
+# A YAML `&anchor` / `*alias` would be the other way to share one value, but it
+# does NOT work here — the `environment` blocks below are list form, and in
+# that form Compose passes `*name` through as a literal string rather than
+# expanding it. Verified: `docker compose config` printed
+# `InternalService__Key: '*internal-service-key'` until this was changed.
+#
+# The default below is a DEVELOPMENT value. Shipping it to a shared
+# environment would be a working deployment with a publicly known secret, and
+# the failure would be silent. On Render this is per-service `sync: false` in
+# render.yaml — see the P6 deploy checklist.
+
 services:
   # --- API Gateway (Ocelot) -------------------------------------------------
   # Publishes 5036 so the Vite frontend's VITE_API_BASE_URL is unchanged.
@@ -52,7 +73,12 @@ services:
     networks:
       - ev-dealer-network
 
-  # --- UserService (SQLite; no RabbitMQ — verified zero broker usage) -------
+  # --- UserService (PostgreSQL; no RabbitMQ — verified zero broker usage) ---
+  # P2: DB_PROVIDER=postgres + a Host=... string, mirroring render.yaml. The
+  # sqliteFallback stays in Program.cs so a developer running the service
+  # outside compose with no env vars still gets a local file rather than a
+  # boot failure; here the connection string is present so the fallback never
+  # applies.
   userservice:
     # Root context: UserService.csproj references ../Common/Common.csproj, which
     # a service-only context cannot supply at restore time (Issue #95).
@@ -64,12 +90,15 @@ services:
     ports:
       - "5223:80"
     volumes:
-      - ./UserService/data:/app/data
       - ./UserService/Logs:/app/Logs   # Issue #63: Serilog file sink path is not env-overridable
+    depends_on:
+      postgres:
+        condition: service_healthy
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
       - ASPNETCORE_URLS=http://+:80
-      - ConnectionStrings__DefaultConnection=Data Source=/app/data/users.db
+      - DB_PROVIDER=postgres
+      - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=evm_core;Username=postgres;Password=postgres
       - Jwt__Key=ReplaceThisWithASecretKeyForDevelopment
       - Jwt__Issuer=evm.local
       - Jwt__Audience=evm.local
@@ -79,6 +108,10 @@ services:
       # service name is the DNS hostname on the shared network; internal port
       # 8080 (matches salesservice/reportingservice's existing entries).
       - Services__VehicleService=http://vehicleservice:8080
+      # Issue #92: /api/internal/users is [Authorize(Roles=InternalService)].
+      # Same shared key as the other four, same default -- see the header note
+      # on why this is a plain variable rather than a YAML anchor.
+      - InternalService__Key=${INTERNAL_SERVICE_KEY:-dev-only-internal-key-not-for-production}
       - EmailSettings__SmtpHost=smtp.gmail.com
       - EmailSettings__SmtpPort=587
       - EmailSettings__SmtpUser=bata79892@gmail.com
@@ -90,7 +123,7 @@ services:
     networks:
       - ev-dealer-network          # was missing: kept userservice off the shared network
 
-  # --- VehicleService (SQLite; producer-only, lazy/non-fatal broker) --------
+  # --- VehicleService (PostgreSQL; producer-only, lazy/non-fatal broker) ----
   vehicleservice:
     # Root context: VehicleService.csproj references ../Common/Common.csproj.
     build:
@@ -101,25 +134,29 @@ services:
     ports:
       - "5224:8080"
     volumes:
-      - ./VehicleService/data:/app/data
       - ./VehicleService/wwwroot/images:/app/wwwroot/images   # uploads otherwise die with the container
       - ./VehicleService/Logs:/app/Logs   # Issue #63: Serilog file sink path is not env-overridable
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
       - ASPNETCORE_URLS=http://+:8080   # pinned: base image defaults via ASPNETCORE_HTTP_PORTS=8080; keep explicit so it can never drift
-      - ConnectionStrings__DefaultConnection=Data Source=/app/data/vehicles.db
+      - DB_PROVIDER=postgres
+      - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=evm_core;Username=postgres;Password=postgres
       - RabbitMQ__HostName=rabbitmq
       - RabbitMQ__Port=5672
       - RabbitMQ__UserName=guest
       - RabbitMQ__Password=guest
+      # Issue #92: target of ReportingService's fan-out. See the x- anchor.
+      - InternalService__Key=${INTERNAL_SERVICE_KEY:-dev-only-internal-key-not-for-production}
     depends_on:
+      postgres:
+        condition: service_healthy
       rabbitmq:
         condition: service_healthy
     restart: unless-stopped
     networks:
       - ev-dealer-network
 
-  # --- SalesService (SQLite; pure producer) ---------------------------------
+  # --- SalesService (PostgreSQL; pure producer) ----------------------------
   salesservice:
     # Root context: SalesService.csproj references ../Common/Common.csproj.
     build:
@@ -130,12 +167,12 @@ services:
     ports:
       - "5003:80"
     volumes:
-      - ./SalesService/data:/app/data
       - ./SalesService/Logs:/app/Logs   # Issue #63: Serilog file sink path is not env-overridable
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
       - ASPNETCORE_URLS=http://+:80
-      - ConnectionStrings__DefaultConnection=Data Source=/app/data/sales.db
+      - DB_PROVIDER=postgres
+      - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=evm_core;Username=postgres;Password=postgres
       - RabbitMQ__HostName=rabbitmq
       - RabbitMQ__Port=5672
       - RabbitMQ__UserName=guest
@@ -147,7 +184,11 @@ services:
       - RabbitMQ__Queues__QuoteCreated=quote.created        # was implicit via appsettings; explicit now
       - RabbitMQ__Queues__ContractCreated=contract.created
       - Services__VehicleService=http://vehicleservice:8080
+      # Issue #92: target of ReportingService's fan-out. See the x- anchor.
+      - InternalService__Key=${INTERNAL_SERVICE_KEY:-dev-only-internal-key-not-for-production}
     depends_on:
+      postgres:
+        condition: service_healthy
       rabbitmq:
         condition: service_healthy
       vehicleservice:
@@ -171,12 +212,12 @@ services:
     ports:
       - "5039:80"
     volumes:
-      - ./CustomerService/data:/app/data
       - ./CustomerService/Logs:/app/Logs   # Issue #63: Serilog file sink path is not env-overridable
     environment:
       - ASPNETCORE_ENVIRONMENT=Development   # gates Database.Migrate() (Program.cs)
       - ASPNETCORE_URLS=http://+:80
-      - ConnectionStrings__DefaultConnection=Data Source=/app/data/customers.db
+      - DB_PROVIDER=postgres
+      - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=evm_core;Username=postgres;Password=postgres
       - Jwt__Key=ReplaceThisWithASecretKeyForDevelopment
       - Jwt__Issuer=evm.local
       - Jwt__Audience=evm.local
@@ -186,6 +227,8 @@ services:
       - RabbitMQ__Password=guest
       - RabbitMQ__MaxDeliveryAttempts=3
       - RabbitMQ__RetryTtlMilliseconds=5000
+      # Issue #92: target of ReportingService's fan-out. See the x- anchor.
+      - InternalService__Key=${INTERNAL_SERVICE_KEY:-dev-only-internal-key-not-for-production}
     depends_on:
       # Ordering nicety, not a correctness requirement. VehicleReservedEventConsumer
       # now reconnects with backoff on its own (verified live: stop broker →
@@ -193,6 +236,8 @@ services:
       # queues back to 1 consumer). Before that fix a broker down at boot killed
       # the consumer for the life of the process, so this condition was
       # load-bearing. Keep it: it removes the pointless retry log on cold start.
+      postgres:
+        condition: service_healthy
       rabbitmq:
         condition: service_healthy
     restart: unless-stopped
@@ -200,12 +245,12 @@ services:
       - ev-dealer-network
 
   # --- ReportingService (NEW; HTTP fan-out, no broker, no JWT) --------------
-  # DB_PROVIDER unset = sqlite, same switch the other five services use
-  # (#89). The stale claim that this service's only migration is
-  # SQLite-only DDL was checked: it is plain TEXT/INTEGER store types +
-  # Sqlite:Autoincrement annotations, both of which Npgsql accepts / ignores
-  # exactly as the other services' migrations do. REPORTING_DB_PATH lands the
-  # SQLite file on the volume instead of the container layer (see Program.cs).
+  # The stale claim that this service's only migration is SQLite-only DDL was
+  # checked: it is plain TEXT/INTEGER store types + Sqlite:Autoincrement
+  # annotations, both of which Npgsql accepts / ignores exactly as the other
+  # services' migrations do. The Npgsql:ValueGenerationStrategy annotations
+  # ARE present (P2 measured that they are load-bearing, not decorative) so
+  # its int PKs get identity on Postgres like everyone else's.
   reportingservice:
     # Root context: ReportingService.csproj references ../Common/Common.csproj.
     build:
@@ -216,27 +261,22 @@ services:
     ports:
       - "5208:80"
     volumes:
-      - ./ReportingService/data:/app/data
       - ./ReportingService/Logs:/app/Logs   # Issue #63: Serilog file sink path is not env-overridable
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
       - ASPNETCORE_URLS=http://+:80
-      - DB_PROVIDER=sqlite
-      - REPORTING_DB_PATH=/app/data/reporting_dev.db
-      # appsettings.json ships a PostgreSQL DefaultConnection for production,
-      # and DbProviderSelector only falls back to REPORTING_DB_PATH when the
-      # connection string is EMPTY. With DB_PROVIDER=sqlite that Postgres string
-      # was handed to UseSqlite, which cannot parse "Host=localhost;Port=5432"
-      # -- the health check then reported "Database is unreachable" forever and
-      # the container stayed unhealthy. The other five services already pin
-      # ConnectionStrings__DefaultConnection to a Data Source; this one had no
-      # such override, which is why only ReportingService was affected.
-      - ConnectionStrings__DefaultConnection=Data Source=/app/data/reporting_dev.db
+      - DB_PROVIDER=postgres
+      - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=evm_core;Username=postgres;Password=postgres
       - Services__SalesService=http://salesservice:80
       - Services__VehicleService=http://vehicleservice:8080
       - Services__UserService=http://userservice:80
       - Services__CustomerService=http://customerservice:80
+      # Issue #92: this is the CALLER. The key goes on its outbound requests
+      # (InternalServiceKeyHandler); the three services above verify it.
+      - InternalService__Key=${INTERNAL_SERVICE_KEY:-dev-only-internal-key-not-for-production}
     depends_on:
+      postgres:
+        condition: service_healthy
       userservice:
         condition: service_started
       vehicleservice:
@@ -251,8 +291,8 @@ services:
     networks:
       - ev-dealer-network
 
-  # --- NotificationService (consumer of 14 queues; SQLite device-token
-  #     registry per Issue #33 — notifications.db lives on the volume below) --
+  # --- NotificationService (consumer of 14 queues; PostgreSQL device-token
+  #     registry per Issue #33 / #92) --------------------------------------
   # Firebase credential file is intentionally NOT mounted: it doesn't exist in
   # the repo (secret), and Docker mounting a missing host path creates a
   # DIRECTORY over /app/firebase-credentials.json — worse than failing cleanly
@@ -272,12 +312,15 @@ services:
       - "5051:80"
     volumes:
       - ./NotificationService/Logs:/app/Logs   # Serilog file sink path is not env-overridable
-      - ./NotificationService/data:/app/data   # device-token registry (Issue #33); token survives restart
       # - ./NotificationService/firebase-credentials.json:/app/firebase-credentials.json:ro
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
       - ASPNETCORE_URLS=http://+:80
-      - ConnectionStrings__DefaultConnection=Data Source=/app/data/notifications.db
+      # Issue #92: this service used EnsureCreated(), which on the SHARED
+      # database silently created nothing (render.yaml points all six services
+      # at one evm_core). It now uses Migrate() like the rest.
+      - DB_PROVIDER=postgres
+      - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=evm_core;Username=postgres;Password=postgres
       # Issue #36: DeviceTokens API validates the same HS256 tokens UserService
       # mints — same key/issuer/audience as userservice/customerservice above.
       - Jwt__Key=ReplaceThisWithASecretKeyForDevelopment
@@ -306,8 +349,46 @@ services:
       - Firebase__CredentialPath=/app/firebase-credentials.json
       # Firebase__ProjectId omitted: appsettings.json already has the right value.
     depends_on:
+      postgres:
+        condition: service_healthy
       rabbitmq:
         condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - ev-dealer-network
+
+  # --- PostgreSQL 16 (the production database; P2) --------------------------
+  # ONE instance, ONE database (evm_core) for all six DB-backed services —
+  # deliberately mirroring render.yaml, where evm-postgres/databaseName=evm_core
+  # is already wired into all six. The services keep DISJOINT table sets
+  # (see the per-service baseline migrations), so they share the database
+  # without sharing tables or migration ids.
+  #
+  # Do NOT give each service its own database here: that would make local
+  # compose diverge from Render, and the failure this database is meant to
+  # catch (NotificationService's EnsureCreated() seeing a non-empty database
+  # and creating nothing) only reproduces when several services share one.
+  postgres:
+    image: "postgres:16"
+    container_name: evm_postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: evm_core
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      # pg_isready alone can go green before the init scripts finish, so a
+      # Migrate() racing database creation would hit "database evm_core does
+      # not exist". -d evm_core pins the probe to the database the services
+      # actually connect to, not just the server.
+      test: ["CMD-SHELL", "pg_isready -U postgres -d evm_core"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
     restart: unless-stopped
     networks:
       - ev-dealer-network
@@ -346,6 +427,8 @@ volumes:
   rabbitmq_data:
     driver: local
   rabbitmq_logs:
+    driver: local
+  postgres_data:
     driver: local
 
 networks:
