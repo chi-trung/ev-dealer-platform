@@ -60,10 +60,28 @@ try
     builder.Services.AddScoped<IReportService, ReportService>(); // Register ReportService
     
     // Register HttpClient for typed clients
-    builder.Services.AddHttpClient<ISalesDataService, SalesDataService>();
-    builder.Services.AddHttpClient<IVehicleDataService, VehicleDataService>();
-    builder.Services.AddHttpClient<ICustomerDataService, CustomerDataService>(); // Register CustomerDataService
-    builder.Services.AddHttpClient<IUserDataService, UserDataService>(); // Register UserDataService
+    //
+    // Issue #92 (P2): .AddHttpMessageHandler(InternalServiceKeyHandler) makes
+    // every outbound request carry the shared internal key, so sibling
+    // services can authenticate this machine-to-machine traffic. Without it
+    // the [Authorize] added in #137 answered 401 to all thirteen call sites
+    // and the sync endpoint reported success while writing nothing.
+    // Registered here rather than at each call site so a call added later
+    // cannot forget it.
+    //
+    // Transient is load-bearing: AddHttpMessageHandler<T>() resolves the
+    // handler on every pipeline build, and a DelegatingHandler handed out
+    // twice throws "The 'InnerHandler' property must be null ... must not be
+    // reused or cached" because the factory sets InnerHandler itself.
+    builder.Services.AddTransient<InternalServiceKeyHandler>();
+    builder.Services.AddHttpClient<ISalesDataService, SalesDataService>()
+        .AddHttpMessageHandler<InternalServiceKeyHandler>();
+    builder.Services.AddHttpClient<IVehicleDataService, VehicleDataService>()
+        .AddHttpMessageHandler<InternalServiceKeyHandler>();
+    builder.Services.AddHttpClient<ICustomerDataService, CustomerDataService>() // Register CustomerDataService
+        .AddHttpMessageHandler<InternalServiceKeyHandler>();
+    builder.Services.AddHttpClient<IUserDataService, UserDataService>() // Register UserDataService
+        .AddHttpMessageHandler<InternalServiceKeyHandler>();
     
     // Register the new data synchronization service
     builder.Services.AddScoped<IDataSynchronizationService, DataSynchronizationService>();

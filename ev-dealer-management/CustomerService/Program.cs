@@ -1,4 +1,5 @@
 using Serilog;
+using Common.Auth;
 using Common.Data;
 using Common.Health;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
@@ -157,6 +158,10 @@ try
     
     // Enable Authentication and Authorization
     app.UseAuthentication();
+    // Issue #92 (P2): must sit between UseAuthentication and UseAuthorization
+    // so a promoted identity is in place BEFORE authorization evaluates it.
+    // See SalesService/Program.cs for the full reasoning.
+    app.UseInternalServiceAuth();
     app.UseAuthorization();
     
     app.MapControllers();

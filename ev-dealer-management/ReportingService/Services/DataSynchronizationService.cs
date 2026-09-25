@@ -51,17 +51,48 @@ namespace ev_dealer_reporting.Services
 
                 foreach (var order in orders)
                 {
-                    // Group by Date and DealerId to create SalesSummary
-                    // Check if SalesSummary already exists for this date and dealer
+                    // Group by Date and DealerId to create SalesSummary.
+                    //
+                    // Issue #92 (P2): this used to query the DATABASE for an
+                    // existing row, but rows created earlier in this same loop
+                    // only exist in the change tracker until SaveChangesAsync at
+                    // the bottom. So the second order of the same day+dealer did
+                    // not find the first one and created a DUPLICATE row instead
+                    // of folding into it — the else branch below was effectively
+                    // dead, and TotalOrders/TotalRevenue were split across two
+                    // rows per day per dealer. Caught by
+                    // PostgresDataSynchronizationTests, which expects 2 rows and
+                    // got 3.
+                    //
+                    // The database is empty by now (cleared three lines above),
+                    // so this only ever matches a row this same loop created.
+                    //
+                    // The .Local fallback is restricted to state Added on
+                    // purpose. The clearing above does RemoveRange +
+                    // SaveChanges, which leaves the removed entities TRACKED in
+                    // state Deleted — and .Local happily returns those
+                    // tombstones. Matching one of those made this loop add the
+                    // new order's quantity onto a row that was about to stay
+                    // deleted, so the fresh row was never created and the
+                    // numbers came out as stale_value + new_value.
+                    //
+                    // DateTime.Date strips the Kind (it always returns
+                    // Unspecified), so re-stamp UTC — see TimestampParser in
+                    // SalesDataService for the Npgsql reason.
+                    var day = DateTime.SpecifyKind(order.CreatedAt.Date, DateTimeKind.Utc);
                     var existingSummary = await _dbContext.SalesSummaries
-                        .FirstOrDefaultAsync(s => s.Date == order.CreatedAt.Date && s.DealerId == order.DealerId);
+                        .FirstOrDefaultAsync(s => s.Date == day && s.DealerId == order.DealerId)
+                        ?? _dbContext.SalesSummaries.Local
+                            .FirstOrDefault(s => s.Date == day
+                                              && s.DealerId == order.DealerId
+                                              && _dbContext.Entry(s).State == EntityState.Added);
 
                     if (existingSummary == null)
                     {
                         var newSummary = new SalesSummary
                         {
                             Id = Guid.NewGuid(),
-                            Date = order.CreatedAt.Date,
+                            Date = day,
                             DealerId = order.DealerId,
                             DealerName = dealerNameMap.GetValueOrDefault(order.DealerId, $"Dealer {order.DealerId}"),
                             Region = dealerRegionMap.GetValueOrDefault(order.DealerId, "Unknown"),
@@ -78,7 +109,16 @@ namespace ev_dealer_reporting.Services
                         existingSummary.TotalOrders += order.Quantity;
                         existingSummary.TotalRevenue += order.TotalPrice;
                         existingSummary.LastUpdatedAt = DateTime.UtcNow;
-                        _dbContext.SalesSummaries.Update(existingSummary);
+                        // Deliberately NO .Update() call here (Issue #92).
+                        // Update() forces state Modified, and the row matched
+                        // above can be one this same loop only just Add()ed —
+                        // whose state was Added. Forcing Modified makes EF issue
+                        // an UPDATE for a row that does not exist yet, which
+                        // fails with DbUpdateConcurrencyException ("expected to
+                        // affect 1 row(s), but actually affected 0"). Both
+                        // sources (FirstOrDefaultAsync and .Local) return
+                        // TRACKED entities, and the change tracker picks the
+                        // property mutations up on its own.
                     }
                 }
 
@@ -132,7 +172,11 @@ namespace ev_dealer_reporting.Services
                     {
                         existingSummary.StockCount = vehicle.StockQuantity;
                         existingSummary.LastUpdatedAt = DateTime.UtcNow;
-                        _dbContext.InventorySummaries.Update(existingSummary);
+                        // No .Update() — see the note in SynchronizeSalesDataAsync.
+                        // (Here the else branch is in practice unreachable: the
+                        // PK is a fresh Guid.NewGuid() and the table was cleared
+                        // two lines above, so the query never matches. Kept as a
+                        // guard for the day the clearing changes.)
                     }
                 }
 
@@ -190,7 +234,11 @@ namespace ev_dealer_reporting.Services
                             TotalAmount = contract.TotalAmount,
                             OutstandingAmount = contract.TotalAmount, // Simplified: assuming full amount is outstanding if not paid
                             Status = contract.PaymentStatus,
-                            DueDate = contract.SignedDate.ToDateTime(TimeOnly.MinValue).AddMonths(1), // Placeholder due date
+                            // DateOnly.ToDateTime always yields Kind=Unspecified,
+                            // which Npgsql rejects on a timestamptz column.
+                            DueDate = DateTime.SpecifyKind(
+                                contract.SignedDate.ToDateTime(TimeOnly.MinValue).AddMonths(1),
+                                DateTimeKind.Utc), // Placeholder due date
                             CreatedAt = contract.CreatedAt,
                             LastUpdatedAt = currentTime
                         };

@@ -136,8 +136,25 @@ app.MapGet("/api/dealers", async (DealerIdValidator validator, ILogger<Program> 
     }
 });
 
-// Internal endpoint for ReportingService to get users (no auth required for internal service calls)
-app.MapGet("/api/internal/users", async (UserDbContext db) =>
+// Issue #92: internal endpoint, only ever called by ReportingService. Note it
+// is NOT the data-sync fan-out: DataSynchronizationService has no user
+// dependency. The real caller is ReportService.GetSalesByStaffAsync
+// (ReportService.cs:411 and :422), which needs a name and email per
+// salesperson id. Either way the response is every user row — username, email,
+// role and DealerId — so it was readable by anyone who could reach the service,
+// which on Render means anyone on the internet.
+//
+// The shared key is applied through a role requirement rather than a bare
+// RequireAuthorization: the promoted principal carries only the InternalService
+// role, so requiring THAT role admits the machine call and nothing else. A plain
+// RequireAuthorization would also admit any signed-in user holding a valid JWT,
+// including a low-privilege one, because the internal key is an alternative way
+// in rather than a stricter one. Same endpoint, strictly smaller audience than
+// "any logged-in user".
+app.MapGet("/api/internal/users",
+    [Microsoft.AspNetCore.Authorization.Authorize(
+        Roles = Common.Auth.InternalServiceAuthMiddleware.InternalRole)]
+    async (UserDbContext db) =>
 {
     var users = await db.Users
         .Select(u => new UserDto(u.Id, u.Username, u.Email, u.FullName, u.Role, u.IsActive, u.DealerId, u.CreatedAt, u.UpdatedAt))

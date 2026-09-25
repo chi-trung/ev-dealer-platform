@@ -216,6 +216,13 @@ services:
       # returns 503 and DealerId validation silently fails open.
       - key: Services__VehicleService
         value: https://vehicleservice.onrender.com
+      # Issue #92: /api/internal/users is now [Authorize(Roles=InternalService)],
+      # so this is the FIFTH service on the shared key -- it is the receiving
+      # end of the fan-out, and leaving it unset makes every sync write zero
+      # user rows while still returning success:true. Same value as the other
+      # four, verbatim.
+      - key: InternalService__Key
+        sync: false
       - key: Cors__AllowedOrigins
         value: https://evdealer.vercel.app
       # SMTP password is a `sync: false` placeholder, NEVER committed. Unset
@@ -287,6 +294,14 @@ services:
         value: https://evm-gateway.onrender.com
       - key: Jwt__Audience
         value: https://evm-gateway.onrender.com
+      # Issue #92: shared secret ReportingService presents on its data-sync
+      # fan-out (Common/Auth/InternalServiceAuth). Must BYTE-MATCH the
+      # same key on vehicleservice, salesservice, customerservice and
+      # reportingservice -- a mismatch does not fail the deploy, it silently
+      # makes every fan-out call 401 and every report table sync to zero rows
+      # while POST /api/reports/synchronize-data still answers success:true.
+      - key: InternalService__Key
+        sync: false
 
   - type: web
     runtime: docker
@@ -327,6 +342,9 @@ services:
         value: https://evm-gateway.onrender.com
       - key: Jwt__Audience
         value: https://evm-gateway.onrender.com
+      # Issue #92: see the note on vehicleservice. Same value, verbatim.
+      - key: InternalService__Key
+        sync: false
       - key: Cors__AllowedOrigins
         value: https://evdealer.vercel.app
 
@@ -366,6 +384,9 @@ services:
         value: "3"
       - key: RabbitMQ__RetryTtlMilliseconds
         value: "5000"
+      # Issue #92: see the note on vehicleservice. Same value, verbatim.
+      - key: InternalService__Key
+        sync: false
       - key: Cors__AllowedOrigins
         value: https://evdealer.vercel.app
 
@@ -409,6 +430,12 @@ services:
         value: https://evm-gateway.onrender.com
       - key: Jwt__Audience
         value: https://evm-gateway.onrender.com
+      # Issue #92: the fan-out SIDE. This is the only service that SENDS the
+      # header, so if it is left blank here while the other three are set, the
+      # handler emits nothing and every call 401s the same way the pre-fix
+      # build did. Set it in the same dashboard pass as the other three.
+      - key: InternalService__Key
+        sync: false
       - key: Cors__AllowedOrigins
         value: https://evdealer.vercel.app
 
