@@ -8,10 +8,10 @@ namespace NotificationService.Controllers;
 /// <summary>
 /// Issue #51 — per-subject notification preferences, appended to the
 /// existing NotificationController (route api/Notification) because the
-/// frontend's drafted paths are /notifications/preferences and the gateway
-/// rewrites /api/notifications/{everything} → /api/Notification/{everything}
-/// already. The other endpoints on this controller stay anonymous; these two
-/// are [Authorize] at method level.
+/// frontend calls /notifications/preferences and the gateway rewrites
+/// /api/notifications/{everything} → /api/Notification/{everything}. The other
+/// endpoints on this controller stay anonymous; these two are [Authorize] at
+/// method level.
 ///
 /// Auth model is Issue #36's, deliberately tightened: the subject key is NOT
 /// input at all. It is rebuilt server-side as "user:&lt;id claim&gt;" from

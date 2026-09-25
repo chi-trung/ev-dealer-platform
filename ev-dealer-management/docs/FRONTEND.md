@@ -54,7 +54,7 @@ converted URL shapes return the payload shapes the call sites expect:
 | `/api/vehicles…` | VehicleService :5068 | `{items,totalCount,page,pageSize}` — matches `response.items` |
 | `/api/users`, `/users/{id}`, `/auth/…` | UserService :7001 | 200 authenticated (`/users` is Admin-guarded; anonymous 401 proves routing) |
 | `/api/reports/…` | ReportingService :5208 | `metrics` object / arrays (`summary`, `sales-by-region`, `top-vehicles?limit=5`, `sales-summary`, `debt-report`) |
-| `/api/Notification/…` (+ lowercase `/api/notifications/…` alias) | NotificationService :5051 | FCM controller routes (`405` on GET of a POST-only route proves routing) |
+| `/api/notifications/…` (gateway rewrites to the controller's `/api/Notification/…`) | NotificationService :5051 | FCM controller routes (`405` on GET of a POST-only route proves routing) |
 
 Auth-guarded routes were verified with a throwaway Admin created via
 `/api/auth/register` + local SQLite role flip, then deleted; the work

@@ -52,18 +52,6 @@ try
         .AddBrokerProbeCheck()
         .AddDatabaseCheck<VehicleService.Data.ApplicationDbContext>();
 
-    // REMOVED: Add CORS services
-    // builder.Services.AddCors(options =>
-    // {
-    //     options.AddPolicy("AllowFrontend", policy => // Changed policy name to be more generic
-    //     {
-    //         policy.WithOrigins("http://localhost:5173", "http://localhost:5174") // Allow both frontend and potentially VehicleService itself
-    //               .AllowAnyMethod()
-    //               .AllowAnyHeader()
-    //               .AllowCredentials();
-    //     });
-    // });
-    
     // JWT authentication (Issue #137): VehicleService never registered auth,
     // so vehicle create/update/delete, dealer create/update/delete, the CSV
     // export and image upload were all anonymous -- 7 mutation routes. Same

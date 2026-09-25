@@ -83,14 +83,6 @@
       "DownstreamPathTemplate": "/api/Complaints/{everything}",
       "DownstreamScheme": "http",
       "DownstreamHostAndPorts": [ { "Host": "localhost", "Port": 5039 } ],
-      "UpstreamPathTemplate": "/api/Complaints/{everything}",
-      "UpstreamHttpMethod": [ "GET", "POST", "PUT", "DELETE" ],
-      "DownstreamHttpVersion": "1.1"
-    },
-    {
-      "DownstreamPathTemplate": "/api/Complaints/{everything}",
-      "DownstreamScheme": "http",
-      "DownstreamHostAndPorts": [ { "Host": "localhost", "Port": 5039 } ],
       "UpstreamPathTemplate": "/api/CustomerService/Complaints/{everything}",
       "UpstreamHttpMethod": [ "GET", "POST", "PUT", "DELETE" ],
       "DownstreamHttpVersion": "1.1"
@@ -189,14 +181,6 @@
       "DownstreamHostAndPorts": [ { "Host": "localhost", "Port": 5208 } ],
       "UpstreamPathTemplate": "/api/reports/{everything}",
       "UpstreamHttpMethod": [ "GET", "POST" ],
-      "DownstreamHttpVersion": "1.1"
-    },
-    {
-      "DownstreamPathTemplate": "/api/Notification/{everything}",
-      "DownstreamScheme": "http",
-      "DownstreamHostAndPorts": [ { "Host": "localhost", "Port": 5051 } ],
-      "UpstreamPathTemplate": "/api/Notification/{everything}",
-      "UpstreamHttpMethod": [ "GET", "POST", "PUT", "DELETE" ],
       "DownstreamHttpVersion": "1.1"
     },
     {

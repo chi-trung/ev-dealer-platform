@@ -16,9 +16,9 @@ restart.
 | `/api/auth/*`, `/api/users/*`, `/api/admin/users*` | UserService (7001) |
 | `/api/vehicles/*`, `/api/dealers/*`, `/api/vehicletypes/*`, `/api/export/*`, `/images/*` | VehicleService (5068) |
 | `/api/Orders/*`, `/api/Contracts/*`, `/api/Quotes/*`, `/api/Payments/*`, `/api/Promotions/*`, `/api/Deliveries/*`, `/api/Sales/*` | SalesService (5003) |
-| `/api/customers/*`, `/api/TestDrives/*`, `/api/Complaints/*` (+ legacy alias `/api/CustomerService/Complaints/*`) | CustomerService (5039) |
+| `/api/customers/*`, `/api/TestDrives/*`, `/api/CustomerService/Complaints/*` (rewrites to the controller's `/api/Complaints/*`) | CustomerService (5039) |
 | `/api/reports/*` | ReportingService (5208) |
-| `/api/Notification/*` (alias `/api/notifications/*`), `/api/DeviceTokens/*` (Issue #33 registry) | NotificationService (5051) |
+| `/api/notifications/*` (rewrites to the controller's `/api/Notification/*`), `/api/DeviceTokens/*` (Issue #33 registry) | NotificationService (5051) |
 | `/api/health/{user,vehicle,sales,customer,reporting,notification}` | each service's `/health` |
 
 ## Health
