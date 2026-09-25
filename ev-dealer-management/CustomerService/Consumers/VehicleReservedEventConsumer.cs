@@ -1,3 +1,4 @@
+using Common.Events;
 using CustomerService.DTOs;
 using CustomerService.Events;
 using CustomerService.Services;

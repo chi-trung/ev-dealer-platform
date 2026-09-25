@@ -82,8 +82,69 @@ dist/assets/Environment-CnWBTDA7.js  876.58 kB │ gzip: 241.81 kB
 | Hạng mục | Kết quả |
 |---|---|
 | Số service | 8 (7 app + RabbitMQ) |
+| Health check | ✅ **8/8 healthy** (sau khi sửa BUG-7) |
 | Postgres | ❌ **không có** trong compose (xem P2) |
-| Health check container | xem §7 |
+
+**Topology broker đo được** (RabbitMQ management API, không phải suy đoán từ code):
+
+```
+TOTAL QUEUES: 45   MAIN=15   RETRY=15   DLQ=15
+```
+
+Cả **15/15 main queue đều có đúng 1 consumer**, không queue nào có message tồn đọng
+(`ready=0` toàn bộ). 15 main queue = 14 của NotificationService + `customer_vehicle_reserved`
+của CustomerService.
+
+> Plan ước lượng "14 queue × 3 = 42". Số thật là **15 × 3 = 45** — bỏ sót `customer_vehicle_reserved`,
+> vì nó do CustomerService consume chứ không nằm trong 14 `RabbitMQ:Queues:*` của NotificationService.
+> Test topology ở P3 phải pin 45, không phải 42.
+
+### BUG-7 — `ReportingService` unhealthy vĩnh viễn trong compose
+
+Lộ ra khi boot stack lần đầu, không lộ khi đọc code.
+
+```
+Health check database with status Unhealthy completed ... 'Database is unreachable'
+```
+
+**Nguyên nhân:** `ReportingService/appsettings.json:30` chứa connection string kiểu Postgres:
+
+```json
+"DefaultConnection": "Host=localhost;Port=5432;Database=ev_dealer_reporting;Username=postgres;Password=postgres"
+```
+
+nhưng compose chạy nó với `DB_PROVIDER=sqlite`. `Common/Data/DbProviderSelector.cs:76-77` chỉ dùng
+`sqliteFallback` (tức `REPORTING_DB_PATH`) khi connection string **rỗng** — nó không rỗng, nên
+chuỗi Postgres đó bị đưa thẳng vào `UseSqlite()`, và SQLite không parse được `Host=localhost;Port=5432`.
+
+**Vì sao chỉ ReportingService:** 5 service còn lại có `Data Source=*.db` trong appsettings, và
+compose override chúng bằng `ConnectionStrings__DefaultConnection=Data Source=/app/data/...`.
+Riêng ReportingService **không có** override đó, nên nó là service duy nhất lộ lỗi.
+
+Đã sửa trong P1 bằng cách thêm `ConnectionStrings__DefaultConnection=Data Source=/app/data/reporting_dev.db`
+vào compose, khớp với 5 service kia.
+
+**Bài học:** lỗi này bị che bởi file `reporting_dev.db` cũ tồn tại sẵn trên volume. Xoá file
+→ lộ. Đây là loại bug chỉ tìm ra khi chạy thật, không phải khi đọc code.
+
+### BUG-8 — `userservice` + `vehicleservice` crash vòng lặp với db cũ
+
+```
+SQLite Error 1: 'table "Users" already exists'.
+   at ...Migrator.Migrate(String targetMigration)
+   at Program.<Main>$(String[] args) in /src/UserService/Program.cs:line 154
+```
+
+Container restart liên tục (exit 134) vì `users.db` / `vehicles.db` trên volume có bảng từ
+**13/09** — tạo trước khi hệ thống migration có mặt — nhưng `__EFMigrationsHistory` không có
+bản ghi, nên `Migrate()` thử `CREATE TABLE` lại và crash.
+
+Không phải lỗi code: `git ls-files | grep '\.db$'` = **0 file** (`.gitignore` đã loại `*.db`),
+nên đây là dữ liệu dev local. Đã xoá 11 file `.db` rải rác trong 6 thư mục; stack boot sạch sau đó.
+
+> ⚠️ Nhưng điều này phơi bày một vấn đề thật: **`Migrate()` crash cứng nếu DB có bảng mà không có
+> migration history.** Trên Render, nếu database từng được tạo bằng `EnsureCreated()` rồi đổi
+> sang `Migrate()`, deploy sẽ loop restart y hệt. Cần xử lý ở P2.
 
 ## 5. Bug đã biết — TÁI HIỆN ĐƯỢC (không phải phỏng đoán)
 

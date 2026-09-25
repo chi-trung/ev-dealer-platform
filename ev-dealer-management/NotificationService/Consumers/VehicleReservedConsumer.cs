@@ -1,4 +1,7 @@
 using NotificationService.DTOs;
+
+using Common.Events;
+using NotificationService.DTOs;
 using NotificationService.Services;
 using Serilog;
 using System.Text.Json;

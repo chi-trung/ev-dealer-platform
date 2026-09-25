@@ -1,10 +1,12 @@
 using RabbitMQ.Client;
+
+using Common.Events;
+using RabbitMQ.Client;
 using RabbitMQ.Client.Events;
 using System.Text;
 using System.Text.Json;
 using NotificationService.DTOs;
 using NotificationService.Consumers;
-using NotificationService.Events;
 using Serilog;
 
 namespace NotificationService.Services
