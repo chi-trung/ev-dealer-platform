@@ -193,6 +193,6 @@ hợp lệ). Xem FIREBASE_SETUP.md.
 **Bắt đầu từ Test Case 2 — `test-fcm.ps1` — rồi mới tới đầu-cuối! 🎉**
 
 Questions? Check:
-- `TESTING_GUIDE.md` / `NOTIFICATION_TESTING_GUIDE.md` (gốc repo) — test chi tiết
+- `TESTING_GUIDE.md` (gốc repo) — test chi tiết
 - `docs/EVENTS.md` — topology 14 queue/event
 - `README.md` của service — overview + kiến trúc

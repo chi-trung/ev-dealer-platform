@@ -102,7 +102,6 @@ Thiếu `firebase-credentials.json` — xem `FIREBASE_SETUP.md`.
 
 | File | Khi Nào Đọc |
 |------|-------------|
-| **DEMO_2_PHUT.md** | Test nhanh không cần đọc nhiều |
 | **QUICK_START.md** | Setup + endpoint thật + common issues |
 | **README.md** | Overview service + kiến trúc |
 | **FIREBASE_SETUP.md** | Credentials + cách lấy device token |
