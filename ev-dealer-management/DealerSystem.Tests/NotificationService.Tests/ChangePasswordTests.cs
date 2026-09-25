@@ -1,6 +1,10 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
+using UserService.Data;
+using UserService.DTOs;
+using UserService.Models;
+using UserService.Services;
 using Xunit;
 
 namespace DealerSystem.Tests.NotificationService.Tests;
