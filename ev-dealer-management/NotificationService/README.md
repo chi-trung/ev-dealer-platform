@@ -192,8 +192,7 @@ Serilog: console có màu + file `Logs/notification-service-YYYYMMDD.log`
   dùng; một số phần chưa được sweep trong đợt docs này).
 - Unit tests thật: `DealerSystem.Tests/NotificationService.Tests/`
   (device-token registry, consumers, preferences...).
-- Hướng dẫn đầu-cuối: `TESTING_GUIDE.md` + `NOTIFICATION_TESTING_GUIDE.md` ở
-  gốc repo.
+- Hướng dẫn đầu-cuối: `TESTING_GUIDE.md` ở gốc repo.
 
 ## Troubleshooting
 
