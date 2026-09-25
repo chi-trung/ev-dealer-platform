@@ -187,9 +187,12 @@ services:
       - RabbitMQ__MaxDeliveryAttempts=3
       - RabbitMQ__RetryTtlMilliseconds=5000
     depends_on:
-      # Mandatory: VehicleReservedEventConsumer.ExecuteAsync has a single
-      # try/catch — if the broker is down at boot the consumer thread exits
-      # PERMANENTLY while /health keeps returning 200 (silent dead consumer).
+      # Ordering nicety, not a correctness requirement. VehicleReservedEventConsumer
+      # now reconnects with backoff on its own (verified live: stop broker →
+      # log shows attempt 1/2/3/4 at 2s/4s/8s/16s → start broker → all 15
+      # queues back to 1 consumer). Before that fix a broker down at boot killed
+      # the consumer for the life of the process, so this condition was
+      # load-bearing. Keep it: it removes the pointless retry log on cold start.
       rabbitmq:
         condition: service_healthy
     restart: unless-stopped
@@ -327,9 +330,9 @@ services:
     healthcheck:
       # check_port_connectivity, not ping: `ping` only proves the Erlang VM is
       # up, so listeners still race it — a consumer connecting on that green
-      # light gets ConnectionRefused, and CustomerService's consumer dies
-      # permanently (single try/catch around ExecuteAsync). This one waits for
-      # the AMQP port to actually accept connections.
+      # light gets ConnectionRefused. This one waits for the AMQP port to
+      # actually accept connections. (The consumers also survive losing the
+      # broker, so this is a readiness signal, not a crash-loop guard.)
       test: ["CMD", "rabbitmq-diagnostics", "check_port_connectivity"]
       interval: 10s
       timeout: 10s

@@ -208,15 +208,12 @@ try
     // runs on the FIRST controller request, not at boot, and /health answers
     // fine with the broker down. The eager ones are CustomerService's and
     // NotificationService's consumers: CustomerService is
-    // AddHostedService<VehicleReservedEventConsumer> (its ExecuteAsync catch
-    // logs WITHOUT rethrowing, so a boot-time failure ends the hosted service
-    // permanently — /health stays 200 while the consumer is dead), and
-    // NotificationService is AddHostedService<RabbitMQConsumerHostedService>
-    // whose StartAsync calls StartConsuming() — which returns silently when
-    // the connection is not open (its InitializeRabbitMQ catch swallows),
-    // while NotificationService's /health is a hardcoded 200 with no broker
-    // check at all. Either way the conclusion stands: the gateway's deploy
-    // gate must not depend on upstream readiness.
+    // AddHostedService<VehicleReservedEventConsumer> and NotificationService
+    // is AddHostedService<RabbitMQConsumerHostedService>. Both now reconnect
+    // with backoff instead of ending for good, and both /health endpoints
+    // probe the broker, so a downstream broker outage is visible. It is still
+    // not the gateway's own liveness: a routing gateway is alive when it can
+    // route, so its deploy gate must not depend on upstream readiness.
     // /health/live answers 200 once the process has built its pipeline and
     // reached app.Run() — which is all a deploy gate can honestly require of
     // a routing gateway. (Not "the moment the process is up": nothing answers

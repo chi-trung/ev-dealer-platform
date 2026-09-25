@@ -27,7 +27,17 @@ Phân bố 19 warning:
 
 > ⚠️ `VehicleService/CreateTable/Program.cs(7,21): CS7022` — file này **đang được compile vào
 > `VehicleService.csproj`** và gây cảnh báo "The entry point of the program is global code".
-> Nó là công cụ dùng một lần, không phải entrypoint của service. P1 sẽ loại nó khỏi compile.
+> Nó là công cụ dùng một lần, không phải entrypoint của service.
+>
+> ✅ **Đã xoá ở P1** (nó đọc `../add_reservations_only.sql` — file không tồn tại trong repo).
+> Warning còn lại: **18**, phân bố đã thay đổi:
+>
+> | Service | Số | Loại |
+> |---|---|---|
+> | UserService | 4 | CS8601, CS8618, CS8604 ×2 |
+> | SalesService | 9 | CS8618 ×9 (Model + DTO) |
+> | VehicleService | 4 | CS8600 ×2, CS8601 ×2 |
+> | Customer/Reporting/Notification/Gateway | 0 | — |
 
 ## 2. Test
 
@@ -230,10 +240,48 @@ RabbitMQ UI — tức là 5 mục nhưng chỉ 3/7 service backend.
 |---|---|
 | **RabbitMQ không có TLS client-side** | `RabbitMQ.Client 6.8.1` ở cả 5 service; grep `SslOptions`/`SslProtocol`/`AuthMechanism` = **0 kết quả**. Broker ngoài bắt buộc phải có **plain AMQP 5672** |
 | **Email không gửi được trên Render free** | `UserService/Program.cs:1013` dùng MailKit `SecureSocketOptions.StartTls`; Render free chặn outbound 25/465/587 |
-| **Consumer chết âm thầm khi broker down lúc boot** | `customerservice` trong compose có comment thừa nhận điều này (`:190-193`); Render không có `depends_on: service_healthy` tương đương |
 | **`evm-rabbitmq` là `plan: starter` trả phí** | `render.yaml`; workspace chưa có payment info nên `render blueprints validate` fail |
-| **2 file `Program.cs` 1000+ dòng** | `UserService/Program.cs` 1088 dòng, `ReportingService/Program.cs` 1073 dòng — toàn bộ logic inline, không controller/service layer |
-| **`EventRetryPolicy.cs` copy-paste** | Bản giống hệt ở `NotificationService/Events/` và `CustomerService/Events/`, không share qua `Common` |
+| **2 file `Program.cs` 1000+ dòng** | `UserService/Program.cs` 967 dòng, `ReportingService/Program.cs` 1074 dòng — toàn bộ logic inline, không controller/service layer |
+
+> Hai dòng cuối đã được xử lý ở P1 (`EventRetryPolicy` gộp về `Common`, consumer reconnect có
+> backoff — xem §4.1). Dòng `Program.cs` 1000+ còn lại sẽ xử lý ở P1.
+
+### 4.1 Consumer reconnect — đã sửa và đã verify trên broker thật
+
+Cả 2 consumer từng chết **âm thầm** khi mất broker. Không chỉ chết lúc boot — chết cả
+**khi broker chết giữa lúc chạy**, và đây mới là phần tệ nhất:
+
+| Service | Hành vi cũ | Hành vi mới |
+|---|---|---|
+| CustomerService | `ExecuteAsync` bọc 1 `try`, `catch` chỉ log rồi `return` | vòng `Connect()` → `ConsumeAsync()` + backoff 2s/4s/8s/16s/32s |
+| NotificationService | `IHostedService.StartAsync` gọi `StartConsuming()` đúng 1 lần; `StartConsuming` retry 1 lần rồi `return` | `BackgroundService` poll `IsConnected` mỗi 5s, `StartConsuming()` lại khi rớt |
+
+**Không chỉ thêm backoff là đủ.** Đo thật trên broker thật cho thấy vòng `Task.Delay` ban đầu
+tôi viết **vẫn không phát hiện** broker chết giữa lúc chạy: `RabbitMQ.Client 6.8.1` đóng
+channel từ phía client, `EventingBasicConsumer` ngừng dispatch, và `Task.Delay` vẫn đếm
+bình thường — 0 dòng log trong khi consumer đã chết. Sửa bằng cách poll `IsOpen` trên
+connection/channel và **throw** (không `return`) để vòng retry bắt được.
+
+Evidence đo được (`docker compose stop rabbitmq` → chờ 45s → `start`):
+
+```
+BEFORE_STOP:     TOTAL 45  MAIN 15  CONSUMERS 15
+STOPPED 07:37:55
+  [07:37:54 ERR] RabbitMQ unavailable for customer_vehicle_reserved (attempt 1); retrying in 2s
+  [07:38:04 ERR] RabbitMQ unavailable for customer_vehicle_reserved (attempt 2); retrying in 4s
+  [07:38:16 ERR] RabbitMQ unavailable for customer_vehicle_reserved (attempt 3); retrying in 8s
+  [07:38:40 ERR] RabbitMQ unavailable for customer_vehicle_reserved (attempt 4); retrying in 16s
+  [07:34:36 WRN] RabbitMQ connection dropped; re-initializing consumers.        (NotificationService)
+RESTARTED 07:38:48
+AFTER_RESTART:   TOTAL 45  MAIN 15  CONSUMERS 15
+```
+
+**Phát hiện thêm trong lúc verify:** dừng broker làm `/health` của cả 2 service trả **503**
+(`'RabbitMQ is unreachable at rabbitmq:5672'`) — tức BUG "consumer chết mà /health vẫn 200"
+chỉ đúng **trước #135**. Sau #135 đã có broker probe nên health check bắt được. Điều này
+giảm bớt mức nghiêm trọng của bug, nhưng không bỏ được: health check chỉ báo **triệu chứng**,
+còn reconnect là **chữa bệnh** — không có nó thì container vẫn "healthy" nhưng không xử lý
+event nào cho tới khi được restart.
 
 ## 7. Kết quả lệnh verify (dán nguyên output)
 
@@ -274,11 +322,16 @@ porsche_taycan.glb   19426608
 
 Sau mỗi phase, chạy lại và đối chiếu:
 
-| Metric | Baseline | Mục tiêu |
-|---|---|---|
-| Build error | 0 | giữ 0 |
-| Build warning | 19 | giảm dần, **giữ 0 error** |
-| Test pass | 239 | ≥239, **không được giảm** |
-| Service có test | 1/7 | tăng dần |
-| FE test runner | không có | có |
-| Số bug mở | 6 (BUG-1..6) | → 0 ở P5 |
+| Metric | Baseline | Hiện tại (sau P1 slice 1) | Mục tiêu |
+|---|---|---|---|
+| Build error | 0 | **0** | giữ 0 |
+| Build warning | 19 | **18** | → 0 ở P1 |
+| Test pass | 239 | **239** | ≥239, **không được giảm** |
+| Service có test | 1/7 | 1/7 | tăng dần ở P3/P5 |
+| FE test runner | không có | không có | có ở P4 |
+| Consumer chết âm thầm | **có** (2 service) | **không** — verify §4.1 | giữ |
+| Số bug mở | 8 (BUG-1..8) | 8 (BUG-7 đã sửa, còn 7) | → 0 ở P5 |
+
+> **Cảnh báo về cách đo:** `dotnet build` **incremental** chỉ in warning của project vừa
+> được rebuild. Đo bằng `dotnet build` không kèm cờ sẽ ra số sai — lúc đầu phase này tôi
+> tưởng còn 14 warning, hóa ra `-t:Rebuild` cho **18**. Luôn dùng `-t:Rebuild` khi so sánh.
