@@ -63,6 +63,11 @@
          transitive edge disappears silently if ReportingService ever stops
          referencing Common. -->
     <ProjectReference Include="..\..\Common\Common.csproj" />
+    <!-- Issue #92: GatewayHeaderStrippingTests pins the middleware that removes
+         the service-to-service shared secret before Ocelot relays it. The
+         gateway is an Ocelot host rather than a plain class library, and the
+         existing suite already references five web apps the same way. -->
+    <ProjectReference Include="..\..\APIGatewayService\APIGatewayService.csproj" />
   </ItemGroup>
 
 </Project>

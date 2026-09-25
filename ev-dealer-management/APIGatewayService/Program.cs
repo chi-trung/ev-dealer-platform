@@ -1,4 +1,5 @@
 using Serilog;
+using APIGatewayService;
 using Microsoft.AspNetCore.Builder;
 using Newtonsoft.Json.Linq;
 using Ocelot.DependencyInjection;
@@ -177,6 +178,14 @@ try
     
     // Enable CORS - must be before UseOcelot()
     app.UseCors("AllowFrontend");
+
+    // Issue #92: drop the service-to-service shared secret before Ocelot can
+    // relay it. Must sit BEFORE UseOcelot below -- Ocelot's responder
+    // short-circuits the pipeline, so middleware registered after it never runs
+    // and the header would reach the downstream service untouched, which is
+    // exactly the leak this prevents. After UseCors so a preflight response is
+    // not delayed by header work it has no use for.
+    app.UseStripInternalServiceKey();
 
     // Issue #137: auth before the /health Map() branches below and before
     // UseOcelot. The health branches are terminal Run() handlers, so they are
