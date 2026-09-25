@@ -50,6 +50,19 @@
          standing rule is the password must be revoked before any Issue #10
          cleanup, not that tests stop materializing it. -->
     <ProjectReference Include="..\..\UserService\UserService.csproj" />
+    <!-- Issue #92: PostgresDataSynchronizationTests runs the REAL
+         DataSynchronizationService (the HTTP fan-out behind
+         POST /api/reports/synchronize-data) against a real Postgres, because
+         the whole bug class this phase fixed is provider-specific — a SQLite
+         test cannot tell a `text` date column from a `timestamptz` one. -->
+    <ProjectReference Include="..\..\ReportingService\ReportingService.csproj" />
+    <!-- Issue #92: InternalServiceAuthTests pins the shared service key that
+         ReportingService's fan-out authenticates with. Referenced directly
+         rather than relied on transitively through ReportingService — a test
+         should state which assembly it is asserting against, and the
+         transitive edge disappears silently if ReportingService ever stops
+         referencing Common. -->
+    <ProjectReference Include="..\..\Common\Common.csproj" />
   </ItemGroup>
 
 </Project>
