@@ -125,7 +125,8 @@ Fan-out works as intended for `vehicle.reserved`: one publish, two queues
 - Producer (customer domain): `CustomerService/Services/RabbitMQProducerService.cs`, keys in `CustomerService/Events/EventNames.cs`
 - Producer (sales): `SalesService/Services/RabbitMQMessagePublisher.cs` (`_publishLock` — singleton `IModel` is not thread-safe)
 - Consumers: `NotificationService/Services/RabbitMQConsumerService.cs` (one channel per queue, declares+binds queues, dispatches to `Consumers/*` handlers), `CustomerService/Consumers/VehicleReservedEventConsumer.cs`
-- Retry/DLQ policy: `NotificationService/Events/EventRetryPolicy.cs` + identical `CustomerService/Events/EventRetryPolicy.cs`; knobs `RabbitMQ:MaxDeliveryAttempts` (3), `RabbitMQ:RetryTtlMilliseconds` (5000)
+- Queue/exchange names: `NotificationService/Events/EventNames.cs` — the single source of truth for all 14 NotificationService queues. Each name used to be a literal written out TWICE in `RabbitMQConsumerService` (once to declare, once to subscribe), so editing one side produced a service that declared queue A and consumed queue B: it booted, connected, logged success, and received nothing. `Open()` now returns the name it declared paired with its channel, and the subscribe side uses that pair, so the halves cannot drift. Note `RabbitMQ:Queues:*` still renames the queue while the binding keeps using the EVENT routing key, so a rename never unbinds.
+- Retry/DLQ policy: `Common/Events/EventRetryPolicy.cs` — ONE copy, shared by both services via the `Common` project reference; knobs `RabbitMQ:MaxDeliveryAttempts` (3), `RabbitMQ:RetryTtlMilliseconds` (5000)
 - Contract/unit tests (Issue #31): `DealerSystem.Tests/NotificationService.Tests` —
   `EventContractTests.cs` round-trips every real producer event type (referenced
   by assembly, so a field rename on either side breaks the build) through the
@@ -175,8 +176,27 @@ Fan-out works as intended for `vehicle.reserved`: one publish, two queues
   permanently-dead policy table — every `MessagingErrorCode` member plus the
   null case — against `FirebaseFcmService.IsPermanentlyDead`, with a
   completeness guard that fails if the SDK enum ever grows a member the policy
-  never weighed. CI runs all eleven test files inside the "Build .NET services"
-  job.
+  never weighed. CI runs all 27 test files inside the "Build .NET services"
+  job. (Was "eleven" — stale well before PR #146; counted from the
+  `[Fact]`/`[Theory]`/`[BrokerFact]`/`[PostgresFact]` attributes rather than
+  carried forward.)
+- Topology tests (Issue #92 follow-up, PR #146): `QueueTopologyTests.cs` pins
+  the live topology against a real broker. Measured on 2026-09-26 the deployed
+  shape is **45 queues = 15 main + 15 `.retry` + 15 `.dlq`**, not the 14×3=42
+  an earlier plan assumed: the 15th main queue is `customer_vehicle_reserved`,
+  which CustomerService declares with the same retry topology, and it is why
+  `vehicle.reserved` is the only fan-out (2 queues). Counting alone is a weak
+  assertion, so the load-bearing test renames every queue through
+  `RabbitMQ:Queues` config and asks the broker whether the renamed queue ended
+  up with a consumer — the only oracle for a declare/subscribe drift, since the
+  service reports itself healthy either way. Three of these tests need a broker
+  that has been USED, not merely started: a queue nobody consumes has 0
+  consumers, and `customer_vehicle_reserved` is declared by a service other than
+  the one under test. CI therefore runs `DealerSystem.Tests/TopologyWarm` first,
+  in the same shell step as `dotnet test` (a background process cannot outlive
+  the script that started it), which starts the real `RabbitMQConsumerService`
+  and adds that one missing consumer. Expected CI result: **314 passed, 0
+  failed, 0 skipped** — read the counts, not just the exit code.
 
 ## Device-token registry (Issue #33)
 
