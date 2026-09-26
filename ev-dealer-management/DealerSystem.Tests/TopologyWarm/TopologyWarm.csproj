@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <OutputType>Exe</OutputType>
+    <!-- NOT a test project. It is a console tool CI runs before `dotnet test`,
+         so the test SDK's generated entry point must stay off or it collides
+         with this project's top-level statements (CS0017, two entry points). -->
+    <GenerateProgramFile>false</GenerateProgramFile>
+    <AssemblyName>TopologyWarm</AssemblyName>
+    <RootNamespace>DealerSystem.Tests.TopologyWarm</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Pinned to 6.8.1 to match NotificationService, NOT an independent
+         choice. QueueDeclareOk.ConsumerCount is uint here but int in other
+         6.x builds, and the tool reports counts the same way the tests read
+         them; a version skew would let the tool and the tests disagree about
+         the same queue. -->
+    <PackageReference Include="RabbitMQ.Client" Version="6.8.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The real RabbitMQConsumerService. The point of this tool is to warm the
+         topology the way production does; re-declaring the 14 queues by hand
+         here would make it agree with the tests by construction and stop
+         testing anything. -->
+    <ProjectReference Include="..\..\NotificationService\NotificationService.csproj" />
+    <!-- EventRetryPolicy, so CustomerService's .retry/.dlq arguments are the
+         shared ones rather than a copy that could drift. -->
+    <ProjectReference Include="..\..\Common\Common.csproj" />
+  </ItemGroup>
+
+</Project>

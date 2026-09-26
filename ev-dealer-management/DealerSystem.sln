@@ -23,6 +23,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NotificationService.Tests",
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Common", "Common\Common.csproj", "{7D488D36-F982-488C-9DD0-8247280CF3C7}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TopologyWarm", "DealerSystem.Tests\TopologyWarm\TopologyWarm.csproj", "{1F46335D-E6F7-436A-B02B-054ADEC4F42D}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -68,8 +70,13 @@ Global
 		{7D488D36-F982-488C-9DD0-8247280CF3C7}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{7D488D36-F982-488C-9DD0-8247280CF3C7}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{7D488D36-F982-488C-9DD0-8247280CF3C7}.Release|Any CPU.Build.0 = Release|Any CPU
+		{1F46335D-E6F7-436A-B02B-054ADEC4F42D}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{1F46335D-E6F7-436A-B02B-054ADEC4F42D}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{1F46335D-E6F7-436A-B02B-054ADEC4F42D}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{1F46335D-E6F7-436A-B02B-054ADEC4F42D}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
 		{48164537-74CA-459F-92D4-BB9235F6F471} = {EDE10811-5C2C-49EE-87FA-90E0FF5ADC1A}
+		{1F46335D-E6F7-436A-B02B-054ADEC4F42D} = {EDE10811-5C2C-49EE-87FA-90E0FF5ADC1A}
 	EndGlobalSection
 EndGlobal
