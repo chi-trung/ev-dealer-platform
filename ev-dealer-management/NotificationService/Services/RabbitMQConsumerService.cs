@@ -6,21 +6,23 @@ using System.Text;
 using System.Text.Json;
 using NotificationService.DTOs;
 using NotificationService.Consumers;
+using NotificationService.Events;
 using Serilog;
 
 namespace NotificationService.Services
 {
     public class RabbitMQConsumerService : IMessageConsumer, IDisposable
     {
-        // Topic exchange published by VehicleService (vehicle.*) and
-        // CustomerService (testdrive.*). See docs/EVENTS.md.
-        private const string VehicleExchange = "vehicle_events";
+        // Queue names, routing keys and exchange names all come from EventNames
+        // (P3). They used to be string literals repeated in this file: once in
+        // InitializeRabbitMQ to declare, once in StartConsuming to subscribe.
+        // An edit to only one side compiled and booted cleanly — the service
+        // declared queue A and consumed queue B, receiving nothing, with nothing
+        // in the logs to say why. One declaration, two references, no gap.
 
-        // Topic exchange published by CustomerService (customer.*).
-        private const string CustomerExchange = "customer_events";
-
-        // One channel per consumed queue: IModel is not thread-safe and a
-        // delivery must be acked/rejected on its own channel.
+        // RabbitMQ:Queues:{Key} overrides the default name. The key is stable
+        // config vocabulary and is deliberately NOT the queue name: operators
+        // rename a queue without changing which config key carries the rename.
         private const string SaleQueueKey = "SaleCompleted";
         private const string ReservationQueueKey = "VehicleReserved";
         private const string TestDriveQueueKey = "TestDriveScheduled";
@@ -36,24 +38,34 @@ namespace NotificationService.Services
         private const string VehicleUpdatedQueueKey = "VehicleUpdated";
         private const string VehicleDeletedQueueKey = "VehicleDeleted";
 
+        // Queue name resolved from configuration, paired with the channel opened
+        // for it. Held in one place per queue so the declare half and the consume
+        // half cannot drift: StartConsuming subscribes to this exact pair, so the
+        // queue it listens on is by construction the queue that was declared.
+        private readonly record struct Subscription(string QueueName, IModel? Channel);
+
         private readonly IConfiguration _configuration;
         private readonly IServiceProvider _serviceProvider;
         private readonly object _initLock = new object();
         private IConnection? _connection;
-        private IModel? _saleChannel;
-        private IModel? _reservationChannel;
-        private IModel? _testDriveChannel;
-        private IModel? _orderChannel;
-        private IModel? _quoteChannel;
-        private IModel? _contractChannel;
-        private IModel? _customerCreatedChannel;
-        private IModel? _customerUpdatedChannel;
-        private IModel? _customerDeletedChannel;
-        private IModel? _paymentReceivedChannel;
-        private IModel? _orderStatusChangedChannel;
-        private IModel? _vehicleCreatedChannel;
-        private IModel? _vehicleUpdatedChannel;
-        private IModel? _vehicleDeletedChannel;
+
+        // One channel per consumed queue: IModel is not thread-safe and a
+        // delivery must be acked/rejected on its own channel. Resolved during
+        // InitializeRabbitMQ and read again by StartConsuming.
+        private Subscription _sale;
+        private Subscription _reservation;
+        private Subscription _testDrive;
+        private Subscription _order;
+        private Subscription _quote;
+        private Subscription _contract;
+        private Subscription _customerCreated;
+        private Subscription _customerUpdated;
+        private Subscription _customerDeleted;
+        private Subscription _paymentReceived;
+        private Subscription _orderStatusChanged;
+        private Subscription _vehicleCreated;
+        private Subscription _vehicleUpdated;
+        private Subscription _vehicleDeleted;
         private int _maxAttempts = EventRetryPolicy.DefaultMaxAttempts;
         private int _retryTtlMs = EventRetryPolicy.DefaultRetryTtlMs;
 
@@ -85,45 +97,30 @@ namespace NotificationService.Services
                     _maxAttempts = int.Parse(_configuration["RabbitMQ:MaxDeliveryAttempts"] ?? "3");
                     _retryTtlMs = int.Parse(_configuration["RabbitMQ:RetryTtlMilliseconds"] ?? "5000");
 
-                    // SaleCompleted events (default exchange, published by SalesService)
-                    _saleChannel = OpenQueueChannel(QueueName(SaleQueueKey, "sales.completed"), vehicleTopicRoutingKey: null);
+                    // Each queue: resolve its name ONCE, declare it, and keep the
+                    // pair. StartConsuming subscribes to these exact strings, so
+                    // the queue it listens on is by construction the queue that
+                    // was declared.
+                    _sale = Open(QueueName(SaleQueueKey, EventNames.SaleCompleted), null);
+                    _reservation = Open(QueueName(ReservationQueueKey, EventNames.VehicleReserved), EventNames.VehicleExchange, EventNames.VehicleReserved);
+                    _testDrive = Open(QueueName(TestDriveQueueKey, EventNames.TestDriveScheduled), EventNames.VehicleExchange, EventNames.TestDriveScheduled);
 
-                    // VehicleReserved events - must bind to the vehicle_events topic
-                    // exchange, otherwise the queue receives nothing. The routing key
-                    // is the EVENT name, not the (configurable) queue name.
-                    _reservationChannel = OpenQueueChannel(QueueName(ReservationQueueKey, "vehicle.reserved"), "vehicle.reserved");
+                    // Sales lifecycle events published by SalesService to the
+                    // default exchange, where the routing key IS the queue name.
+                    _order = Open(QueueName(OrderQueueKey, EventNames.OrderCreated), null);
+                    _quote = Open(QueueName(QuoteQueueKey, EventNames.QuoteCreated), null);
+                    _contract = Open(QueueName(ContractQueueKey, EventNames.ContractCreated), null);
 
-                    // TestDriveScheduled events - also on the shared topic exchange.
-                    _testDriveChannel = OpenQueueChannel(QueueName(TestDriveQueueKey, "testdrive.scheduled"), "testdrive.scheduled");
+                    _customerCreated = Open(QueueName(CustomerCreatedQueueKey, EventNames.CustomerCreated), EventNames.CustomerExchange, EventNames.CustomerCreated);
+                    _customerUpdated = Open(QueueName(CustomerUpdatedQueueKey, EventNames.CustomerUpdated), EventNames.CustomerExchange, EventNames.CustomerUpdated);
+                    _customerDeleted = Open(QueueName(CustomerDeletedQueueKey, EventNames.CustomerDeleted), EventNames.CustomerExchange, EventNames.CustomerDeleted);
 
-                    // Sales lifecycle events published by SalesService to the default
-                    // exchange (routing key = queue name): order.created, quote.created,
-                    // contract.created.
-                    _orderChannel = OpenQueueChannel(QueueName(OrderQueueKey, "order.created"), vehicleTopicRoutingKey: null);
-                    _quoteChannel = OpenQueueChannel(QueueName(QuoteQueueKey, "quote.created"), vehicleTopicRoutingKey: null);
-                    _contractChannel = OpenQueueChannel(QueueName(ContractQueueKey, "contract.created"), vehicleTopicRoutingKey: null);
+                    _paymentReceived = Open(QueueName(PaymentReceivedQueueKey, EventNames.PaymentReceived), null);
+                    _orderStatusChanged = Open(QueueName(OrderStatusChangedQueueKey, EventNames.OrderStatusChanged), null);
 
-                    // Customer lifecycle events published by CustomerService to
-                    // the customer_events topic exchange. Like the vehicle
-                    // queues above, these bind by EVENT routing key, never the
-                    // queue name (renames via RabbitMQ:Queues must not unbind).
-                    _customerCreatedChannel = OpenTopicQueueChannel(QueueName(CustomerCreatedQueueKey, "customer.created"), CustomerExchange, "customer.created");
-                    _customerUpdatedChannel = OpenTopicQueueChannel(QueueName(CustomerUpdatedQueueKey, "customer.updated"), CustomerExchange, "customer.updated");
-                    _customerDeletedChannel = OpenTopicQueueChannel(QueueName(CustomerDeletedQueueKey, "customer.deleted"), CustomerExchange, "customer.deleted");
-
-                    // Sales-side lifecycle events published by SalesService to
-                    // the default exchange (routing key = queue name, from
-                    // RabbitMQ:Queues:PaymentReceived/OrderStatusChanged):
-                    // payment.received, order.status.changed.
-                    _paymentReceivedChannel = OpenQueueChannel(QueueName(PaymentReceivedQueueKey, "payment.received"), vehicleTopicRoutingKey: null);
-                    _orderStatusChangedChannel = OpenQueueChannel(QueueName(OrderStatusChangedQueueKey, "order.status.changed"), vehicleTopicRoutingKey: null);
-
-                    // Vehicle lifecycle events published by VehicleService to
-                    // the vehicle_events topic exchange - same bind-by-event-key
-                    // contract as the customer queues above.
-                    _vehicleCreatedChannel = OpenTopicQueueChannel(QueueName(VehicleCreatedQueueKey, "vehicle.created"), VehicleExchange, "vehicle.created");
-                    _vehicleUpdatedChannel = OpenTopicQueueChannel(QueueName(VehicleUpdatedQueueKey, "vehicle.updated"), VehicleExchange, "vehicle.updated");
-                    _vehicleDeletedChannel = OpenTopicQueueChannel(QueueName(VehicleDeletedQueueKey, "vehicle.deleted"), VehicleExchange, "vehicle.deleted");
+                    _vehicleCreated = Open(QueueName(VehicleCreatedQueueKey, EventNames.VehicleCreated), EventNames.VehicleExchange, EventNames.VehicleCreated);
+                    _vehicleUpdated = Open(QueueName(VehicleUpdatedQueueKey, EventNames.VehicleUpdated), EventNames.VehicleExchange, EventNames.VehicleUpdated);
+                    _vehicleDeleted = Open(QueueName(VehicleDeletedQueueKey, EventNames.VehicleDeleted), EventNames.VehicleExchange, EventNames.VehicleDeleted);
 
                     Log.Information("RabbitMQ consumer connection and channels initialized successfully.");
                 }
@@ -135,18 +132,29 @@ namespace NotificationService.Services
         }
 
         /// <summary>
-        /// Creates the channel for a queue: declares the queue (plus its
-        /// .retry/.dlq dead-letter topology) and, when
-        /// <paramref name="vehicleTopicRoutingKey"/> is set, binds it to the
-        /// vehicle_events topic exchange under that routing key. The key is the
-        /// event name, never the queue name: operators can rename a queue via
-        /// RabbitMQ:Queues (the compose pattern SalesService uses) and must not
-        /// thereby silently unbind it from the exchange. With a null key the
-        /// queue stays on the default exchange, where the routing key IS the
-        /// queue name (the SalesService publisher pattern: payment.received,
-        /// order.status.changed, sales.*).
+        /// Declares one queue and returns it paired with its channel. Declares the
+        /// .retry/.dlq dead-letter topology too. When <paramref name="exchange"/>
+        /// is set, also declares that topic exchange and binds the queue under
+        /// <paramref name="routingKey"/>; with a null exchange the queue stays on
+        /// the default exchange, where the routing key IS the queue name (the
+        /// SalesService publisher pattern: payment.received, order.status.changed,
+        /// sales.*).
+        ///
+        /// The routing key is always the EVENT name, never the resolved queue
+        /// name: operators rename a queue via RabbitMQ:Queues and that must not
+        /// silently unbind it from the exchange.
+        ///
+        /// The returned QueueName is what the caller keeps and hands to
+        /// StartConsumingQueue, so the subscribed name cannot drift from the
+        /// declared one.
+        ///
+        /// Per-queue fail-soft: a single unopenable queue (stale declare args,
+        /// permissions) must not abort InitializeRabbitMQ's try and null out the
+        /// channels of every queue declared after it. StartConsumingQueue skips
+        /// the null channel, so losing only this queue is logged and visible in
+        /// `docker compose logs`.
         /// </summary>
-        private IModel? OpenQueueChannel(string queue, string? vehicleTopicRoutingKey)
+        private Subscription Open(string queue, string? exchange = null, string? routingKey = null)
         {
             try
             {
@@ -157,50 +165,20 @@ namespace NotificationService.Services
                 channel.BasicQos(prefetchSize: 0, prefetchCount: 1, global: false);
                 channel.QueueDeclare(queue: queue, durable: true, exclusive: false, autoDelete: false, arguments: null);
                 EventRetryPolicy.DeclareRetryTopology(_connection!, queue, _retryTtlMs);
-                if (vehicleTopicRoutingKey != null)
+                if (exchange != null && routingKey != null)
                 {
-                    channel.ExchangeDeclare(exchange: VehicleExchange, type: ExchangeType.Topic, durable: true, autoDelete: false, arguments: null);
-                    channel.QueueBind(queue: queue, exchange: VehicleExchange, routingKey: vehicleTopicRoutingKey);
+                    channel.ExchangeDeclare(exchange: exchange, type: ExchangeType.Topic, durable: true, autoDelete: false, arguments: null);
+                    channel.QueueBind(queue: queue, exchange: exchange, routingKey: routingKey);
                 }
-                return channel;
+                return new Subscription(queue, channel);
             }
             catch (Exception ex)
             {
-                // Per-queue fail-soft: a single unopenable queue (stale declare
-                // args, permissions) must not abort InitializeRabbitMQ's try and
-                // silently null out the channels of every queue declared after
-                // it - StartConsumingQueue just skips the null ones, so losing
-                // only this queue is logged and visible in `docker compose logs`.
                 Log.Error(ex, "Could not open consumer channel for queue {Queue}; this queue will NOT be consumed.", queue);
-                return null;
+                return new Subscription(queue, null);
             }
         }
 
-        /// <summary>
-        /// Topic-exchange variant of <see cref="OpenQueueChannel"/>: same
-        /// declare + retry-topology + fail-soft contract, but binds to an
-        /// arbitrary topic exchange instead of the vehicle one.
-        /// </summary>
-        private IModel? OpenTopicQueueChannel(string queue, string exchange, string routingKey)
-        {
-            try
-            {
-                var channel = _connection!.CreateModel();
-                channel.BasicQos(prefetchSize: 0, prefetchCount: 1, global: false);
-                channel.QueueDeclare(queue: queue, durable: true, exclusive: false, autoDelete: false, arguments: null);
-                EventRetryPolicy.DeclareRetryTopology(_connection!, queue, _retryTtlMs);
-                channel.ExchangeDeclare(exchange: exchange, type: ExchangeType.Topic, durable: true, autoDelete: false, arguments: null);
-                channel.QueueBind(queue: queue, exchange: exchange, routingKey: routingKey);
-                return channel;
-            }
-            catch (Exception ex)
-            {
-                // Same per-queue fail-soft as OpenQueueChannel: losing only
-                // this queue, never the channels declared after it.
-                Log.Error(ex, "Could not open consumer channel for queue {Queue}; this queue will NOT be consumed.", queue);
-                return null;
-            }
-        }
         public void StartConsuming()
         {
             if (!IsConnected)
@@ -219,52 +197,41 @@ namespace NotificationService.Services
                 }
             }
 
-            StartConsumingQueue(_saleChannel, QueueName(SaleQueueKey, "sales.completed"),
-                sp => sp.GetRequiredService<SaleCompletedConsumer>().HandleAsync);
-            StartConsumingQueue(_reservationChannel, QueueName(ReservationQueueKey, "vehicle.reserved"),
-                sp => sp.GetRequiredService<VehicleReservedConsumer>().HandleAsync);
-            StartConsumingQueue(_testDriveChannel, QueueName(TestDriveQueueKey, "testdrive.scheduled"),
-                sp => sp.GetRequiredService<TestDriveScheduledConsumer>().HandleAsync);
-            StartConsumingQueue(_orderChannel, QueueName(OrderQueueKey, "order.created"),
-                sp => sp.GetRequiredService<OrderCreatedConsumer>().HandleAsync);
-            StartConsumingQueue(_quoteChannel, QueueName(QuoteQueueKey, "quote.created"),
-                sp => sp.GetRequiredService<QuoteCreatedConsumer>().HandleAsync);
-            StartConsumingQueue(_contractChannel, QueueName(ContractQueueKey, "contract.created"),
-                sp => sp.GetRequiredService<ContractCreatedConsumer>().HandleAsync);
-            StartConsumingQueue(_customerCreatedChannel, QueueName(CustomerCreatedQueueKey, "customer.created"),
-                sp => sp.GetRequiredService<CustomerCreatedConsumer>().HandleAsync);
-            StartConsumingQueue(_customerUpdatedChannel, QueueName(CustomerUpdatedQueueKey, "customer.updated"),
-                sp => sp.GetRequiredService<CustomerUpdatedConsumer>().HandleAsync);
-            StartConsumingQueue(_customerDeletedChannel, QueueName(CustomerDeletedQueueKey, "customer.deleted"),
-                sp => sp.GetRequiredService<CustomerDeletedConsumer>().HandleAsync);
-            StartConsumingQueue(_paymentReceivedChannel, QueueName(PaymentReceivedQueueKey, "payment.received"),
-                sp => sp.GetRequiredService<PaymentReceivedConsumer>().HandleAsync);
-            StartConsumingQueue(_orderStatusChangedChannel, QueueName(OrderStatusChangedQueueKey, "order.status.changed"),
-                sp => sp.GetRequiredService<OrderStatusChangedConsumer>().HandleAsync);
-            StartConsumingQueue(_vehicleCreatedChannel, QueueName(VehicleCreatedQueueKey, "vehicle.created"),
-                sp => sp.GetRequiredService<VehicleCreatedConsumer>().HandleAsync);
-            StartConsumingQueue(_vehicleUpdatedChannel, QueueName(VehicleUpdatedQueueKey, "vehicle.updated"),
-                sp => sp.GetRequiredService<VehicleUpdatedConsumer>().HandleAsync);
-            StartConsumingQueue(_vehicleDeletedChannel, QueueName(VehicleDeletedQueueKey, "vehicle.deleted"),
-                sp => sp.GetRequiredService<VehicleDeletedConsumer>().HandleAsync);
+            StartConsumingQueue(_sale, sp => sp.GetRequiredService<SaleCompletedConsumer>().HandleAsync);
+            StartConsumingQueue(_reservation, sp => sp.GetRequiredService<VehicleReservedConsumer>().HandleAsync);
+            StartConsumingQueue(_testDrive, sp => sp.GetRequiredService<TestDriveScheduledConsumer>().HandleAsync);
+            StartConsumingQueue(_order, sp => sp.GetRequiredService<OrderCreatedConsumer>().HandleAsync);
+            StartConsumingQueue(_quote, sp => sp.GetRequiredService<QuoteCreatedConsumer>().HandleAsync);
+            StartConsumingQueue(_contract, sp => sp.GetRequiredService<ContractCreatedConsumer>().HandleAsync);
+            StartConsumingQueue(_customerCreated, sp => sp.GetRequiredService<CustomerCreatedConsumer>().HandleAsync);
+            StartConsumingQueue(_customerUpdated, sp => sp.GetRequiredService<CustomerUpdatedConsumer>().HandleAsync);
+            StartConsumingQueue(_customerDeleted, sp => sp.GetRequiredService<CustomerDeletedConsumer>().HandleAsync);
+            StartConsumingQueue(_paymentReceived, sp => sp.GetRequiredService<PaymentReceivedConsumer>().HandleAsync);
+            StartConsumingQueue(_orderStatusChanged, sp => sp.GetRequiredService<OrderStatusChangedConsumer>().HandleAsync);
+            StartConsumingQueue(_vehicleCreated, sp => sp.GetRequiredService<VehicleCreatedConsumer>().HandleAsync);
+            StartConsumingQueue(_vehicleUpdated, sp => sp.GetRequiredService<VehicleUpdatedConsumer>().HandleAsync);
+            StartConsumingQueue(_vehicleDeleted, sp => sp.GetRequiredService<VehicleDeletedConsumer>().HandleAsync);
 
             Log.Information("Started consuming messages from all queues.");
         }
 
         /// <summary>
-        /// Shared consume loop for one queue. Failure policy (docs/EVENTS.md):
-        /// unparseable payload or no handler registered -> park in the DLQ
-        /// (visible to operators, unlike the old ack-and-discard); handler
-        /// threw -> republish to the .retry queue until RabbitMQ:MaxDeliveryAttempts
-        /// is exhausted, then park in the DLQ. The old nack-and-requeue-on-every-
-        /// error policy redelivered a poison message in a hot loop forever.
+        /// Shared consume loop for one queue. Takes the whole <see cref="Subscription"/>
+        /// rather than (channel, name) so the queue it subscribes to is the same
+        /// value Open declared. Failure policy (docs/EVENTS.md): unparseable
+        /// payload or no handler registered -> park in the DLQ (visible to
+        /// operators, unlike the old ack-and-discard); handler threw -> republish
+        /// to the .retry queue until RabbitMQ:MaxDeliveryAttempts is exhausted,
+        /// then park in the DLQ. The old nack-and-requeue-on-every-error policy
+        /// redelivered a poison message in a hot loop forever.
         /// </summary>
         private void StartConsumingQueue(
-            IModel? channel,
-            string queue,
+            Subscription subscription,
             Func<IServiceProvider, Func<string, Task>> handlerFactory)
         {
+            var channel = subscription.Channel;
             if (channel == null || !channel.IsOpen) return;
+            var queue = subscription.QueueName;
 
             var consumer = new EventingBasicConsumer(channel);
 
@@ -359,6 +326,16 @@ namespace NotificationService.Services
         /// </summary>
         public bool IsConnected => _connection is { IsOpen: true };
 
+        /// <summary>
+        /// The live broker connection, for tests that need to ask the BROKER a
+        /// question about what this service declared and subscribed to — the
+        /// only oracle that catches a declare/subscribe name drift. internal
+        /// rather than public so the connection never becomes part of the
+        /// service's surface; NotificationService.csproj grants
+        /// InternalsVisibleTo to the test assembly for this.
+        /// </summary>
+        internal IConnection? Connection => _connection;
+
         public void StopConsuming()
         {
             Log.Information("Stopping RabbitMQ consumer.");
@@ -370,20 +347,20 @@ namespace NotificationService.Services
             // Every Close is guarded: this runs on the shutdown path, where the
             // broker may already be gone, and an AlreadyClosedException thrown
             // here would abort host shutdown and skip the remaining services.
-            CloseQuietly(_saleChannel);
-            CloseQuietly(_reservationChannel);
-            CloseQuietly(_testDriveChannel);
-            CloseQuietly(_orderChannel);
-            CloseQuietly(_quoteChannel);
-            CloseQuietly(_contractChannel);
-            CloseQuietly(_customerCreatedChannel);
-            CloseQuietly(_customerUpdatedChannel);
-            CloseQuietly(_customerDeletedChannel);
-            CloseQuietly(_paymentReceivedChannel);
-            CloseQuietly(_orderStatusChangedChannel);
-            CloseQuietly(_vehicleCreatedChannel);
-            CloseQuietly(_vehicleUpdatedChannel);
-            CloseQuietly(_vehicleDeletedChannel);
+            CloseQuietly(_sale.Channel);
+            CloseQuietly(_reservation.Channel);
+            CloseQuietly(_testDrive.Channel);
+            CloseQuietly(_order.Channel);
+            CloseQuietly(_quote.Channel);
+            CloseQuietly(_contract.Channel);
+            CloseQuietly(_customerCreated.Channel);
+            CloseQuietly(_customerUpdated.Channel);
+            CloseQuietly(_customerDeleted.Channel);
+            CloseQuietly(_paymentReceived.Channel);
+            CloseQuietly(_orderStatusChanged.Channel);
+            CloseQuietly(_vehicleCreated.Channel);
+            CloseQuietly(_vehicleUpdated.Channel);
+            CloseQuietly(_vehicleDeleted.Channel);
             CloseQuietly(_connection);
             Log.Information("RabbitMQ consumer connection closed.");
         }

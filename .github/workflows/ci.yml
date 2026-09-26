@@ -13,6 +13,55 @@ jobs:
     defaults:
       run:
         working-directory: ev-dealer-management
+
+    # P3: 9 tests need real infrastructure and SKIP (not pass) without it —
+    # 5 broker tests in QueueTopologyTests, 4 in PostgresDataSynchronizationTests.
+    # They are the ones that caught the real bugs: the Postgres tests exist
+    # because the whole P2 class of bug (a `text` date column on a timestamptz
+    # model) is invisible to SQLite, and the broker tests exist because a
+    # declare/subscribe name drift leaves every count correct. Running the suite
+    # without these containers reported 305 passed and 9 skipped, which reads
+    # like full coverage and is not.
+    #
+    # The broker container alone is NOT enough, and that was measured, not
+    # assumed. A queue declared on a broker nobody consumes reports 0
+    # consumers, so EveryQueueHasExactlyOneConsumer and
+    # VehicleReservedIsTheOnlyFanOut fail on a bare service container. The
+    # first CI run of PR #146 did exactly that: 3 failed, 311 passed, 0
+    # skipped. The TopologyWarm step below is what closes the gap.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: evm_core
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      rabbitmq:
+        image: rabbitmq:3-management-alpine
+        ports:
+          - 5672:5672
+        options: >-
+          --health-cmd "rabbitmq-diagnostics -q ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      # PostgresDataSynchronizationTests applies ReportingService's own
+      # migrations itself (Migrate()), so an empty database is all it needs.
+      EVM_TEST_POSTGRES: Host=localhost;Port=5432;Database=evm_core;Username=postgres;Password=postgres
+      # QueueTopologyTests asserts against the live topology and cleans up its
+      # own probe queues. guest/guest is the image default and is only
+      # reachable from localhost, which is where the runner maps the port.
+      EVM_TEST_RABBITMQ_HOST: localhost
+
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
@@ -29,13 +78,82 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libfontconfig1
       - name: Build solution
         run: dotnet build DealerSystem.sln -clp:ErrorsOnly
-      - name: Run unit tests
-        # EventRetryPolicy + producer↔consumer payload contract tests
-        # (DealerSystem.Tests, Issue #31). Reuses the build above. Run by
-        # project path, NOT an FQN filter: `--filter` that matches zero tests
-        # still exits 0, so a namespace rename would silently disable the
-        # gate. The path form fails if the project is missing or has no tests.
-        run: dotnet test DealerSystem.Tests/NotificationService.Tests/NotificationService.Tests.csproj --no-build
+      - name: Warm the broker topology, then run unit tests
+        # QueueTopologyTests asserts against a broker that a real service has
+        # already used. Three of its tests need queues that exist AND have live
+        # consumers, and one of those queues (customer_vehicle_reserved) is
+        # declared by CustomerService, not by the service under test — so no
+        # amount of pre-declaring queues from the test side produces it.
+        #
+        # This runs the REAL RabbitMQConsumerService, then adds the one consumer
+        # NotificationService does not own, and reports what the broker
+        # confirms. It needs no Postgres, no Firebase credential and no JWT: the
+        # 14 consumers resolve their dependencies lazily inside their Received
+        # handlers, and nothing is published, so none of them is constructed.
+        #
+        # The warm tool and the test run are ONE step on purpose. The first
+        # attempt at this used two steps with `trap 'kill $WARM_PID' EXIT` in
+        # the warm step: bash fires that trap the moment the script ends, so
+        # all 15 consumers were torn down before the next step started. The
+        # second CI run failed 2 tests with "Expected: 1, Actual: 0" while the
+        # warm step itself had reported 15/15 — the queues were durable and
+        # still there, the consumers were not. A background process cannot
+        # outlive the script that started it, so there is no script boundary
+        # here for the tool to be killed at.
+        #
+        # The tool exits 2 if it cannot connect and 1 if the broker comes back
+        # short of 15/15, so a broker that is up but unusable turns the job red
+        # rather than quietly dropping the test count.
+        run: |
+          set -uo pipefail
+          dotnet run --project DealerSystem.Tests/TopologyWarm/TopologyWarm.csproj --no-build \
+            > /tmp/warm.log 2>&1 &
+          WARM_PID=$!
+
+          # The service container health check gates the job, not this process,
+          # and a container can report healthy a moment before AMQP accepts
+          # connections. Poll the tool's own output instead of sleeping.
+          for _ in $(seq 1 60); do
+            if grep -q 'broker is warm' /tmp/warm.log 2>/dev/null; then
+              break
+            fi
+            if ! kill -0 $WARM_PID 2>/dev/null; then
+              echo "::error::TopologyWarm exited before warming the broker:"
+              cat /tmp/warm.log
+              exit 1
+            fi
+            sleep 2
+          done
+
+          if ! grep -q 'broker is warm' /tmp/warm.log; then
+            echo "::error::TopologyWarm did not reach a warm broker in 120s:"
+            cat /tmp/warm.log
+            kill $WARM_PID 2>/dev/null || true
+            exit 1
+          fi
+          cat /tmp/warm.log
+
+          # NOT `set -e` around this: the test result has to reach the log
+          # before anything else, and the exit code is propagated explicitly
+          # below so a red suite still fails the job.
+          #
+          # EventRetryPolicy + producer↔consumer payload contract tests
+          # (DealerSystem.Tests, Issue #31). Run by project path, NOT an FQN
+          # filter: `--filter` that matches zero tests still exits 0, so a
+          # namespace rename would silently disable the gate. The path form
+          # fails if the project is missing or has no tests.
+          #
+          # EVM_TEST_POSTGRES / EVM_TEST_RABBITMQ_HOST come from the job-level
+          # env above, so the 9 infrastructure tests run instead of skipping. A
+          # regression that makes them SKIP again (a renamed variable, a removed
+          # service block, or the warm half of this step being dropped) would
+          # show up as "skipped: 9" in the log — read the counts, not just the
+          # exit code. Expected: 314 passed, 0 failed, 0 skipped.
+          dotnet test DealerSystem.Tests/NotificationService.Tests/NotificationService.Tests.csproj --no-build
+          TEST_STATUS=$?
+
+          kill $WARM_PID 2>/dev/null || true
+          exit $TEST_STATUS
 
   frontend:
     name: Build React frontend

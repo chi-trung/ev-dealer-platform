@@ -37,4 +37,14 @@
     <ProjectReference Include="..\Common\Common.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- P3: QueueTopologyTests needs the service's own IConnection to ask the
+         BROKER whether a queue it declared also has a consumer. That is the
+         only oracle that catches a declare/subscribe name drift — the service
+         itself reports IsConnected=true and logs success either way. The
+         property is internal so this grant is exactly as wide as that one
+         need; the test project is already a full assembly reference. -->
+    <InternalsVisibleTo Include="NotificationService.Tests" />
+  </ItemGroup>
+
 </Project>
