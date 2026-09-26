@@ -162,6 +162,34 @@ app.MapGet("/api/internal/users",
     return Results.Ok(users);
 });
 
+// Issue #150: provisions the login account a customer signs in with. Called by
+// CustomerService over the internal key, with the admin's chosen password.
+//
+// WHY A NEW ENDPOINT AND NOT /api/admin/users
+// That one is [Authorize(Roles = "Admin")], and InternalServiceAuthMiddleware
+// REPLACES the principal rather than extending it (Common/Auth/InternalServiceAuth.cs:194,
+// :260) — the promoted identity carries the InternalService role and nothing
+// else. A machine call to /api/admin/users is therefore a 403, not a 403 to
+// work around by loosening the existing endpoint. Widening that endpoint to
+// accept both roles would also give the machine caller a route to RegisterRequest,
+// whose Role field it can then set to Admin.
+//
+// Role-gated the same way as /api/internal/users above, for the same reason:
+// a bare [Authorize] would also admit any signed-in user, and this endpoint
+// creates accounts that can log in.
+app.MapPost("/api/internal/customer-accounts",
+    [Microsoft.AspNetCore.Authorization.Authorize(
+        Roles = Common.Auth.InternalServiceAuthMiddleware.InternalRole)]
+    async (CustomerAccountRequest req, IUserService userService) =>
+{
+    var result = await userService.ProvisionCustomerAccountAsync(req);
+    // 409, not 400: the caller's retry after a Username/Email collision is a
+    // different request, and 400 invites a retry loop where 409 does not.
+    return result.Success
+        ? Results.Ok(result)
+        : Results.Conflict(result);
+});
+
 
     }
 }

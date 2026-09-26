@@ -1,7 +1,7 @@
 using Common.Auth;
 using Microsoft.Extensions.Configuration;
 
-namespace ev_dealer_reporting.Services;
+namespace Common.Auth;
 
 /// <summary>
 /// Attaches the internal service credential to every outgoing request from a

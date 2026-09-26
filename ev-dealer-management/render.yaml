@@ -449,6 +449,20 @@ services:
         value: "false"
       - key: Cors__AllowedOrigins
         value: https://evdealer.vercel.app
+      # Issue #150: the customer's login account is created in UserService,
+      # which owns the Users table (Issue #121), so this service is now a
+      # fan-out SENDER. Without this the HttpClient has no BaseAddress and
+      # POST /api/internal/customer-accounts fails open -- the customer row is
+      # saved with UserId still null and the dealer sees a created customer
+      # with no login. Same credential already configured above.
+      #
+      # Do NOT add InternalService__SendSignedToken here in the same pass. The
+      # flags fail in opposite directions and this service's receiver (userservice,
+      # line 219) is not yet in signed-token mode, so flipping the sender first
+      # produces 401 on every provisioning call. Order is documented in
+      # Common/Auth/InternalServiceAuth.cs.
+      - key: Services__UserService
+        value: https://userservice.onrender.com
 
   - type: web
     runtime: docker

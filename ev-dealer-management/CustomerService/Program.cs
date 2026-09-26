@@ -120,6 +120,29 @@ try
     // Register Custom Services
     builder.Services.AddScoped<CustomerService.Services.ICustomerService, CustomerService.Services.CustomerService>();
     builder.Services.AddScoped<CustomerService.Services.ITestDriveService, CustomerService.Services.TestDriveService>(); // Register TestDriveService
+
+    // Issue #150: the customer login account is created in UserService, which
+    // owns the Users table (#121). First outbound call this service makes.
+    //
+    // Transient handler for the reason Common/Auth/InternalServiceKeyHandler
+    // documents: AddHttpMessageHandler resolves it on every pipeline build, and
+    // handing the same DelegatingHandler out twice throws because the factory
+    // sets InnerHandler itself.
+    builder.Services.AddTransient<Common.Auth.InternalServiceKeyHandler>();
+    builder.Services.AddHttpClient<CustomerService.Services.ICustomerAccountProvisioner, CustomerService.Services.CustomerAccountProvisioner>(c =>
+        {
+            var baseUri = builder.Configuration["Services:UserService"];
+            if (!string.IsNullOrWhiteSpace(baseUri))
+                c.BaseAddress = new Uri(baseUri.EndsWith('/') ? baseUri : baseUri + "/");
+
+            // A customer creation should not hang because a sibling service is
+            // slow. Short, and deliberately shorter than the gateway's own
+            // request budget: failing open is the designed behaviour, so a slow
+            // peer should produce an unlinked customer quickly rather than a
+            // stuck dealer UI.
+            c.Timeout = TimeSpan.FromSeconds(10);
+        })
+        .AddHttpMessageHandler<Common.Auth.InternalServiceKeyHandler>();
     
     // Register AutoMapper (v15+: DI built into the core package; the archived
     // AutoMapper.Extensions.Microsoft.DependencyInjection shim is gone)

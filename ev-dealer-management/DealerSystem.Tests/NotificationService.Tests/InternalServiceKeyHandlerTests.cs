@@ -1,6 +1,5 @@
 using System.Net;
 using Common.Auth;
-using ev_dealer_reporting.Services;
 using Microsoft.Extensions.Configuration;
 using Xunit;
 
