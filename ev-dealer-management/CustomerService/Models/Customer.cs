@@ -23,6 +23,14 @@ public class Customer
     [Required] // Assuming DealerId is always required based on the migration
     public int DealerId { get; set; }
 
+    /// <summary>
+    /// The UserService account this customer is, when they have one. Null
+    /// until something links them — no flow in the codebase populates it yet,
+    /// so today it is a schema with no writer. See CustomerDbContext for why
+    /// this is a foreign key and not a shared primary key.
+    /// </summary>
+    public int? UserId { get; set; }
+
     public string? Status { get; set; } // e.g., "active", "inactive", "pending"
 
     public DateTime JoinDate { get; set; } = DateTime.UtcNow;
