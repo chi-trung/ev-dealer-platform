@@ -29,6 +29,47 @@ public static class InternalServiceAuth
     public const string ConfigPath = "InternalService:Key";
 
     /// <summary>
+    /// Config path for the deprecation switch. When true, the static key in
+    /// <see cref="ConfigPath"/> stops being accepted and only a signed
+    /// <see cref="InternalServiceToken"/> is honoured.
+    /// </summary>
+    /// <remarks>
+    /// The rollout is staged because the seven Render services deploy on their
+    /// own independent cycles, so there is no moment when receiver and caller
+    /// are updated together. Turning this off is the deliberate, reversible
+    /// end of that sequence: set it after the logs show the fan-out
+    /// authenticating with tokens rather than with the key.
+    /// </remarks>
+    public const string RequireSignedTokenConfigPath = "InternalService:RequireSignedToken";
+
+    /// <summary>
+    /// Config path for the sending-side switch. When true, the fan-out
+    /// presents a freshly-minted <see cref="InternalServiceToken"/> instead of
+    /// the static key.
+    /// </summary>
+    /// <remarks>
+    /// A SEPARATE FLAG FROM <see cref="RequireSignedTokenConfigPath"/>, and the
+    /// reason is the deploy order rather than symmetry. Turning the receiving
+    /// flag on rejects the static key, so a sender still sending that key
+    /// starts getting 401s. Turning a sending flag on makes the sender emit a
+    /// token, so a receiver running pre-token code rejects THAT instead. The two
+    /// halves fail in opposite directions, so one flag cannot stage both sides
+    /// of the rollout.
+    ///
+    /// The safe order, and the only one that has no window in which the fan-out
+    /// is broken:
+    ///   1. deploy all five receivers with the new code, flag off — they still
+    ///      accept the static key, so nothing changes;
+    ///   2. set this flag on ReportingService — every receiver already
+    ///      understands tokens;
+    ///   3. set <see cref="RequireSignedTokenConfigPath"/> on the receivers.
+    ///
+    /// Both flags default to off, so a deploy at any point in this sequence
+    /// keeps the fan-out working.
+    /// </remarks>
+    public const string SendSignedTokenConfigPath = "InternalService:SendSignedToken";
+
+    /// <summary>
     /// Compares two secrets without leaking their contents through timing.
     ///
     /// <see cref="string.Equals(string?, string?)"/> returns as soon as it
@@ -116,24 +157,6 @@ public sealed class InternalServiceAuthMiddleware
 
     public async Task InvokeAsync(HttpContext context)
     {
-        var expected = _configuration[InternalServiceAuth.ConfigPath];
-
-        // A service that has no key configured cannot verify anyone, so it must
-        // not promote anyone either. Returning here (rather than 401-ing) is
-        // deliberate: this middleware's job is to ADD an internal identity, not
-        // to become the thing that rejects anonymous traffic — the [Authorize]
-        // attributes already do that, and duplicating it here would mean two
-        // places to update every time an endpoint is opened.
-        if (string.IsNullOrWhiteSpace(expected))
-        {
-            _logger.LogWarning(
-                "{ConfigPath} is not set on {Service}; internal service-to-service calls will not be authenticated",
-                InternalServiceAuth.ConfigPath,
-                "this service");
-            await _next(context);
-            return;
-        }
-
         if (!context.Request.Headers.TryGetValue(InternalServiceAuth.HeaderName, out var supplied)
             || supplied.Count == 0)
         {
@@ -145,6 +168,72 @@ public sealed class InternalServiceAuthMiddleware
         // the header is ambiguous, and picking one of them would let a proxy
         // append a value that a downstream service reads differently.
         var provided = supplied[0];
+
+        // Read the flag as a string rather than through GetValue<bool>:
+        // Configuration.Binder is not referenced by Common (read off
+        // project.assets.json, not assumed), and adding a package to turn one
+        // boolean into a parse is not worth it. An unset flag and a flag set to
+        // "false" behave identically, which is the safe default -- the static
+        // key keeps working until someone deliberately turns it off.
+        var requireSignedToken = string.Equals(
+            _configuration[InternalServiceAuth.RequireSignedTokenConfigPath],
+            "true",
+            StringComparison.OrdinalIgnoreCase);
+        var signingKey = _configuration[InternalServiceToken.SigningKeyConfigPath];
+
+        // Token first, ALWAYS. It is tried even while the static key is still
+        // accepted, so the switch below can be turned on at any moment without
+        // depending on a deploy: a caller already sending tokens keeps working
+        // whichever way the flag is set.
+        if (InternalServiceToken.TryValidate(
+                provided, signingKey, DateTimeOffset.UtcNow, out var tokenPrincipal))
+        {
+            // The principal is REPLACED, not extended, so an internal call
+            // cannot inherit a stale ambient user from a previous request on a
+            // pooled connection.
+            context.User = tokenPrincipal!;
+            _logger.LogDebug(
+                "Accepted internal call to {Path} using a signed service token",
+                context.Request.Path.Value);
+            await _next(context);
+            return;
+        }
+
+        // A receiver with no signing key cannot verify a token, and one with a
+        // short or blank key cannot either -- both are reported once, by name,
+        // rather than showing up as a silent stream of rejected calls.
+        if (!InternalServiceToken.IsUsableSigningKey(signingKey))
+        {
+            _logger.LogWarning(
+                "{ConfigPath} is not usable on this service (needs at least {Minimum} bytes); signed service tokens cannot be verified here",
+                InternalServiceToken.SigningKeyConfigPath,
+                InternalServiceToken.MinimumSigningKeyBytes);
+        }
+
+        if (requireSignedToken)
+        {
+            _logger.LogWarning(
+                "Rejected internal call to {Path}: {Flag} is set and the header is not a valid service token",
+                context.Request.Path.Value,
+                InternalServiceAuth.RequireSignedTokenConfigPath);
+            await _next(context);
+            return;
+        }
+
+        var expected = _configuration[InternalServiceAuth.ConfigPath];
+
+        // A service that has no key configured cannot verify anyone, so it must
+        // not promote anyone either. Returning here (rather than 401-ing) is
+        // deliberate: this middleware's job is to ADD an internal identity, not
+        // to become the thing that rejects anonymous traffic — the [Authorize]
+        // attributes already do that, and duplicating it here would mean two
+        // places to update every time an endpoint is opened.
+        if (string.IsNullOrWhiteSpace(expected))
+        {
+            await _next(context);
+            return;
+        }
+
         if (!InternalServiceAuth.FixedTimeEquals(expected, provided))
         {
             // Logged as a warning without the value. A wrong key here is
@@ -158,9 +247,6 @@ public sealed class InternalServiceAuthMiddleware
             return;
         }
 
-        // Promote the identity. The principal is REPLACED rather than extended
-        // so an internal call cannot inherit a stale ambient user from a
-        // previous request on a pooled connection.
         var identity = new System.Security.Claims.ClaimsIdentity(
             new[]
             {

@@ -112,6 +112,18 @@ services:
       # Same shared key as the other four, same default -- see the header note
       # on why this is a plain variable rather than a YAML anchor.
       - InternalService__Key=${INTERNAL_SERVICE_KEY:-dev-only-internal-key-not-for-production}
+      # Issue #92: signing key for the short-lived service token. Separate
+      # variable from INTERNAL_SERVICE_KEY on purpose -- rotating the one
+      # that is the bearer credential should not force a signing-key change,
+      # and the dev default is deliberately distinct so a copy-paste between
+      # the two is visible in a config dump rather than silent. Both must
+      # match across the five participating services.
+      - InternalService__SigningKey=${INTERNAL_SERVICE_SIGNING_KEY:-dev-only-signing-key-at-least-32-bytes}
+      # Staged rollout. Both default off, so a fresh `docker compose up`
+      # behaves exactly as before this change. Receivers flip
+      # RequireSignedToken only after reportingservice sends tokens; see
+      # Common/Auth/InternalServiceAuth.cs for the order with no gap.
+      - InternalService__RequireSignedToken=${INTERNAL_REQUIRE_SIGNED_TOKEN:-false}
       - EmailSettings__SmtpHost=smtp.gmail.com
       - EmailSettings__SmtpPort=587
       - EmailSettings__SmtpUser=bata79892@gmail.com
@@ -147,6 +159,18 @@ services:
       - RabbitMQ__Password=guest
       # Issue #92: target of ReportingService's fan-out. See the x- anchor.
       - InternalService__Key=${INTERNAL_SERVICE_KEY:-dev-only-internal-key-not-for-production}
+      # Issue #92: signing key for the short-lived service token. Separate
+      # variable from INTERNAL_SERVICE_KEY on purpose -- rotating the one
+      # that is the bearer credential should not force a signing-key change,
+      # and the dev default is deliberately distinct so a copy-paste between
+      # the two is visible in a config dump rather than silent. Both must
+      # match across the five participating services.
+      - InternalService__SigningKey=${INTERNAL_SERVICE_SIGNING_KEY:-dev-only-signing-key-at-least-32-bytes}
+      # Staged rollout. Both default off, so a fresh `docker compose up`
+      # behaves exactly as before this change. Receivers flip
+      # RequireSignedToken only after reportingservice sends tokens; see
+      # Common/Auth/InternalServiceAuth.cs for the order with no gap.
+      - InternalService__RequireSignedToken=${INTERNAL_REQUIRE_SIGNED_TOKEN:-false}
     depends_on:
       postgres:
         condition: service_healthy
@@ -186,6 +210,18 @@ services:
       - Services__VehicleService=http://vehicleservice:8080
       # Issue #92: target of ReportingService's fan-out. See the x- anchor.
       - InternalService__Key=${INTERNAL_SERVICE_KEY:-dev-only-internal-key-not-for-production}
+      # Issue #92: signing key for the short-lived service token. Separate
+      # variable from INTERNAL_SERVICE_KEY on purpose -- rotating the one
+      # that is the bearer credential should not force a signing-key change,
+      # and the dev default is deliberately distinct so a copy-paste between
+      # the two is visible in a config dump rather than silent. Both must
+      # match across the five participating services.
+      - InternalService__SigningKey=${INTERNAL_SERVICE_SIGNING_KEY:-dev-only-signing-key-at-least-32-bytes}
+      # Staged rollout. Both default off, so a fresh `docker compose up`
+      # behaves exactly as before this change. Receivers flip
+      # RequireSignedToken only after reportingservice sends tokens; see
+      # Common/Auth/InternalServiceAuth.cs for the order with no gap.
+      - InternalService__RequireSignedToken=${INTERNAL_REQUIRE_SIGNED_TOKEN:-false}
     depends_on:
       postgres:
         condition: service_healthy
@@ -229,6 +265,18 @@ services:
       - RabbitMQ__RetryTtlMilliseconds=5000
       # Issue #92: target of ReportingService's fan-out. See the x- anchor.
       - InternalService__Key=${INTERNAL_SERVICE_KEY:-dev-only-internal-key-not-for-production}
+      # Issue #92: signing key for the short-lived service token. Separate
+      # variable from INTERNAL_SERVICE_KEY on purpose -- rotating the one
+      # that is the bearer credential should not force a signing-key change,
+      # and the dev default is deliberately distinct so a copy-paste between
+      # the two is visible in a config dump rather than silent. Both must
+      # match across the five participating services.
+      - InternalService__SigningKey=${INTERNAL_SERVICE_SIGNING_KEY:-dev-only-signing-key-at-least-32-bytes}
+      # Staged rollout. Both default off, so a fresh `docker compose up`
+      # behaves exactly as before this change. Receivers flip
+      # RequireSignedToken only after reportingservice sends tokens; see
+      # Common/Auth/InternalServiceAuth.cs for the order with no gap.
+      - InternalService__RequireSignedToken=${INTERNAL_REQUIRE_SIGNED_TOKEN:-false}
     depends_on:
       # Ordering nicety, not a correctness requirement. VehicleReservedEventConsumer
       # now reconnects with backoff on its own (verified live: stop broker →
@@ -274,6 +322,20 @@ services:
       # Issue #92: this is the CALLER. The key goes on its outbound requests
       # (InternalServiceKeyHandler); the three services above verify it.
       - InternalService__Key=${INTERNAL_SERVICE_KEY:-dev-only-internal-key-not-for-production}
+      # Issue #92: signing key for the short-lived service token. Separate
+      # variable from INTERNAL_SERVICE_KEY on purpose -- rotating the one
+      # that is the bearer credential should not force a signing-key change,
+      # and the dev default is deliberately distinct so a copy-paste between
+      # the two is visible in a config dump rather than silent. Both must
+      # match across the five participating services.
+      - InternalService__SigningKey=${INTERNAL_SERVICE_SIGNING_KEY:-dev-only-signing-key-at-least-32-bytes}
+      # Staged rollout. Default off, so a fresh `docker compose up` behaves
+      # exactly as before this change. This is the SENDING flag and it exists
+      # only on reportingservice, the sole service that makes fan-out calls.
+      # Set it true only once all four receivers understand tokens; until then
+      # they would reject what this sends, and the symptom is the same silent
+      # empty report this work exists to eliminate.
+      - InternalService__SendSignedToken=${INTERNAL_SEND_SIGNED_TOKEN:-false}
     depends_on:
       postgres:
         condition: service_healthy
