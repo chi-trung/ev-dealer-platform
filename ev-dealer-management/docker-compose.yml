@@ -277,6 +277,17 @@ services:
       # RequireSignedToken only after reportingservice sends tokens; see
       # Common/Auth/InternalServiceAuth.cs for the order with no gap.
       - InternalService__RequireSignedToken=${INTERNAL_REQUIRE_SIGNED_TOKEN:-false}
+      # Issue #150: the customer's login account is created in UserService,
+      # which owns the Users table (#121), so this service is now a fan-out
+      # SENDER. Unset, the HttpClient has no BaseAddress and provisioning fails
+      # open: the customer row saves with UserId still null. The
+      # INTERNAL_SERVICE_KEY above is already the credential this call signs
+      # with, and userservice already accepts it -- nothing else to set.
+      #
+      # Intentionally NOT adding a SendSignedToken variable here: reportingservice
+      # is the only sender with that on, and turning it on before userservice's
+      # receiver is ready would 401 every call. Order in Common/Auth/InternalServiceAuth.cs.
+      - Services__UserService=http://userservice:80
     depends_on:
       # Ordering nicety, not a correctness requirement. VehicleReservedEventConsumer
       # now reconnects with backoff on its own (verified live: stop broker →

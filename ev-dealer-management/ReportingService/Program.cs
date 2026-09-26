@@ -1,4 +1,5 @@
 using Serilog;
+using Common.Auth;
 using Common.Data;
 using Common.Health;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
