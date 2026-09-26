@@ -216,6 +216,28 @@ services:
       # returns 503 and DealerId validation silently fails open.
       - key: Services__VehicleService
         value: https://vehicleservice.onrender.com
+      # Issue #92: /api/internal/users is now [Authorize(Roles=InternalService)],
+      # so this is the FIFTH service on the shared key -- it is the receiving
+      # end of the fan-out, and leaving it unset makes every sync write zero
+      # user rows while still returning success:true. Same value as the other
+      # four, verbatim.
+      - key: InternalService__Key
+        sync: false
+      # Issue #92: the signing key for the short-lived service token that
+      # replaces the key above as the bearer credential. MUST be identical
+      # on all five, byte for byte -- a mismatch means every fan-out call
+      # is 401 and every report table syncs to zero rows while the endpoint
+      # still returns success:true. Same failure as the key, different field.
+      - key: InternalService__SigningKey
+        sync: false
+      # Receiving side of the issue #92 staged rollout, default off. Turn this
+      # on ONLY after reportingservice has InternalService__SendSignedToken set
+      # to true and the logs show calls authenticating with a token rather than
+      # the key -- the two flags fail in opposite directions, so a receiving
+      # service switched first rejects a sender still using the key. See
+      # Common/Auth/InternalServiceAuth.cs for the full order.
+      - key: InternalService__RequireSignedToken
+        value: "false"
       - key: Cors__AllowedOrigins
         value: https://evdealer.vercel.app
       # SMTP password is a `sync: false` placeholder, NEVER committed. Unset
@@ -287,6 +309,29 @@ services:
         value: https://evm-gateway.onrender.com
       - key: Jwt__Audience
         value: https://evm-gateway.onrender.com
+      # Issue #92: shared secret ReportingService presents on its data-sync
+      # fan-out (Common/Auth/InternalServiceAuth). Must BYTE-MATCH the
+      # same key on vehicleservice, salesservice, customerservice and
+      # reportingservice -- a mismatch does not fail the deploy, it silently
+      # makes every fan-out call 401 and every report table sync to zero rows
+      # while POST /api/reports/synchronize-data still answers success:true.
+      - key: InternalService__Key
+        sync: false
+      # Issue #92: the signing key for the short-lived service token that
+      # replaces the key above as the bearer credential. MUST be identical
+      # on all five, byte for byte -- a mismatch means every fan-out call
+      # is 401 and every report table syncs to zero rows while the endpoint
+      # still returns success:true. Same failure as the key, different field.
+      - key: InternalService__SigningKey
+        sync: false
+      # Receiving side of the issue #92 staged rollout, default off. Turn this
+      # on ONLY after reportingservice has InternalService__SendSignedToken set
+      # to true and the logs show calls authenticating with a token rather than
+      # the key -- the two flags fail in opposite directions, so a receiving
+      # service switched first rejects a sender still using the key. See
+      # Common/Auth/InternalServiceAuth.cs for the full order.
+      - key: InternalService__RequireSignedToken
+        value: "false"
 
   - type: web
     runtime: docker
@@ -327,6 +372,24 @@ services:
         value: https://evm-gateway.onrender.com
       - key: Jwt__Audience
         value: https://evm-gateway.onrender.com
+      # Issue #92: see the note on vehicleservice. Same value, verbatim.
+      - key: InternalService__Key
+        sync: false
+      # Issue #92: the signing key for the short-lived service token that
+      # replaces the key above as the bearer credential. MUST be identical
+      # on all five, byte for byte -- a mismatch means every fan-out call
+      # is 401 and every report table syncs to zero rows while the endpoint
+      # still returns success:true. Same failure as the key, different field.
+      - key: InternalService__SigningKey
+        sync: false
+      # Receiving side of the issue #92 staged rollout, default off. Turn this
+      # on ONLY after reportingservice has InternalService__SendSignedToken set
+      # to true and the logs show calls authenticating with a token rather than
+      # the key -- the two flags fail in opposite directions, so a receiving
+      # service switched first rejects a sender still using the key. See
+      # Common/Auth/InternalServiceAuth.cs for the full order.
+      - key: InternalService__RequireSignedToken
+        value: "false"
       - key: Cors__AllowedOrigins
         value: https://evdealer.vercel.app
 
@@ -366,6 +429,24 @@ services:
         value: "3"
       - key: RabbitMQ__RetryTtlMilliseconds
         value: "5000"
+      # Issue #92: see the note on vehicleservice. Same value, verbatim.
+      - key: InternalService__Key
+        sync: false
+      # Issue #92: the signing key for the short-lived service token that
+      # replaces the key above as the bearer credential. MUST be identical
+      # on all five, byte for byte -- a mismatch means every fan-out call
+      # is 401 and every report table syncs to zero rows while the endpoint
+      # still returns success:true. Same failure as the key, different field.
+      - key: InternalService__SigningKey
+        sync: false
+      # Receiving side of the issue #92 staged rollout, default off. Turn this
+      # on ONLY after reportingservice has InternalService__SendSignedToken set
+      # to true and the logs show calls authenticating with a token rather than
+      # the key -- the two flags fail in opposite directions, so a receiving
+      # service switched first rejects a sender still using the key. See
+      # Common/Auth/InternalServiceAuth.cs for the full order.
+      - key: InternalService__RequireSignedToken
+        value: "false"
       - key: Cors__AllowedOrigins
         value: https://evdealer.vercel.app
 
@@ -409,6 +490,30 @@ services:
         value: https://evm-gateway.onrender.com
       - key: Jwt__Audience
         value: https://evm-gateway.onrender.com
+      # Issue #92: the fan-out SIDE. This is the only service that SENDS the
+      # header, so if it is left blank here while the other three are set, the
+      # handler emits nothing and every call 401s the same way the pre-fix
+      # build did. Set it in the same dashboard pass as the other three.
+      - key: InternalService__Key
+        sync: false
+      # Issue #92: the signing key for the short-lived service token that
+      # replaces the key above as the bearer credential. MUST be identical
+      # on all five, byte for byte -- a mismatch means every fan-out call
+      # is 401 and every report table syncs to zero rows while the endpoint
+      # still returns success:true. Same failure as the key, different field.
+      - key: InternalService__SigningKey
+        sync: false
+      # Staged rollout, default off so a fresh deploy behaves exactly as
+      # before. This is the SENDING flag and it exists only here, because
+      # ReportingService is the only service that makes fan-out calls. Do NOT
+      # set it to true until userservice, vehicleservice, salesservice and
+      # customerservice are all running the code that understands tokens --
+      # they would reject a token they cannot verify, and the symptom is the
+      # same silent one this key was added to fix. See
+      # Common/Auth/InternalServiceAuth.cs for the one order with no broken
+      # window.
+      - key: InternalService__SendSignedToken
+        value: "false"
       - key: Cors__AllowedOrigins
         value: https://evdealer.vercel.app
 

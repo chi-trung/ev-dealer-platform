@@ -1,4 +1,5 @@
 using Serilog;
+using Common.Auth;
 using Common.Data;
 using Common.Health;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
@@ -184,6 +185,13 @@ try
     app.UseHttpsRedirection();
     app.UseCors("AllowFrontend");
     app.UseAuthentication();
+    // Issue #92: /api/internal/users is the fourth target of ReportingService's
+    // data-sync fan-out and it dumps every user (username, email, role,
+    // DealerId), so it is protected by the same shared key as the other three.
+    // Between authentication and authorization, for the same reason as the
+    // other services: the promoted identity must exist before authorization
+    // evaluates it.
+    app.UseInternalServiceAuth();
     app.UseAuthorization();
     
     // Liveness probe for the API gateway aggregate /health (docs/GATEWAY.md).

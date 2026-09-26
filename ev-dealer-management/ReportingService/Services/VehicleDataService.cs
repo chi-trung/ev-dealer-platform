@@ -41,12 +41,30 @@ public class VehicleDataService : IVehicleDataService
 
             var jsonContent = await response.Content.ReadAsStringAsync();
             var jsonDoc = JsonDocument.Parse(jsonContent);
-            
-            // VehicleService returns paginated result with data array
+
+            // VehicleService returns PaginatedResult<T> (VehicleDto.cs:183),
+            // whose property is Items — so the JSON key is "items", NOT
+            // "data". Verified against the live response:
+            //   {"items":[{"id":1,"model":"Tesla Model 3",...}],"totalCount":5,...}
+            //
+            // This method only looked for "data" or a bare array, so it matched
+            // neither, returned an EMPTY list, and logged nothing: inventory
+            // synchronisation silently wrote zero rows for every vehicle the
+            // catalogue actually had. Adding "items" is what makes the fan-out
+            // see data at all.
             List<VehicleInventoryDto> vehicles = new();
-            
-            if (jsonDoc.RootElement.TryGetProperty("data", out var dataArray))
+
+            if (jsonDoc.RootElement.TryGetProperty("items", out var itemsArray))
             {
+                foreach (var vehicle in itemsArray.EnumerateArray())
+                {
+                    vehicles.Add(MapVehicle(vehicle));
+                }
+            }
+            else if (jsonDoc.RootElement.TryGetProperty("data", out var dataArray))
+            {
+                // Kept so a response shaped this way still works; it is not
+                // what VehicleService emits today.
                 foreach (var vehicle in dataArray.EnumerateArray())
                 {
                     vehicles.Add(MapVehicle(vehicle));
@@ -133,8 +151,14 @@ public class VehicleDataService : IVehicleDataService
             DealerName = vehicle.TryGetProperty("dealerName", out var dname) ? dname.GetString() ?? "" : "",
             StockQuantity = vehicle.TryGetProperty("stockQuantity", out var sq) ? sq.GetInt32() : 0,
             Price = vehicle.TryGetProperty("price", out var price) ? price.GetDecimal() : 0,
-            CreatedAt = vehicle.TryGetProperty("createdAt", out var ca) && DateTime.TryParse(ca.GetString(), out var cdt) ? cdt : DateTime.UtcNow,
-            UpdatedAt = vehicle.TryGetProperty("updatedAt", out var ua) && DateTime.TryParse(ua.GetString(), out var udt) ? udt : DateTime.UtcNow
+            CreatedAt = vehicle.TryGetProperty("createdAt", out var ca)
+                ? TimestampParser.Utc(ca.GetString(), DateTime.UtcNow)
+                : DateTime.UtcNow,
+            // See TimestampParser for why the Kind has to be re-stamped as UTC:
+            // a Kind=Unspecified value makes Npgsql throw on a timestamptz write.
+            UpdatedAt = vehicle.TryGetProperty("updatedAt", out var ua)
+                ? TimestampParser.Utc(ua.GetString(), DateTime.UtcNow)
+                : DateTime.UtcNow
         };
     }
 }

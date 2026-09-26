@@ -1,10 +1,48 @@
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Linq;
+using System.Globalization;
 using ev_dealer_reporting.DTOs;
 using Microsoft.Extensions.Configuration;
 
 namespace ev_dealer_reporting.Services;
+
+/// <summary>
+/// Parses a timestamp coming from a sibling service's JSON into a DateTime that
+/// Npgsql will actually accept on a <c>timestamp with time zone</c> column.
+///
+/// WHY THIS EXISTS (Issue #92 / P2, found by PostgresDataSynchronizationTests)
+/// Every date in this file was read with <c>DateTime.TryParse</c>, which
+/// returns <see cref="DateTimeKind.Unspecified"/> for a string with no offset
+/// (which is what ASP.NET emits for a <c>DateTime</c> read from a UTC
+/// database). DataSynchronizationService then assigns that value straight to a
+/// summary entity, and Npgsql refuses it:
+///
+///   ArgumentException: Cannot write DateTime with Kind=Unspecified to
+///   PostgreSQL type 'timestamp with time zone', only UTC is supported.
+///
+/// The throw happens inside SaveChangesAsync, which
+/// DataSynchronizationService wraps in <c>catch (Exception) { LogError }</c>
+/// (DataSynchronizationService.cs:265) — so the debt report silently stayed
+/// EMPTY on Postgres, and the endpoint still answered 200. Re-stamping the
+/// Kind to UTC is the fix; the wall-clock value is unchanged, because every
+/// writer upstream already uses <c>DateTime.UtcNow</c>.
+///
+/// Note the read path was never broken: Npgsql accepts a Kind=Unspecified
+/// value as a query PARAMETER (it sends it as timestamp-without-time-zone and
+/// Postgres compares it fine), which is why the from/to filters in
+/// ReportEndpoints.cs kept working and only the WRITES failed. Fixing only
+/// the writes is therefore not papering over a second bug.
+/// </summary>
+internal static class TimestampParser
+{
+    public static DateTime Utc(string? value, DateTime fallback) =>
+        DateTime.TryParse(value, CultureInfo.InvariantCulture,
+                          DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal,
+                          out var parsed)
+            ? parsed
+            : fallback;
+}
 
 public class SalesDataService : ISalesDataService
 {
@@ -60,7 +98,9 @@ public class SalesDataService : ISalesDataService
                 Quantity = q.TryGetProperty("quantity", out var qty) ? qty.GetInt32() : 0,
                 TotalBasePrice = q.TryGetProperty("totalBasePrice", out var tbp) ? tbp.GetDecimal() : 0,
                 Status = q.TryGetProperty("status", out var st) ? st.GetString() ?? "" : "",
-                CreatedAt = q.TryGetProperty("createdAt", out var ca) && DateTime.TryParse(ca.GetString(), out var dt) ? dt : DateTime.UtcNow
+                CreatedAt = q.TryGetProperty("createdAt", out var ca)
+                    ? TimestampParser.Utc(ca.GetString(), DateTime.UtcNow)
+                    : DateTime.UtcNow
             }).ToList();
 
             if (fromDate.HasValue)
@@ -134,7 +174,9 @@ public class SalesDataService : ISalesDataService
                 LoanTermMonths = o.TryGetProperty("loanTermMonths", out var ltm) && ltm.ValueKind != JsonValueKind.Null ? ltm.GetInt32() : null,
                 InterestRateYearly = o.TryGetProperty("interestRateYearly", out var iry) && iry.ValueKind != JsonValueKind.Null ? iry.GetDecimal() : null,
                 Status = o.TryGetProperty("status", out var st) ? st.GetString() ?? "" : "",
-                CreatedAt = o.TryGetProperty("createdAt", out var ca) && DateTime.TryParse(ca.GetString(), out var dt) ? dt : DateTime.UtcNow
+                CreatedAt = o.TryGetProperty("createdAt", out var ca)
+                    ? TimestampParser.Utc(ca.GetString(), DateTime.UtcNow)
+                    : DateTime.UtcNow
             }).ToList();
         }
         catch (Exception ex)
@@ -207,8 +249,10 @@ public class SalesDataService : ISalesDataService
                 Amount = p.TryGetProperty("amount", out var amt) ? amt.GetDecimal() : 0,
                 Method = p.TryGetProperty("paymentMethod", out var meth) ? meth.GetString() ?? "" : "",
                 Status = p.TryGetProperty("status", out var st) ? st.GetString() ?? "" : "",
-                PaidDate = p.TryGetProperty("paymentDate", out var pd) && DateTime.TryParse(pd.GetString(), out var pdt) ? pdt : null,
-                CreatedAt = p.TryGetProperty("createdAt", out var ca) && DateTime.TryParse(ca.GetString(), out var cdt) ? cdt : DateTime.UtcNow
+                PaidDate = p.TryGetProperty("paymentDate", out var pd) && DateTime.TryParse(pd.GetString(), CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out var pdt) ? pdt : null,
+                CreatedAt = p.TryGetProperty("createdAt", out var ca)
+                    ? TimestampParser.Utc(ca.GetString(), DateTime.UtcNow)
+                    : DateTime.UtcNow
             }).ToList();
         }
         catch (Exception ex)
@@ -268,8 +312,12 @@ public class SalesDataService : ISalesDataService
                 TotalAmount = c.TryGetProperty("totalAmount", out var ta) ? ta.GetDecimal() : 0,
                 PaymentStatus = c.TryGetProperty("paymentStatus", out var ps) ? ps.GetString() ?? "" : "",
                 Status = c.TryGetProperty("status", out var st) ? st.GetString() ?? "" : "",
-                CreatedAt = c.TryGetProperty("createdAt", out var ca) && DateTime.TryParse(ca.GetString(), out var dt) ? dt : DateTime.UtcNow,
-                UpdatedAt = c.TryGetProperty("updatedAt", out var ua) && DateTime.TryParse(ua.GetString(), out var udt) ? udt : DateTime.UtcNow
+                CreatedAt = c.TryGetProperty("createdAt", out var ca)
+                    ? TimestampParser.Utc(ca.GetString(), DateTime.UtcNow)
+                    : DateTime.UtcNow,
+                UpdatedAt = c.TryGetProperty("updatedAt", out var ua)
+                    ? TimestampParser.Utc(ua.GetString(), DateTime.UtcNow)
+                    : DateTime.UtcNow
             }).ToList();
         }
         catch (Exception ex)
@@ -312,7 +360,9 @@ public class SalesDataService : ISalesDataService
                 LoanTermMonths = order.TryGetProperty("loanTermMonths", out var ltm) && ltm.ValueKind != JsonValueKind.Null ? ltm.GetInt32() : null,
                 InterestRateYearly = order.TryGetProperty("interestRateYearly", out var iry) && iry.ValueKind != JsonValueKind.Null ? iry.GetDecimal() : null,
                 Status = order.TryGetProperty("status", out var st) ? st.GetString() ?? "" : "",
-                CreatedAt = order.TryGetProperty("createdAt", out var ca) && DateTime.TryParse(ca.GetString(), out var dt) ? dt : DateTime.UtcNow
+                CreatedAt = order.TryGetProperty("createdAt", out var ca)
+                    ? TimestampParser.Utc(ca.GetString(), DateTime.UtcNow)
+                    : DateTime.UtcNow
             };
         }
         catch (Exception ex)

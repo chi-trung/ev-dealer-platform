@@ -1,4 +1,5 @@
 using Serilog;
+using Common.Auth;
 using Common.Data;
 using Common.Health;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
@@ -194,6 +195,13 @@ try
     // Issue #137: auth must run before MapControllers -- attribute metadata
     // on the actions is what [Authorize]/[AllowAnonymous] resolve against.
     app.UseAuthentication();
+    // Issue #92 (P2): between UseAuthentication and UseAuthorization so a
+    // promoted identity is in place BEFORE authorization evaluates it.
+    // ReportingService's data-sync fan-out is machine-to-machine traffic with
+    // no user JWT, and [Authorize] on the controllers below was rejecting every
+    // one of those calls with 401 -- which the fan-out logged as a warning and
+    // reported to its caller as an empty result.
+    app.UseInternalServiceAuth();
     app.UseAuthorization();
 
     app.MapControllers();

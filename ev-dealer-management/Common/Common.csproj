@@ -25,6 +25,36 @@
          a divergence here would mean the probe and the real clients run
          different protocol versions. -->
     <PackageReference Include="RabbitMQ.Client" Version="6.8.1" />
+    <!-- InternalServiceToken (issue #92) mints and verifies the short-lived
+         service tokens that replace the static InternalService__Key.
+
+         WHY JsonWebTokens AND NOT System.IdentityModel.Tokens.Jwt
+         Both packages were tried and the first one is a live defect. The seven
+         services do NOT resolve one Microsoft.IdentityModel.* version: six land
+         on 7.1.2 via JwtBearer 8.0.10, while CustomerService lands on 8.14.0
+         via AutoMapper 15.1.3. A split graph — 7.1.2 and 8.14.0 loaded into
+         one process — was measured to make JwtSecurityTokenHandler read only
+         sub/nbf/iat/aud, silently dropping iss, role and exp, so every token
+         fails with IDX10211. Measured, not inferred:
+
+           7.1.2 alone             -> sub,role,nbf,exp,iat,iss,aud  validate OK
+           7.1.2 + 8.14.0 split    -> sub,nbf,iat,aud               IDX10211
+           8.14.0 alone            -> sub,role,nbf,exp,iat,iss,aud  validate OK
+
+         So the SPLIT is the defect, not either version. That is what makes the
+         choice of handler the thing that matters: JsonWebTokenHandler was run
+         under both graphs and produced the full claim set either way.
+
+         WHY THE VERSION IS STILL PINNED
+         Not to choose a version — the app decides that, by transitive
+         resolution, and Common's pin is a floor rather than a winner (verified
+         in CustomerService's own project.assets.json: 8.14.0 wins there).
+         It is pinned so Common COMPILES against a known API instead of
+         whatever a future transitive bump provides, and to 7.1.2 because that
+         is what six of the seven services already resolve. The two failure
+         modes this avoids are a compile error, which is loud, rather than a
+         runtime split, which is not. -->
+    <PackageReference Include="Microsoft.IdentityModel.JsonWebTokens" Version="7.1.2" />
     <!-- No explicit Microsoft.Extensions.* pins: EF 8.0.10 pulls
          DependencyInjection/Configuration/Logging abstractions transitively, and
          pinning them lower triggers NU1605 downgrade-as-error. -->
