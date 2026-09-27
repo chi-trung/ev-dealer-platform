@@ -54,12 +54,26 @@ const MainLayout = () => {
     const items = [
       { text: 'Bảng điều khiển', icon: <DashboardIcon />, path: '/dashboard' },
       { text: 'Quản lý xe', icon: <CarIcon />, path: '/vehicles' },
-      { text: 'Khách hàng', icon: <PeopleIcon />, path: '/customers' },
       // Thêm mục "Khiếu nại" vào đây
-      { text: 'Khiếu nại', icon: <FeedbackIcon />, path: '/complaints' }, 
+      { text: 'Khiếu nại', icon: <FeedbackIcon />, path: '/complaints' },
       { text: 'Bán hàng', icon: <SalesIcon />, path: '/sales' },
       { text: 'Báo cáo', icon: <ReportIcon />, path: '/reports' },
     ];
+
+    // Issue #150: "Khách hàng" is the dealer CRM surface, and
+    // CustomersController gates it to exactly these three roles. Keep the two
+    // lists identical: an account that can call the API but cannot see the menu
+    // gets a 403 with no way to guess the link, and one that can see the menu
+    // but not call the API gets a 403 on click. Neither is a state worth
+    // shipping. "Customer" is absent from both, deliberately -- the person who
+    // owns a customer row is not the person who manages the list of them.
+    if (['Admin', 'DealerManager', 'EVMStaff'].includes(currentUser?.role)) {
+      items.push({
+        text: 'Khách hàng',
+        icon: <PeopleIcon />,
+        path: '/customers',
+      });
+    }
 
     if (currentUser?.role === 'Admin') {
       items.push({

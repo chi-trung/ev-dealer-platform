@@ -22,6 +22,11 @@ const CustomerForm = ({
     address: initialData?.address || "",
     status: initialData?.status || "Active",
     dealerId: initialData?.dealerId || "",
+    // Issue #150: the password for the login account created with the
+    // customer. Only sent when creating — the edit form has no field for it
+    // because UpdateCustomerRequest has none either, and an empty string would
+    // overwrite a stored password with nothing.
+    password: "",
   }));
 
   const handleChange = (e) => {
@@ -34,7 +39,16 @@ const CustomerForm = ({
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    onSubmit(formData); // Pass the form data to the parent handler
+    // Issue #150: never send a password on edit. The field is absent from
+    // UpdateCustomerRequest, and sending "" would be a silent no-op today but
+    // a stored-empty-password bug the moment that request shape changes.
+    if (isEdit) {
+      // eslint-disable-next-line no-unused-vars -- destructured to be dropped
+      const { password, ...rest } = formData;
+      onSubmit(rest);
+      return;
+    }
+    onSubmit(formData);
   };
 
   return (
@@ -111,6 +125,26 @@ const CustomerForm = ({
             inputProps={{ min: 1 }}
           />
         </Grid>
+        {/* Issue #150: create-only. The account is provisioned at the moment the
+            customer row is created, so a password typed here at edit time would
+            have nothing to apply to — the API ignores it. Rendered only when
+            !isEdit so the field cannot be filled in and then silently dropped. */}
+        {!isEdit && (
+          <Grid item xs={12} sm={6}>
+            <TextField
+              fullWidth
+              label="Login Password"
+              name="password"
+              type="password"
+              value={formData.password}
+              onChange={handleChange}
+              required
+              disabled={loading}
+              helperText="Set the customer's initial login password. There is no outbound email on this deployment, so it cannot be sent to them — give it to them directly. Min 8 characters."
+              inputProps={{ minLength: 8, maxLength: 100 }}
+            />
+          </Grid>
+        )}
         <Grid
           item
           xs={12}

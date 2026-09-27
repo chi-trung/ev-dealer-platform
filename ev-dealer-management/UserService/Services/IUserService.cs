@@ -16,6 +16,10 @@ public interface IUserService
     Task<UserResult> UpdateUserAsync(int id, UpdateUserRequest request, string currentUserRole, int currentUserId);
     Task<UserResult> DeleteUserAsync(int id, string currentUserRole);
     Task<UserResult> ChangeUserRoleAsync(int id, ChangeRoleRequest request);
+    // Issue #150: creates the login account a customer uses, for a sibling
+    // service calling with the internal key. Role is fixed here, not chosen
+    // by the caller.
+    Task<CustomerAccountResult> ProvisionCustomerAccountAsync(CustomerAccountRequest request);
     Task<UserResult> ApproveUserAsync(int id);
     Task<PasswordResetResult> ForgotPasswordAsync(ForgotPasswordRequest request);
     Task<PasswordResetResult> ResetPasswordAsync(ResetPasswordRequest request);

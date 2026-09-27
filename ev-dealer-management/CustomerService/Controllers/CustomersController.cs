@@ -11,7 +11,20 @@ namespace CustomerService.Controllers
     // Issue #137: every customer route is staff-only data. Register goes
     // through UserService's /api/auth/register -- this controller's reads and
     // writes are the dealer CRM surface, not the public signup path.
-    [Authorize]
+    //
+    // Issue #150: bare [Authorize] was enough only while every account was
+    // staff. The "Customer" role is about to exist -- an admin provisions one
+    // whenever they create a customer -- and that account would then read and
+    // edit the entire customer list through this controller. "Customer" is
+    // absent from this list on purpose; the person who owns the row is not the
+    // person who manages the list of people.
+    //
+    // EVMStaff IS included, and that is not an oversight: evm.staff
+    // (Users Id 2) is a real EVMStaff account that uses these routes today.
+    // Dropping it would revoke working access as a side effect of a security
+    // fix. The frontend menu gate in MainLayout.jsx carries the same list so
+    // the two do not drift.
+    [Authorize(Roles = "Admin,DealerManager,EVMStaff")]
     public class CustomersController : ControllerBase
     {
         private readonly ICustomerService _customerService;

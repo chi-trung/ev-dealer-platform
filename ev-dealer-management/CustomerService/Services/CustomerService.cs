@@ -15,11 +15,21 @@ public class CustomerService : ICustomerService
 {
     private readonly CustomerDbContext _context;
     private readonly IMessageProducer _messageProducer;
+    // Issue #150: nullable so the many tests that construct this service with
+    // just a context and a producer keep working. A null provisioner means
+    // "the account cannot be created here", which is exactly the state those
+    // callers are already in — unlinked customers — so nothing about their
+    // existing assertions changes.
+    private readonly ICustomerAccountProvisioner? _accountProvisioner;
 
-    public CustomerService(CustomerDbContext context, IMessageProducer messageProducer)
+    public CustomerService(
+        CustomerDbContext context,
+        IMessageProducer messageProducer,
+        ICustomerAccountProvisioner? accountProvisioner = null)
     {
         _context = context ?? throw new ArgumentNullException(nameof(context));
         _messageProducer = messageProducer ?? throw new ArgumentNullException(nameof(messageProducer));
+        _accountProvisioner = accountProvisioner;
     }
 
     public async Task<IEnumerable<CustomerDto>> GetAllCustomersAsync()
@@ -110,6 +120,15 @@ public class CustomerService : ICustomerService
             Email = request.Email,
             Phone = request.Phone,
             Address = request.Address,
+            // Issue #150: this was missing. The request has always carried a
+            // [Required] DealerId and the column is NOT NULL, so the row was
+            // being written with 0 — silently unassigned to any dealer. It
+            // became visible only because the login account is provisioned
+            // with the same dealer id, which would have created a customer
+            // account scoped to dealer 0. Every other reader of DealerId
+            // (test drives, complaints, the reservation path) has been reading
+            // that 0.
+            DealerId = request.DealerId,
             Status = request.Status ?? "Active", // Default to Active if not provided
             JoinDate = DateTime.UtcNow
             // Add other properties from request if they exist and are needed
@@ -117,6 +136,13 @@ public class CustomerService : ICustomerService
 
         _context.Customers.Add(customer);
         await _context.SaveChangesAsync();
+
+        // Issue #150: create the login account and link it. Deliberately AFTER
+        // the customer row exists, so the event published below carries a
+        // CustomerId that is already durable, and deliberately NOT fatal — see
+        // CustomerAccountProvisioner for why failing open is the right default
+        // when a sibling service is down.
+        await LinkAccountAsync(customer, request);
 
         _messageProducer.PublishMessage(new CustomerCreatedEvent
         {
@@ -137,6 +163,46 @@ public class CustomerService : ICustomerService
             Status = customer.Status,
             JoinDate = customer.JoinDate
         };
+    }
+
+    /// <summary>
+    /// Creates the customer's login account and stores its id on the row
+    /// (issue #150). Leaves <c>UserId</c> null when that is not possible.
+    /// </summary>
+    /// <remarks>
+    /// WHY USERNAME = EMAIL. The customer form has no username field, and
+    /// Users requires one. Reusing the email also means UserService's
+    /// "Email already exists" check fires on a staff/customer collision, so an
+    /// email that already belongs to a staff account cannot silently become a
+    /// customer login. The side effect is that a customer and a staff member
+    /// can never share an email — which is correct, they are different people.
+    /// </remarks>
+    private async Task LinkAccountAsync(Customer customer, CreateCustomerRequest request)
+    {
+        if (_accountProvisioner is null)
+        {
+            // Only reachable from tests and any caller that constructs this
+            // service directly. In production the provisioner is always
+            // registered; log anyway so a wiring mistake is visible.
+            return;
+        }
+
+        var userId = await _accountProvisioner.ProvisionAsync(
+            username: request.Email,
+            email: request.Email,
+            fullName: request.Name,
+            password: request.Password,
+            dealerId: customer.DealerId);
+
+        if (userId is null)
+        {
+            // Already logged in detail by the provisioner. Nothing to do here
+            // beyond leaving the column null, which is the documented state.
+            return;
+        }
+
+        customer.UserId = userId.Value;
+        await _context.SaveChangesAsync();
     }
 
     public async Task<CustomerDto?> UpdateCustomerAsync(int id, UpdateCustomerRequest request)

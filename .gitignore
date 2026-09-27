@@ -49,3 +49,13 @@ Thumbs.db
 # ── Local scratch & tool caches (never commit) ─────────
 _scratch/
 .vercel/
+
+# Agent/tooling state, not source. Nothing under either path is tracked, so
+# ignoring them cannot drop anything already in history.
+# .claude/ holds per-repo plan files; they are working notes about the code,
+# not the code. Committing them would put that reasoning in the review surface
+# and in every clone, and they go stale against the tree they describe.
+.claude/
+# .impeccable/ is design-detector state (ignore rules the tooling wrote for
+# itself). It is machine-owned and rewrites itself; a diff on it is noise.
+.impeccable/

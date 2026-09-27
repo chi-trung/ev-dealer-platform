@@ -11,6 +11,29 @@ using UserService.Models;
 namespace UserService.Services;
 public class UserServiceImpl : IUserService
 {
+    /// <summary>
+    /// The roles a privileged caller may create or assign. One definition, two
+    /// call sites (CreateApprovedUserAsync and ChangeUserRoleAsync) — issue
+    /// #150 removed the duplicated literals that let the two lists drift.
+    /// </summary>
+    /// <remarks>
+    /// This is NOT the role list for public self-registration. RegisterAsync
+    /// keeps its own, smaller list on purpose: /api/auth/register is
+    /// unauthenticated, so anything it accepts is something a stranger on the
+    /// internet can hand themselves.
+    /// </remarks>
+    public static readonly string[] AllRoles =
+        { "DealerStaff", "DealerManager", "EVMStaff", "Admin", "Customer" };
+
+    /// <summary>
+    /// The one role a customer account may have. Named once because it is
+    /// written in three places that must agree: the literal in
+    /// <see cref="AllRoles"/>, the assignment in
+    /// <see cref="ProvisionCustomerAccountAsync"/>, and the exclusion list on
+    /// CustomerService's CustomersController. A test pins the first two.
+    /// </summary>
+    public const string CustomerRole = "Customer";
+
     private readonly UserDbContext _db;
     private readonly IConfiguration _cfg;
     private readonly IEmailService _emailService;
@@ -79,7 +102,16 @@ public class UserServiceImpl : IUserService
             string.IsNullOrWhiteSpace(request.Email) || string.IsNullOrWhiteSpace(request.FullName) || string.IsNullOrWhiteSpace(request.Role))
             return new AuthResult(false, "All fields are required");
 
-        var validRoles = new[] { "DealerStaff", "DealerManager", "EVMStaff", "Admin" }; // Admin can create other Admins
+        // Issue #150: "Customer" joins this list but NOT RegisterAsync's above
+        // (UserServiceImpl.cs:36). That method is the public /api/auth/register,
+        // which anyone on the internet can call; adding Customer there would let
+        // a walk-in self-approve into an account that can log in. This one is
+        // reachable only through Admin-only /api/admin/users.
+        //
+        // Kept in step with ChangeUserRoleAsync's list below by a test — two
+        // hand-kept arrays that drift apart produce an Admin who can create a
+        // customer but cannot then change that customer's role.
+        var validRoles = AllRoles; // Admin can create other Admins
         if (!validRoles.Contains(request.Role, StringComparer.OrdinalIgnoreCase))
         {
             return new AuthResult(false, "Invalid role selected.");
@@ -115,6 +147,68 @@ public class UserServiceImpl : IUserService
         await _db.SaveChangesAsync();
 
         return new AuthResult(true, "User created and approved successfully.", UserId: user.Id);
+    }
+
+    /// <summary>
+    /// Creates the login account for a customer (issue #150). Called by
+    /// CustomerService over the internal key when an admin creates a customer.
+    /// </summary>
+    /// <remarks>
+    /// WHY THIS IS NOT CreateApprovedUserAsync REUSED
+    /// That method takes a Role from its caller, and its only caller is
+    /// Admin-only. This one is reached by a SERVICE holding the internal key,
+    /// and the internal key is an alternative way in rather than a stricter
+    /// one — /api/internal/users above documents that directly. Letting the
+    /// caller name the role would mean the one machine caller in existence
+    /// could ask for Admin. So the role is a constant here.
+    ///
+    /// It is also not reachable by a customer: CustomersController gates the
+    /// Customer role out (#150), so no account this creates can use the
+    /// customer-management API it was created alongside.
+    /// </remarks>
+    public async Task<CustomerAccountResult> ProvisionCustomerAccountAsync(CustomerAccountRequest request)
+    {
+        if (string.IsNullOrWhiteSpace(request.Username) || string.IsNullOrWhiteSpace(request.Password) ||
+            string.IsNullOrWhiteSpace(request.Email) || string.IsNullOrWhiteSpace(request.FullName))
+            return new CustomerAccountResult(false, "All fields are required");
+
+        if (await _db.Users.AnyAsync(u => u.Username == request.Username))
+            return new CustomerAccountResult(false, "Username already exists");
+
+        // Same reason as CreateApprovedUserAsync: a staff account already
+        // holding this email must not become a customer login. CustomerService
+        // derives Username from Email, so this is the guard that stops an
+        // email collision from producing two accounts.
+        if (await _db.Users.AnyAsync(u => u.Email == request.Email))
+            return new CustomerAccountResult(false, "Email already exists");
+
+        // DealerId is not validated against VehicleService here, unlike in
+        // CreateApprovedUserAsync. This path is server-to-server from a service
+        // that already holds the dealer id, and the validation would add a
+        // network hop to every customer creation for a constraint the caller
+        // has no way to bypass anyway (it writes the same int into Customers).
+        var user = new User
+        {
+            Username = request.Username,
+            Email = request.Email,
+            FullName = request.FullName,
+            PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.Password),
+            Role = CustomerRole,
+            // A customer belongs to a dealer even though they cannot act on
+            // dealer data, and LoginAsync omits the "dealer" claim for a null
+            // DealerId — which is what keeps them out of dealer:<n> subjects.
+            DealerId = request.DealerId,
+            // No approval step: there is no queue of customers waiting for an
+            // admin to approve them. The admin who created the row is already
+            // trusted with it.
+            IsActive = true,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+        _db.Users.Add(user);
+        await _db.SaveChangesAsync();
+
+        return new CustomerAccountResult(true, "Customer account created.", user.Id);
     }
 
     public async Task<AuthResult> LoginAsync(LoginRequest request)
@@ -228,7 +322,12 @@ public class UserServiceImpl : IUserService
 
     public async Task<UserResult> ChangeUserRoleAsync(int id, ChangeRoleRequest request)
     {
-        var validRoles = new[] { "DealerStaff", "DealerManager", "EVMStaff", "Admin" };
+        // Issue #150: same list as CreateApprovedUserAsync. These two were
+        // separate literals before this change and could drift; a role accepted
+        // by one and rejected by the other means an Admin can create a customer
+        // account and then cannot manage it. AllRoles below is the single
+        // definition both use, pinned by a test.
+        var validRoles = AllRoles;
         if (!validRoles.Contains(request.Role))
             return new UserResult(false, "Invalid role");
 
