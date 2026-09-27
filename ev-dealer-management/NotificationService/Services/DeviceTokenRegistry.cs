@@ -179,16 +179,6 @@ public class DeviceTokenRegistry : IDeviceTokenRegistry
         }
     }
 
-    // Issue #91: the unique-constraint race this method exists to absorb
-    // surfaces differently per provider — SQLite raises SqliteException 19
-    // (SQLITE_CONSTRAINT), Postgres raises PostgresException with SqlState
-    // 23505 — so matching on the .NET type of the inner exception made
-    // IsUniqueViolationForStore a no-op under postgres, and every concurrent
-    // first-save became a 500. The detection below meets each provider on its
-    // own vocabulary instead: the driver-specific error CODE on both, with the
-    // Postgres message ("duplicate key value violates unique constraint ...")
-    // as a fallback for a driver that surfaces no SqlState. The typed match is
-    // kept for SQLite because the code is the reliable signal there.
     // Read-side fail-soft net (Issue #91). Covers both providers plus the
     // file-level failures the SQLite path can hit: a DB that dies mid-run is
     // not necessarily a DbUpdateException.
@@ -208,28 +198,12 @@ public class DeviceTokenRegistry : IDeviceTokenRegistry
         _ => false,
     };
 
+    // Issue #91 put the detection here; #150 needed it in UserService too,
+    // which cannot reference this project, so the body moved to
+    // Common.Data.UniqueViolation. This stays as the name callers in this
+    // file and its tests already use, forwarding rather than reimplementing.
     public static bool IsUniqueViolationForStore(Exception ex)
-    {
-        if (ex is not DbUpdateException) return false;
-        var inner = ex.InnerException;
-        if (inner is null) return false;
-        // SQLite: SQLITE_CONSTRAINT (19) — covers UNIQUE, NOT NULL, etc.; the
-        // (Key,Token)/(Key) indexes are the only UNIQUE ones on these tables.
-        if (inner is Microsoft.Data.Sqlite.SqliteException se)
-            return se.SqliteErrorCode is 19;
-        // Postgres: SQLSTATE 23505 = unique_violation.
-        if (inner.GetType().FullName is { } typeName
-            && typeName.StartsWith("Npgsql.", StringComparison.Ordinal))
-        {
-            var state = inner.GetType().GetProperty("SqlState")?.GetValue(inner) as string;
-            if (!string.IsNullOrEmpty(state)) return state == "23505";
-            // Best-effort English-only fallback when SQLSTATE is absent.
-            // PostgreSQL localizes messages; a populated SQLSTATE wins.
-            var msg = inner.Message ?? string.Empty;
-            return msg.Contains("duplicate key value violates unique constraint", StringComparison.Ordinal);
-        }
-        return false;
-    }
+        => Common.Data.UniqueViolation.IsUniqueViolation(ex);
 
     // SQLITE_BUSY (5) has no Postgres counterpart — it is an artifact of one
     // writer at a time on a file DB. Kept on the SQLite path only (Issue #91).
