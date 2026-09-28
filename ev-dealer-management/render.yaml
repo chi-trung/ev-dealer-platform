@@ -189,14 +189,15 @@ services:
         fromDatabase:
           name: evm-postgres
           property: connectionString
-      # Gates Migrate() in several services (CustomerService especially);
-      # compose sets Development for all seven for the same reason. SIDE EFFECT
-      # to accept deliberately: IsDevelopment() also enables Swagger UI at
-      # /swagger on a PUBLIC url (verified gates: CustomerService:120,
-      # UserService:131, SalesService:143, NotificationService:192,
-      # ReportingService:116, APIGatewayService:128, VehicleService:57). The
-      # Migrate() gates are load-bearing, so this stays Development -- the
-      # API docs exposure is the trade-off, not an oversight.
+      # Swagger UI at /swagger is gated on this in every service, and it is
+      # PUBLIC on Render -- a deliberate trade-off, not an oversight. Compose
+      # sets Development for all seven for the same reason.
+      #
+      # Migrate() USED to be gated on this too, but only in CustomerService
+      # (this comment once claimed "several services"; all six Program.cs were
+      # checked and the other five have never gated it). That gate is gone, so
+      # this flag no longer decides whether a service creates its own tables:
+      # flipping it to Production would close the docs, not the schema.
       - key: ASPNETCORE_ENVIRONMENT
         value: Development
       # The JWT trio must BYTE-MATCH across userservice / customerservice /

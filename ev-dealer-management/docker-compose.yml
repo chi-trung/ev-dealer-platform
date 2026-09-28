@@ -250,7 +250,7 @@ services:
     volumes:
       - ./CustomerService/Logs:/app/Logs   # Issue #63: Serilog file sink path is not env-overridable
     environment:
-      - ASPNETCORE_ENVIRONMENT=Development   # gates Database.Migrate() (Program.cs)
+      - ASPNETCORE_ENVIRONMENT=Development   # Swagger UI only: Migrate() runs regardless (Program.cs)
       - ASPNETCORE_URLS=http://+:80
       - DB_PROVIDER=postgres
       - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=evm_core;Username=postgres;Password=postgres
