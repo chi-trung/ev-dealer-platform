@@ -151,7 +151,7 @@ try
         // transient connection failures are recoverable.
         try
         {
-            db.Database.Migrate();
+            MigrationLock.Migrate(db);
         }
         catch (Exception ex) when (IsTransientMigrationFault(ex))
         {

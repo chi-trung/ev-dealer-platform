@@ -129,7 +129,7 @@ try
         // sets is the fix; the Baseline migration carries the seed data that
         // EnsureCreated used to apply via HasData.
         var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-        dbContext.Database.Migrate();
+        MigrationLock.Migrate(dbContext);
     }
     
     app.Run();

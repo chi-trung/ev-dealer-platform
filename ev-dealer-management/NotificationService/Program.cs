@@ -155,7 +155,7 @@ try
     {
         using var scope = app.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<NotificationService.Data.NotificationDbContext>();
-        db.Database.Migrate();
+        MigrationLock.Migrate(db);
     }
     catch (Exception ex)
     {

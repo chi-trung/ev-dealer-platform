@@ -1,3 +1,4 @@
+using Common.Data;
 using ev_dealer_reporting.Data;
 using ev_dealer_reporting.DTOs;
 using ev_dealer_reporting.Services;
@@ -64,7 +65,7 @@ public class PostgresDataSynchronizationTests
             .UseNpgsql(ConnectionString)
             .Options;
         var db = new ReportingDbContext(options);
-        db.Database.Migrate();
+        MigrationLock.Migrate(db);
         return db;
     }
 

@@ -45,17 +45,19 @@ namespace DealerSystem.Tests.NotificationService.Tests;
 /// both try to create.
 ///
 /// THE MEMBERSHIP RULE: every class whose <c>NewContext()</c>-equivalent calls
-/// <c>db.Database.Migrate()</c> with <c>EVM_TEST_POSTGRES</c>. Nothing
+/// <c>MigrationLock.Migrate()</c> with <c>EVM_TEST_POSTGRES</c>. Nothing
 /// enforces it — grep for <c>Database.Migrate</c> when adding a Postgres test
 /// class, the same way the sqlite rule says to grep for ClearAllPools.
 ///
-/// WHAT THIS DELIBERATELY DOES NOT FIX: the same race exists in production.
-/// Six services boot against one shared database and each runs
-/// <c>Migrate()</c>; on a first deploy to an empty database two of them can
-/// collide the same way, and the loser exits instead of retrying. That is a
-/// boot-time product problem (it needs a lock or a retry around migration),
-/// not something a test collection can reach, and it is out of scope for the
-/// change that surfaced it.
+/// RELATIONSHIP TO THE PRODUCTION FIX. The same race existed in production —
+/// six services booting against one shared database, loser exits instead of
+/// retrying — and is now closed at the source by
+/// <c>Common/Data/MigrationLock.cs</c>, which both test classes here call
+/// instead of <c>db.Database.Migrate()</c> so the suite exercises the
+/// production path. This collection stays as a second layer: it costs a couple
+/// of seconds, and it is the thing that still holds if a future class calls
+/// <c>Migrate()</c> directly — which is no longer a correctness hole, only a
+/// slower path.
 /// </summary>
 [CollectionDefinition("postgres", DisableParallelization = true)]
 public class PostgresCollection

@@ -149,7 +149,7 @@ try
     {
         try
         {
-            scope.ServiceProvider.GetRequiredService<SalesDbContext>().Database.Migrate();
+            MigrationLock.Migrate(scope.ServiceProvider.GetRequiredService<SalesDbContext>());
         }
         catch (Exception ex)
         {

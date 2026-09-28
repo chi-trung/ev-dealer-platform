@@ -1,3 +1,4 @@
+using Common.Data;
 using Microsoft.EntityFrameworkCore;
 using UserService.Data;
 using UserService.DTOs;
@@ -62,7 +63,7 @@ public class PostgresUserEmailRaceTests
             .UseNpgsql(_connection)
             .Options;
         var db = new UserDbContext(options);
-        db.Database.Migrate();
+        MigrationLock.Migrate(db);
         return db;
     }
 
