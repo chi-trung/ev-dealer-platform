@@ -193,5 +193,14 @@ jobs:
           fi
       - name: Install dependencies
         run: npm ci
+      - name: Test
+        # Vitest (the frontend's first test runner — added with the
+        # /admin/users role-gate fix in #154). Placed before Build so a red
+        # test fails the job in seconds instead of after the vite bundle.
+        # `npm test` is `vitest run`: the one-shot mode; without it vitest
+        # enters watch mode and the job would hang until it times out.
+        # The suite renders the real AppRoutes, so a role-gate regression
+        # (a renamed/ignored gate prop) turns this step red.
+        run: npm test
       - name: Build
         run: npm run build
