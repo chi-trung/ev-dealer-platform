@@ -39,6 +39,32 @@ public class UserServiceImpl : IUserService
     private readonly IEmailService _emailService;
     private readonly DealerIdValidator _dealerValidator;
 
+    // Issue #150: the duplicate checks in the three creation methods are a
+    // read followed by a later write, with a gap in between — two concurrent
+    // requests both pass the check and both insert. The unique indexes on
+    // Username and Email are what actually stop that; this turns the database
+    // saying "no" into a result the caller can show, instead of a 500.
+    //
+    // Only a UNIQUE violation is absorbed. Everything else is rethrown: a dead
+    // connection or a NOT NULL violation is a real fault, and quietly turning
+    // it into "email already exists" would send an operator looking at a data
+    // problem that is actually a connection problem. The user gets the same
+    // message either way, which is the right thing to show but the wrong thing
+    // to log — so this returns rather than reporting which failure it was.
+    // Whoever needs that distinction should read the provider log.
+    private async Task<bool> TrySaveUserAsync()
+    {
+        try
+        {
+            await _db.SaveChangesAsync();
+            return true;
+        }
+        catch (DbUpdateException ex) when (Common.Data.UniqueViolation.IsUniqueViolation(ex))
+        {
+            return false;
+        }
+    }
+
     // dealerValidator is optional: only DealerId validation needs it, and
     // making it nullable keeps callers that never touch registration (and the
     // test suite's LoginAsync pins) free of the HttpClient wiring.
@@ -91,7 +117,8 @@ public class UserServiceImpl : IUserService
             UpdatedAt = DateTime.UtcNow
         };
         _db.Users.Add(user);
-        await _db.SaveChangesAsync();
+        if (!await TrySaveUserAsync())
+            return new AuthResult(false, "Username or email already exists");
 
         return new AuthResult(true, "User created successfully. Your account is pending approval.", UserId: user.Id);
     }
@@ -144,7 +171,8 @@ public class UserServiceImpl : IUserService
             UpdatedAt = DateTime.UtcNow
         };
         _db.Users.Add(user);
-        await _db.SaveChangesAsync();
+        if (!await TrySaveUserAsync())
+            return new AuthResult(false, "Username or email already exists");
 
         return new AuthResult(true, "User created and approved successfully.", UserId: user.Id);
     }
@@ -206,7 +234,8 @@ public class UserServiceImpl : IUserService
             UpdatedAt = DateTime.UtcNow
         };
         _db.Users.Add(user);
-        await _db.SaveChangesAsync();
+        if (!await TrySaveUserAsync())
+            return new CustomerAccountResult(false, "Username or email already exists");
 
         return new CustomerAccountResult(true, "Customer account created.", user.Id);
     }

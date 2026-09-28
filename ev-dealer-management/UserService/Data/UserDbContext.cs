@@ -19,7 +19,17 @@ public class UserDbContext : DbContext
         {
             eb.HasKey(u => u.Id);
             eb.HasIndex(u => u.Username).IsUnique();
-            eb.HasIndex(u => u.Email);
+            // Issue #150: this was a plain index, so the database did not
+            // stop two accounts sharing one email. Every creation path checks
+            // for a duplicate with AnyAsync first, but that is a read followed
+            // by a later write with a gap between them — two concurrent
+            // requests both pass the check and both insert. Username was
+            // already unique and would have caught that race; Email has to be
+            // too, because CustomerService derives Username FROM Email, which
+            // makes the email the identifier a customer is created under.
+            // The check still stays in the service methods: the unique index
+            // is the guarantee, the check is the message the user reads.
+            eb.HasIndex(u => u.Email).IsUnique();
             // No HasOne<Dealer>() FK: that would emit a constraint against a
             // table this context no longer owns. DealerId is validated in
             // application code (DealerIdValidator) instead.
