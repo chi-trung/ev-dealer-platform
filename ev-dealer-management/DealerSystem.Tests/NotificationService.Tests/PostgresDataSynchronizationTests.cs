@@ -40,7 +40,14 @@ namespace DealerSystem.Tests.NotificationService.Tests;
 /// the database must be reachable and the ReportingService migrations must be
 /// applied — <see cref="EnsureReportingSchema"/> does that itself with
 /// <c>Migrate()</c>, exactly as the service does at boot.
+///
+/// COLLECTION: <see cref="PostgresCollection"/>. The "safe against a database
+/// the running stack already migrated" note above is true and not the whole
+/// story — on a brand-new database this class's Migrate() collided with the
+/// other Postgres class's Migrate() to create __EFMigrationsHistory, and this
+/// one took the duplicate key. See the collection's comment for the error.
 /// </summary>
+[Collection("postgres")]
 public class PostgresDataSynchronizationTests
 {
     private static string? ConnectionString =>

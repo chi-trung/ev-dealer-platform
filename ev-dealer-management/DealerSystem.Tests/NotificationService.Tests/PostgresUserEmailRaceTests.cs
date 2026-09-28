@@ -37,7 +37,13 @@ namespace DealerSystem.Tests.NotificationService.Tests;
 /// provisioner logs any failure and leaves the customer unlinked, so an
 /// unhandled exception reads as an outage and sends an operator to the network
 /// instead of to the row that already exists.
+///
+/// COLLECTION. Both classes that call Migrate() against EVM_TEST_POSTGRES sit
+/// in <see cref="PostgresCollection"/>: on a fresh database they raced to
+/// create __EFMigrationsHistory and one died on a duplicate key. The reason is
+/// written up there, with the measured error, because it looks like a flake.
 /// </summary>
+[Collection("postgres")]
 public class PostgresUserEmailRaceTests
 {
     private readonly ITestOutputHelper _out;
