@@ -163,7 +163,7 @@ try
         using (var scope = app.Services.CreateScope())
         {
             var dbContext = scope.ServiceProvider.GetRequiredService<CustomerService.Data.CustomerDbContext>();
-            dbContext.Database.Migrate();
+            MigrationLock.Migrate(dbContext);
         }
     }
     

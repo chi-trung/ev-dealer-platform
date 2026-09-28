@@ -199,7 +199,7 @@ try
         try
         {
             var db = scope.ServiceProvider.GetRequiredService<ReportingDbContext>();
-            db.Database.Migrate();
+            MigrationLock.Migrate(db);
             await EnsureRegionDataAsync(db);
     
             // Trigger initial data synchronization after migrations

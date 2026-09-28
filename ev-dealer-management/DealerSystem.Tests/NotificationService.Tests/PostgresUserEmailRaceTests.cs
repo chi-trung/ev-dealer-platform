@@ -1,3 +1,4 @@
+using Common.Data;
 using Microsoft.EntityFrameworkCore;
 using UserService.Data;
 using UserService.DTOs;
@@ -62,7 +63,7 @@ public class PostgresUserEmailRaceTests
             .UseNpgsql(_connection)
             .Options;
         var db = new UserDbContext(options);
-        db.Database.Migrate();
+        MigrationLock.Migrate(db);
         return db;
     }
 
@@ -151,12 +152,25 @@ public class PostgresUserEmailRaceTests
             // could pass for the wrong reason: if the tasks had been scheduled
             // one after another, every one of them would see the winner's row
             // and refuse on the AnyAsync check, and `count == 1` would be true
-            // with the unique index doing nothing at all. Asserting that every
-            // caller saw an empty table is what makes the index the thing
-            // under test. Measured 8/8 across repeated runs before this was
-            // turned into an assertion, so it is the observed behaviour and
-            // not a hope about the scheduler.
-            Assert.Equal(callers, seenBeforeCheck.Count(n => n == 0));
+            // with the unique index doing nothing at all. More than one caller
+            // seeing an empty table is what makes the index the thing under
+            // test, because a silent sequential run produces exactly one.
+            //
+            // AT LEAST TWO, NOT ALL EIGHT. This was first written as
+            // `Assert.Equal(callers, ...)`, measured 8/8 over ten local runs —
+            // and then failed on CI twice in a row at 7/8 (PR #152) while the
+            // same ten local runs passed. What `== callers` pinned was the
+            // scheduler, not the index: it demanded every SELECT reach the
+            // table before any INSERT did, which a 2-core runner owes nobody,
+            // and losing that race says nothing about whether the unique
+            // index held. The property worth asserting is "several callers got
+            // past the AnyAsync check at the same time", and one caller would
+            // mean no race at all.
+            var concurrent = seenBeforeCheck.Count(n => n == 0);
+            Assert.True(
+                concurrent >= 2,
+                $"expected at least 2 of {callers} callers to see an empty table " +
+                $"(a sequential run gives 1), got {concurrent}");
 
             // The load-bearing assertion. Every task ran the duplicate check,
             // so the unique index on Email is the only thing that can hold
