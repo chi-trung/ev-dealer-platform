@@ -57,7 +57,7 @@ import {
 } from '@mui/icons-material'
 
 import notificationService from '../../services/notificationService'
-import { notificationTypes } from '../../data/mockNotifications'
+import { notificationTypes } from '../../data/notificationTypes'
 
 const Notifications = () => {
   const navigate = useNavigate()

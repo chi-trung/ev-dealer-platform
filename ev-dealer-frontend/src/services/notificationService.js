@@ -1,5 +1,4 @@
 import api from './api'
-import { mockNotifications, mockNotificationStats } from '../data/mockNotifications'
 
 class NotificationService {
   // ============ NotificationService Backend API Methods ============
@@ -86,14 +85,15 @@ class NotificationService {
       const STORAGE_KEY = 'firebase_notifications';
       const stored = localStorage.getItem(STORAGE_KEY);
       const notifications = stored ? JSON.parse(stored) : [];
-      
-      // If no Firebase notifications, return mockdata
-      const data = notifications.length > 0 ? notifications : mockNotifications;
-      
+
+      // NO mockdata fallback: an empty list is an empty list. This used to
+      // substitute src/data/mockNotifications.js, so a user with no
+      // notifications — every new user — saw five invented ones and had no
+      // way to tell they were fake.
       return new Promise((resolve) => {
         setTimeout(() => {
           resolve({
-            data: data,
+            data: notifications,
             success: true
           })
         }, 300)
@@ -111,20 +111,10 @@ class NotificationService {
       const STORAGE_KEY = 'firebase_notifications';
       const stored = localStorage.getItem(STORAGE_KEY);
       const notifications = stored ? JSON.parse(stored) : [];
-      
-      if (notifications.length === 0) {
-        // Return mockdata if no Firebase notifications
-        return new Promise((resolve) => {
-          setTimeout(() => {
-            resolve({
-              data: mockNotificationStats,
-              success: true
-            })
-          }, 300)
-        })
-      }
-      
-      // Calculate real stats
+
+      // Real counts, including the zero case. The mockNotificationStats
+      // branch that used to live here reported fake unread/order counts to
+      // the notification badge.
       const stats = {
         total: notifications.length,
         unread: notifications.filter(n => !n.isRead).length,
