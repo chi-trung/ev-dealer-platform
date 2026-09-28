@@ -167,7 +167,13 @@ const AppRoutes = () => {
         <Route
           path="/admin/users"
           element={
-            <ProtectedRoute roles={['Admin']}>
+            // requiredRole, not roles={['Admin']}: ProtectedRoute reads
+            // requiredRole (a string), so a `roles` prop was simply ignored
+            // and every logged-in user reached UserManagement — the server
+            // still refused them ([Authorize(Roles = "Admin")] on each
+            // endpoint), but the page rendered instead of redirecting.
+            // "Admin" is the exact casing UserServiceImpl.AllRoles uses.
+            <ProtectedRoute requiredRole="Admin">
               <UserManagement />
             </ProtectedRoute>
           }
