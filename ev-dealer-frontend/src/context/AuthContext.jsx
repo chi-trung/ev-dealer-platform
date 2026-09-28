@@ -11,6 +11,20 @@ export const AuthProvider = ({ children }) => {
 
   useEffect(() => {
     const fetchCurrentUser = async () => {
+      // Ask /users/me ONLY when a token exists. Without this guard the app
+      // fired the request on every mount — including the public landing
+      // page, before anyone pressed Login — the server answered 401, and
+      // api.js's response interceptor treated that as an expired session:
+      // it wiped storage and did window.location.href = "/login", kicking a
+      // visitor off "/" on first load. No token means we already know the
+      // answer (signed out); the authChanged listener re-runs this after
+      // login, when there is a token to send.
+      if (!localStorage.getItem('token')) {
+        setUser(null)
+        setLoading(false)
+        return
+      }
+
       try {
         // ---- Lấy dữ liệu người dùng thật từ API ----
         // Dùng api service có interceptor để gửi token tự động
