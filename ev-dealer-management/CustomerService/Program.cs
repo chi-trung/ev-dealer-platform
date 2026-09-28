@@ -157,14 +157,22 @@ try
     
     var app = builder.Build();
     
-    // Automatically apply migrations on startup (for development)
-    if (app.Environment.IsDevelopment())
+    // Apply migrations on EVERY boot, in EVERY environment.
+    //
+    // This used to sit behind if (app.Environment.IsDevelopment()), which
+    // arrived with the service's first commit as scaffold and pinned schema
+    // creation to a flag Swagger also reads. render.yaml:198 had to keep
+    // ASPNETCORE_ENVIRONMENT=Development on Render precisely so the gate
+    // stayed open — "The Migrate() gates are load-bearing" — trading that
+    // for public Swagger docs. The other five services have never gated it,
+    // so under Production this one would have stopped creating its tables
+    // while its siblings carried on. Ungating it is what makes flipping
+    // that flag safe later. Failure policy is unchanged: an exception still
+    // escapes to the top level exactly as it did inside the gate.
+    using (var scope = app.Services.CreateScope())
     {
-        using (var scope = app.Services.CreateScope())
-        {
-            var dbContext = scope.ServiceProvider.GetRequiredService<CustomerService.Data.CustomerDbContext>();
-            MigrationLock.Migrate(dbContext);
-        }
+        var dbContext = scope.ServiceProvider.GetRequiredService<CustomerService.Data.CustomerDbContext>();
+        MigrationLock.Migrate(dbContext);
     }
     
     // Configure the HTTP request pipeline.
