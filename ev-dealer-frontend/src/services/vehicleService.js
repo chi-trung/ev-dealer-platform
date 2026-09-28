@@ -1,6 +1,14 @@
 import api from './api'
-import { mockVehicles, mockDealers } from '../data/mockVehicles'
 
+// NO MOCK FALLBACK — this file used to catch every failure and answer with
+// src/data/mockVehicles. The read paths shipped invented cars to the UI, and
+// the mutation paths were worse: createVehicle returned {id, ...}, deleteVehicle
+// returned {success: true} and reserveVehicle returned a Pending reservation —
+// so the UI reported "created" / "deleted" / "reserved" for writes that never
+// left the browser. A dealer would stock a car that does not exist. Failures
+// now propagate to the callers, which already render a real error state
+// (VehicleList/VehicleDetail setError; VehicleForm and ReservationDialog
+// surface the thrown error).
 const vehicleService = {
   // Get all vehicles without pagination (for dropdowns/compare)
   getAllVehicles: async () => {
@@ -17,9 +25,8 @@ const vehicleService = {
       })
       return vehicles
     } catch (error) {
-      console.warn('API call failed, using mock data:', error.message)
-      await new Promise(resolve => setTimeout(resolve, 500))
-      return [...mockVehicles]
+      console.error('Failed to load vehicles:', error)
+      throw error
     }
   },
 
@@ -73,56 +80,8 @@ const vehicleService = {
         }
       }
     } catch (error) {
-      // Fallback to mock data if API fails
-      console.warn('API call failed, using mock data:', error.message)
-
-      // Simulate API delay
-      await new Promise(resolve => setTimeout(resolve, 500))
-
-      let vehicles = [...mockVehicles]
-
-      // Apply filters
-      if (params.search) {
-        const searchTerm = params.search.toLowerCase()
-        vehicles = vehicles.filter(vehicle =>
-          vehicle.model.toLowerCase().includes(searchTerm) ||
-          vehicle.type.toLowerCase().includes(searchTerm) ||
-          vehicle.dealerName.toLowerCase().includes(searchTerm)
-        )
-      }
-
-      if (params.type && params.type !== 'all') {
-        vehicles = vehicles.filter(vehicle => vehicle.type === params.type)
-      }
-
-      if (params.dealerId) {
-        vehicles = vehicles.filter(vehicle => vehicle.dealerId === params.dealerId)
-      }
-
-      if (params.minPrice) {
-        vehicles = vehicles.filter(vehicle => vehicle.price >= parseInt(params.minPrice))
-      }
-
-      if (params.maxPrice) {
-        vehicles = vehicles.filter(vehicle => vehicle.price <= parseInt(params.maxPrice))
-      }
-
-      // Apply pagination
-      const page = parseInt(params.page) || 1
-      const limit = parseInt(params.limit) || 10
-      const offset = (page - 1) * limit
-      const total = vehicles.length
-      const paginatedVehicles = vehicles.slice(offset, offset + limit)
-
-      return {
-        vehicles: paginatedVehicles,
-        pagination: {
-          page,
-          limit,
-          total,
-          totalPages: Math.ceil(total / limit)
-        }
-      }
+      console.error('Failed to load vehicles:', error)
+      throw error
     }
   },
 
@@ -140,18 +99,8 @@ const vehicleService = {
       }
       return transformedVehicle
     } catch (error) {
-      // Fallback to mock data if API fails
-      console.warn('API call failed, using mock data:', error.message)
-
-      // Simulate API delay
-      await new Promise(resolve => setTimeout(resolve, 300))
-
-      const vehicle = mockVehicles.find(v => v.id === parseInt(id))
-      if (!vehicle) {
-        throw new Error('Vehicle not found')
-      }
-
-      return vehicle
+      console.error(`Failed to load vehicle ${id}:`, error)
+      throw error
     }
   },
 
@@ -190,31 +139,8 @@ const vehicleService = {
       }
       return response
     } catch (error) {
-      // If error has response, it means backend responded with an error (not network issue)
-      if (error.response) {
-        throw error
-      }
-      
-      // Only fallback to mock implementation if it's a network error
-      console.warn('API call failed (network error), using mock implementation:', error.message)
-
-      // Simulate API delay
-      await new Promise(resolve => setTimeout(resolve, 800))
-
-      // Generate new ID
-      const newId = Math.max(...mockVehicles.map(v => v.id)) + 1
-
-      const newVehicle = {
-        id: newId,
-        ...vehicleData,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
-      }
-
-      // In real app, this would be handled by the backend
-      console.log('Vehicle created:', newVehicle)
-
-      return newVehicle
+      console.error('Failed to create vehicle:', error)
+      throw error
     }
   },
 
@@ -245,32 +171,8 @@ const vehicleService = {
       const response = await api.put(`/vehicles/${id}`, form, { headers: { 'Content-Type': 'multipart/form-data' } })
       return response
     } catch (error) {
-      // If error has response, it means backend responded with an error (not network issue)
-      if (error.response) {
-        throw error
-      }
-      
-      // Only fallback to mock implementation if it's a network error
-      console.warn('API call failed (network error), using mock implementation:', error.message)
-
-      // Simulate API delay
-      await new Promise(resolve => setTimeout(resolve, 800))
-
-      const existingVehicle = mockVehicles.find(v => v.id === parseInt(id))
-      if (!existingVehicle) {
-        throw new Error('Vehicle not found')
-      }
-
-      const updatedVehicle = {
-        ...existingVehicle,
-        ...vehicleData,
-        updatedAt: new Date().toISOString()
-      }
-
-      // In real app, this would be handled by the backend
-      console.log('Vehicle updated:', updatedVehicle)
-
-      return updatedVehicle
+      console.error(`Failed to update vehicle ${id}:`, error)
+      throw error
     }
   },
 
@@ -280,27 +182,8 @@ const vehicleService = {
       const response = await api.delete(`/vehicles/${id}`)
       return response
     } catch (error) {
-      // If error has response, it means backend responded with an error (not network issue)
-      // In this case, throw the error instead of falling back to mock
-      if (error.response) {
-        throw error
-      }
-
-      // Only fallback to mock implementation if it's a network error
-      console.warn('API call failed (network error), using mock implementation:', error.message)
-
-      // Simulate API delay
-      await new Promise(resolve => setTimeout(resolve, 1200))
-
-      const vehicle = mockVehicles.find(v => v.id === parseInt(id))
-      if (!vehicle) {
-        throw new Error('Vehicle not found')
-      }
-
-      // In real app, this would be handled by the backend
-      console.log('Vehicle deleted:', id)
-
-      return { success: true, message: 'Vehicle deleted successfully' }
+      console.error(`Failed to delete vehicle ${id}:`, error)
+      throw error
     }
   },
 
@@ -318,17 +201,8 @@ const vehicleService = {
       }
       return response
     } catch (error) {
-      // Fallback to mock types if API fails
-      console.warn('API call failed, using mock data:', error.message)
-
-      return [
-        { value: 'sedan', label: 'Sedan' },
-        { value: 'suv', label: 'SUV' },
-        { value: 'hatchback', label: 'Hatchback' },
-        { value: 'coupe', label: 'Coupe' },
-        { value: 'convertible', label: 'Convertible' },
-        { value: 'truck', label: 'Truck' }
-      ]
+      console.error('Failed to load vehicle types:', error)
+      throw error
     }
   },
 
@@ -338,10 +212,8 @@ const vehicleService = {
       const response = await api.get('/dealers')
       return response
     } catch (error) {
-      // Fallback to mock dealers if API fails
-      console.warn('API call failed, using mock data:', error.message)
-
-      return mockDealers
+      console.error('Failed to load dealers:', error)
+      throw error
     }
   },
 
@@ -359,62 +231,8 @@ const vehicleService = {
       })
       return response
     } catch (error) {
-      // Fallback to mock implementation if API fails
-      console.warn('API call failed, using mock implementation:', error.message)
-
-      // Simulate API delay
-      await new Promise(resolve => setTimeout(resolve, 1000))
-
-      // Mock successful reservation
-      const mockReservation = {
-        id: Math.floor(Math.random() * 1000) + 1,
-        vehicleId: parseInt(vehicleId),
-        vehicleName: `Mock Vehicle ${vehicleId}`,
-        colorVariantId: reservationData.colorVariantId,
-        colorVariantName: reservationData.colorVariantId ? 'Selected Color' : null,
-        customerName: reservationData.customerName,
-        customerEmail: reservationData.customerEmail,
-        customerPhone: reservationData.customerPhone,
-        notes: reservationData.notes,
-        quantity: reservationData.quantity || 1,
-        totalPrice: 50000, // Mock price
-        status: 'Pending',
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        expiresAt: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString() // 48 hours from now
-      }
-
-      console.log('Mock reservation created:', mockReservation)
-      return mockReservation
-    }
-  },
-
-  // Get vehicle statistics - total stock count
-  getVehicleStatistics: async () => {
-    try {
-      const response = await api.get('/vehicles', { params: { PageSize: 1000 } })
-      
-      // Handle different response formats - same as getVehicles
-      let vehicles = []
-      if (response.items && Array.isArray(response.items)) {
-        vehicles = response.items
-      } else if (response.Items && Array.isArray(response.Items)) {
-        vehicles = response.Items
-      } else if (Array.isArray(response)) {
-        vehicles = response
-      }
-      
-      // Calculate total stock - check both camelCase and PascalCase
-      const totalStock = vehicles.reduce((sum, v) => {
-        const stock = v.stockQuantity || v.StockQuantity || 0
-        return sum + (typeof stock === 'number' ? stock : 0)
-      }, 0)
-      
-      console.log('Vehicle statistics:', { totalStock, vehicleCount: vehicles.length })
-      return { totalStock }
-    } catch (error) {
-      console.warn('Error fetching vehicle statistics:', error)
-      return { totalStock: 0 }
+      console.error(`Failed to reserve vehicle ${vehicleId}:`, error)
+      throw error
     }
   }
 }
