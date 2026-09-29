@@ -188,8 +188,12 @@ export const setupNotificationListener = (onNotification) => {
     if ('Notification' in window && Notification.permission === 'granted') {
       new Notification(notification.title, {
         body: notification.body,
-        icon: '/logo.png',
-        badge: '/badge.png',
+        // icon/badge were /logo.png and /badge.png, neither of which is in
+        // public/ — every foreground notification fired two 404s and the
+        // browser fell back to its own default icon. Dropping them is the
+        // same fix applied to the background worker (see
+        // serviceWorkerTemplate.js); add real files under public/ before
+        // setting these again.
         tag: notification.data.type || 'default',
         requireInteraction: false,
         vibrate: [200, 100, 200]
