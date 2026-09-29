@@ -12,6 +12,17 @@ dist
 dist-ssr
 *.local
 
+# Local env files. .env.example IS tracked; the real ones are not — they
+# hold the Firebase config and the FCM VAPID key.
+.env
+.env.local
+.env.*.local
+
+# Generated at build time by the plugin in vite.config.js from
+# src/firebase/serviceWorkerTemplate.js + the VITE_FIREBASE_* env vars.
+# Editing it by hand is pointless — the next build overwrites it.
+public/firebase-messaging-sw.js
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
