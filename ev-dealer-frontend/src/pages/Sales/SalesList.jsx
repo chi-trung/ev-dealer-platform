@@ -811,8 +811,6 @@ export default function SalesDashboard() {
                     const quantity = pick(order, 'quantity', 'Quantity');
                     
                     const orderId = pick(order, 'orderID','OrderID','orderId','id');
-                    const orderStatus = pick(order, 'status', 'Status')?.toLowerCase();
-                    const contractStatus = pick(order, 'contract', 'Contract')?.status?.toLowerCase();
 
                     return (
                     <tr 

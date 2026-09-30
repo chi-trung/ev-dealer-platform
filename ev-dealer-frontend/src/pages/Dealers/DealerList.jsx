@@ -14,8 +14,6 @@ import {
   CardContent,
   IconButton,
   Typography,
-  useTheme,
-  useMediaQuery,
 } from "@mui/material";
 import {
   Search as SearchIcon,
@@ -86,8 +84,6 @@ const mockDealers = [
 const DealerList = () => {
   const user = authService.getCurrentUser();
   const role = user?.role ? String(user.role).toLowerCase() : "customer";
-  const theme = useTheme();
-  const isMobile = useMediaQuery(theme.breakpoints.down("md"));
 
   const [query, setQuery] = useState("");
   const [region, setRegion] = useState("Tất cả");
@@ -207,7 +203,7 @@ const DealerList = () => {
         field: "actions",
         headerName: "Thao tác",
         width: 120,
-        renderCell: (params) => (
+        renderCell: () => (
           <Box sx={{ display: "flex", gap: 1 }}>
             <IconButton size="small" color="primary" title="Xem chi tiết">
               <ViewIcon fontSize="small" />

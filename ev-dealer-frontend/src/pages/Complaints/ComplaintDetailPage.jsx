@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams } from "react-router-dom";
 import {
   Container,
   Typography,
@@ -15,14 +15,12 @@ import {
   Chip,
 } from "@mui/material";
 import {
-  ArrowBack as ArrowBackIcon,
   Subject as SubjectIcon,
   Description as DescriptionIcon,
   Person as PersonIcon,
   Category as CategoryIcon,
   CheckCircle as CheckCircleIcon,
   AccessTime as AccessTimeIcon,
-  Edit as EditIcon,
 } from "@mui/icons-material";
 import { PageHeader } from "../../components/common";
 import { complaintService } from "../../services/complaintService";
@@ -30,7 +28,6 @@ import { format } from "date-fns";
 
 const ComplaintDetailPage = () => {
   const { id } = useParams();
-  const navigate = useNavigate();
   const [complaint, setComplaint] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -59,22 +56,7 @@ const ComplaintDetailPage = () => {
     { label: "Chi tiết khiếu nại", href: `/complaints/${id}` },
   ];
 
-  const pageActions = [
-    {
-      label: "Quay lại",
-      icon: <ArrowBackIcon />,
-      variant: "outlined",
-      color: "inherit",
-      onClick: () => navigate("/complaints"),
-    },
-    // {
-    //   label: "Chỉnh sửa",
-    //   icon: <EditIcon />,
-    //   variant: "contained",
-    //   color: "primary",
-    //   onClick: () => navigate(`/complaints/${id}/edit`), // Cần tạo trang chỉnh sửa khiếu nại
-    // },
-  ];
+  // TODO: trang chỉnh sửa khiếu nại chưa tồn tại (route /complaints/:id/edit).
 
   if (loading) {
     return (

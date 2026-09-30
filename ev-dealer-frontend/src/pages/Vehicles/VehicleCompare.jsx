@@ -45,7 +45,6 @@ const VehicleCompare = () => {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   
-  const [vehicles, setVehicles] = useState([])
   const [compareVehicles, setCompareVehicles] = useState([])
   const [loading, setLoading] = useState(true)
   const [allVehicles, setAllVehicles] = useState([])

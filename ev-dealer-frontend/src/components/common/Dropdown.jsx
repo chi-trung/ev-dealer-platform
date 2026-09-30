@@ -16,8 +16,7 @@ const Dropdown = ({
   error,
   label,
   required = false,
-  className = '',
-  ...props
+  className = ''
 }) => {
   const [isOpen, setIsOpen] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')

@@ -10,7 +10,6 @@ const Table = ({
   data, 
   onRowClick,
   sortable = true,
-  filterable = true,
   searchable = true,
   pagination = false,
   pageSize = 10,

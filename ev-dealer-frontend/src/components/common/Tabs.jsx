@@ -75,13 +75,12 @@ export const TabPanel = ({
 }
 
 // Tab Item Component
-export const TabItem = ({ 
-  label, 
-  icon, 
-  badge, 
-  disabled = false,
+export const TabItem = ({
+  label,
+  icon,
+  badge,
   children,
-  ...props 
+  ...props
 }) => {
   return (
     <div className="tab-item" {...props}>

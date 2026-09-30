@@ -251,7 +251,7 @@ const ModernTestDriveForm = () => {
             </Grid>
           </Box>
         );
-      case 3:
+      case 3: {
         const selectedVehicle = vehicles.find(v => v.id === formData.selectedVehicle);
         return (
           <Box sx={{ maxWidth: 800, mx: 'auto' }}>
@@ -263,6 +263,7 @@ const ModernTestDriveForm = () => {
             <FormControlLabel control={<Checkbox checked={formData.agreeTerms} onChange={(e) => setFormData({ ...formData, agreeTerms: e.target.checked })} color="primary" size="small" />} label={<Typography variant="body2" fontSize="0.8rem">Tôi đồng ý với các <strong>điều khoản và điều kiện</strong> test drive</Typography>} sx={{ mt: 2 }} />
           </Box>
         );
+      }
       default: return null;
     }
   };

@@ -99,10 +99,6 @@ const VehicleDetail = () => {
     severity: 'success' // success, error, warning, info
   })
 
-  const showNotification = (message, severity = 'success') => {
-    setNotification({ open: true, message, severity })
-  }
-
   const closeNotification = () => {
     setNotification({ ...notification, open: false })
   }
@@ -181,7 +177,6 @@ const VehicleDetail = () => {
   }
   
   const [activeTab, setActiveTab] = useState(0)
-  const [isFavorite, setIsFavorite] = useState(false)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [deleting, setDeleting] = useState(false)
 
@@ -202,14 +197,6 @@ const VehicleDetail = () => {
     } finally {
       setLoading(false)
     }
-  }
-
-  const handleEdit = () => {
-    navigate(`/vehicles/${id}/edit`)
-  }
-
-  const handleDelete = () => {
-    setDeleteDialogOpen(true)
   }
 
   const confirmDelete = async () => {
@@ -236,23 +223,6 @@ const VehicleDetail = () => {
 
   const handleTabChange = (event, newValue) => {
     setActiveTab(newValue)
-  }
-
-  const toggleFavorite = () => {
-    setIsFavorite(!isFavorite)
-  }
-
-  const handleShare = () => {
-    if (navigator.share) {
-      navigator.share({
-        title: vehicle?.model,
-        text: vehicle?.description,
-        url: window.location.href
-      })
-    } else {
-      navigator.clipboard.writeText(window.location.href)
-      // Could show a toast notification here
-    }
   }
 
 
