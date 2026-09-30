@@ -1,8 +1,6 @@
-import React, { createContext, useState, useEffect, useContext } from 'react';
+import React, { useState, useEffect } from 'react';
 import api from '../services/api';
-
-// 1. Tạo Context
-const AuthContext = createContext(null);
+import { AuthContext } from './useAuth';
 
 // 2. Tạo Provider Component
 export const AuthProvider = ({ children }) => {
@@ -83,13 +81,4 @@ export const AuthProvider = ({ children }) => {
       {!loading && children}
     </AuthContext.Provider>
   );
-};
-
-// 3. Tạo custom hook để sử dụng context dễ dàng hơn
-export const useAuth = () => {
-  const context = useContext(AuthContext);
-  if (!context) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
-  return context;
 };

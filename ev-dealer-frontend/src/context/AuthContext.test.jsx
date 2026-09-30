@@ -11,7 +11,8 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
-import { AuthProvider, useAuth } from './AuthContext'
+import { AuthProvider } from './AuthContext'
+import { useAuth } from './useAuth'
 import api from '../services/api'
 
 vi.mock('../services/api', () => ({ default: { get: vi.fn() } }))
