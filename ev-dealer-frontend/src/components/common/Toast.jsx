@@ -3,7 +3,7 @@
  * Supports different types, auto-dismiss, and positioning
  */
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 
 const Toast = ({
   message,
@@ -17,6 +17,18 @@ const Toast = ({
   const [isVisible, setIsVisible] = useState(show)
   const [isLeaving, setIsLeaving] = useState(false)
 
+  // ToastContainer passes a fresh `onClose={() => onRemove?.(...)}` closure on
+  // every render (Toast.jsx:97). Reading `onClose` directly inside handleClose
+  // would therefore make handleClose a new function every render, and putting
+  // handleClose in the timer effect's deps would re-arm the dismiss timer on
+  // every render of the parent — the toast would never reach its own duration.
+  // A ref keeps handleClose referentially stable while still calling the latest
+  // callback when the timer finally fires.
+  const onCloseRef = useRef(onClose)
+  useEffect(() => {
+    onCloseRef.current = onClose
+  })
+
   useEffect(() => {
     if (show) {
       setIsVisible(true)
@@ -27,6 +39,14 @@ const Toast = ({
     }
   }, [show])
 
+  const handleClose = useCallback(() => {
+    setIsLeaving(true)
+    setTimeout(() => {
+      setIsVisible(false)
+      onCloseRef.current?.()
+    }, 300)
+  }, [])
+
   useEffect(() => {
     if (duration > 0) {
       const timer = setTimeout(() => {
@@ -35,15 +55,7 @@ const Toast = ({
 
       return () => clearTimeout(timer)
     }
-  }, [duration])
-
-  const handleClose = () => {
-    setIsLeaving(true)
-    setTimeout(() => {
-      setIsVisible(false)
-      onClose?.()
-    }, 300)
-  }
+  }, [duration, handleClose])
 
   if (!isVisible) return null
 

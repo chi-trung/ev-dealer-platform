@@ -9,7 +9,7 @@
  * - Link to notification preferences
  */
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Box,
@@ -71,6 +71,24 @@ const Notifications = () => {
   const [activeFilter, setActiveFilter] = useState('all')
   const [markingAll, setMarkingAll] = useState(false)
 
+  // useCallback with [notifications, activeFilter] makes the effect dependency
+  // honest: the filter effect re-runs exactly when the data or the selected
+  // type changes, and never on an unrelated re-render.
+  //
+  // Declared ABOVE the effect on purpose: the dependency array is evaluated
+  // during render, so naming a const declared further down throws
+  // `ReferenceError: Cannot access 'filterNotifications' before initialization`
+  // (measured with a throwaway render test, not assumed).
+  const filterNotifications = useCallback(() => {
+    if (activeFilter === 'all') {
+      setFilteredNotifications(notifications)
+    } else {
+      setFilteredNotifications(
+        notifications.filter(notification => notification.type === activeFilter)
+      )
+    }
+  }, [notifications, activeFilter])
+
   // Load notifications on mount
   useEffect(() => {
     loadNotifications()
@@ -79,7 +97,7 @@ const Notifications = () => {
   // Filter notifications when filter changes
   useEffect(() => {
     filterNotifications()
-  }, [notifications, activeFilter])
+  }, [filterNotifications])
 
   // Listen for real-time Firebase notifications
   useEffect(() => {
@@ -113,16 +131,6 @@ const Notifications = () => {
       console.error('Error loading notifications:', err)
     } finally {
       setLoading(false)
-    }
-  }
-
-  const filterNotifications = () => {
-    if (activeFilter === 'all') {
-      setFilteredNotifications(notifications)
-    } else {
-      setFilteredNotifications(
-        notifications.filter(notification => notification.type === activeFilter)
-      )
     }
   }
 

@@ -3,7 +3,7 @@
  * Giao diện trực quan với màu xanh dương nhạt
  */
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import {
   Box,
@@ -118,14 +118,15 @@ const VehicleForm = () => {
     { value: 'Reserved', label: 'Đã đặt cọc', color: 'info', icon: InfoIcon }
   ]
 
-  // Load data on mount
-  useEffect(() => {
-    if (isEditMode) {
-      loadVehicle()
-    }
-  }, [id])
-
-  const loadVehicle = async () => {
+  // Declared ABOVE the effect on purpose: a dependency array is evaluated during
+  // render, so naming a const declared further down throws `ReferenceError:
+  // Cannot access 'loadVehicle' before initialization`.
+  //
+  // `isEditMode` is `!!id` (line 62), so it cannot change without `id`
+  // changing — that half of the old warning was noise. The effect reads it in
+  // the guard but its real dependency is `id`, which the useCallback dep array
+  // already carries.
+  const loadVehicle = useCallback(async () => {
     try {
       setLoading(true)
       const vehicle = await vehicleService.getVehicleById(id)
@@ -148,7 +149,21 @@ const VehicleForm = () => {
     } finally {
       setLoading(false)
     }
-  }
+  }, [id])
+
+  // Load data on mount
+  // The isEditMode guard is load-bearing, not decorative: on /vehicles/new `id`
+  // is undefined, and without it the effect would call
+  // vehicleService.getVehicleById(undefined) on a page that is not editing
+  // anything. It is listed in the deps even though it is derived from `id` —
+  // the effect really does read it, and listing it is a no-op because it can
+  // only change when `id` changes, which already changes loadVehicle's
+  // identity.
+  useEffect(() => {
+    if (isEditMode) {
+      loadVehicle()
+    }
+  }, [isEditMode, loadVehicle])
 
   const handleInputChange = (field, value) => {
     setFormData(prev => ({ ...prev, [field]: value }))

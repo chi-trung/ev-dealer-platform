@@ -49,16 +49,22 @@ const VehicleCompare = () => {
   const [loading, setLoading] = useState(true)
   const [allVehicles, setAllVehicles] = useState([])
 
+  // searchParams is memoised on [location.search] inside useSearchParams
+  // (react-router chunk-OB3PAWPO.mjs:10939), so naming it here re-runs this
+  // effect only when the query string actually changes — which is the point:
+  // navigating from /compare?ids=1,2 to /compare?ids=3 now loads the new set
+  // instead of keeping the previous one. The previous `[]` list made that a
+  // stale-data bug that no test covered.
   useEffect(() => {
     loadVehicles()
-    
+
     // Load vehicles from URL params
     const ids = searchParams.get('ids')
     if (ids) {
       const vehicleIds = ids.split(',').map(id => parseInt(id))
       loadCompareVehicles(vehicleIds)
     }
-  }, [])
+  }, [searchParams])
 
   const loadVehicles = async () => {
     try {
