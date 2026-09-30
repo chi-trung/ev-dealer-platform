@@ -53,7 +53,8 @@ export {
 } from './Form'
 
 // Feedback Components
-export { default as Toast, ToastContainer, useToast } from './Toast'
+export { default as Toast, ToastContainer } from './Toast'
+export { useToast } from './useToast'
 export { default as Badge, StatusBadge, NotificationBadge, ProgressBadge } from './Badge'
 
 // Security Components

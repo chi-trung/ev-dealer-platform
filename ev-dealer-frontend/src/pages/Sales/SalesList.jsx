@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate, useLocation } from 'react-router-dom';
 import api from '../../services/api'; // Shared gateway axios instance
-import { useAuth } from '../../context/AuthContext'; // Import useAuth
+import { useAuth } from '../../context/useAuth'; // Import useAuth
 
 // Simple SVG Icons
 const SearchIcon = () => (
