@@ -11,7 +11,6 @@ import {
   Container,
   Card,
   CardContent,
-  useTheme,
   Fade,
   Skeleton,
   Alert,
@@ -140,7 +139,7 @@ const MetricCard = ({ title, value, subtitle, icon, color }) => {
 };
 
 const Reports = () => {
-  const [reportType, setReportType] = useState("sales");
+  const [reportType] = useState("sales");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [loading, setLoading] = useState(true);
@@ -384,7 +383,6 @@ const Reports = () => {
     }
   };
 
-  const theme = useTheme();
   const userRole = (authService.getCurrentUser()?.role || "").toLowerCase();
   const canViewManufacturerInsights = ["evmstaff", "admin"].includes(userRole);
   const formatCurrency = (value) =>

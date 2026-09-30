@@ -9,7 +9,6 @@ import React from "react";
 import { Box, Grid, Paper, Typography, Button, Avatar } from "@mui/material";
 import { PageHeader, ModernCard } from "../../components/common";
 import LineChart from "../../components/charts/LineChart";
-import { useParams } from "react-router-dom";
 
 // Mock dealer data
 const dealer = {
@@ -31,8 +30,6 @@ const monthlyPerformance = [
 ];
 
 const DealerDetail = () => {
-  const { id } = useParams();
-
   return (
     <Box sx={{ p: 3 }}>
       <PageHeader

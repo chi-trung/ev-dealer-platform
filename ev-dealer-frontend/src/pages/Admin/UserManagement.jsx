@@ -44,7 +44,7 @@ const UserManagement = () => {
     role: 'DealerStaff',
     dealerId: null,
   });
-  const [dealers, setDealers] = useState([]); // Still fetch dealers for context, but not for dropdown
+  const [, setDealers] = useState([]); // Still fetch dealers for context, but not for dropdown
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [passwordError, setPasswordError] = useState('');
@@ -55,7 +55,7 @@ const UserManagement = () => {
       setLoading(true);
       const data = await adminService.getUsers();
       setUsers(data.users || []);
-    } catch (err) {
+    } catch {
       setError('Không thể tải danh sách người dùng.');
     } finally {
       setLoading(false);
@@ -85,7 +85,7 @@ const UserManagement = () => {
       await adminService.approveUser(userId);
       setSuccess('Duyệt người dùng thành công!');
       fetchUsers();
-    } catch (err) {
+    } catch {
       setError('Duyệt người dùng thất bại.');
     }
   };
@@ -98,7 +98,7 @@ const UserManagement = () => {
         await adminService.rejectUser(userId);
         setSuccess('Đã từ chối và xóa người dùng.');
         fetchUsers();
-      } catch (err) {
+      } catch {
         setError('Từ chối người dùng thất bại.');
       }
     }

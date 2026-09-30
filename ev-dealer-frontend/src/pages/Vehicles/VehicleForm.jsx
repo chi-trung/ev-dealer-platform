@@ -82,8 +82,6 @@ const VehicleForm = () => {
   const [error, setError] = useState(null)
   const [success, setSuccess] = useState(false)
   const [imagePreview, setImagePreview] = useState(null)
-  const [dealers, setDealers] = useState([])
-  const [vehicleTypes, setVehicleTypes] = useState([])
   const [activeStep, setActiveStep] = useState(0)
 
   // Color scheme - Màu xanh dương nhạt hiện đại

@@ -11,7 +11,6 @@ const Form = ({
   children,
   onSubmit,
   className = '',
-  loading = false,
   ...props
 }) => {
   const handleSubmit = (e) => {

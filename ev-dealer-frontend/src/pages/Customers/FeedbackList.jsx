@@ -38,7 +38,7 @@ const FeedbackList = () => {
       setError(null);
       const data = await complaintService.getAllComplaints();
       setFeedbacks(Array.isArray(data) ? data : []);
-    } catch (err) {
+    } catch {
       setError("Failed to fetch feedbacks.");
       setFeedbacks([]);
     } finally {
@@ -67,7 +67,7 @@ const FeedbackList = () => {
       await complaintService.deleteComplaint(selectedFeedbackId);
       setFeedbacks(feedbacks.filter((fb) => fb.id !== selectedFeedbackId));
       setSnackbar({ open: true, message: "Feedback deleted successfully!" });
-    } catch (err) {
+    } catch {
       setError("Failed to delete feedback.");
     } finally {
       handleDialogClose();

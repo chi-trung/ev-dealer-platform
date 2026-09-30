@@ -77,7 +77,7 @@ export default function OrderDetail() {
 			if (isNaN(numPromo)) return 0;
 			if (unit === '%' || unit === 'percentage') return base * (numPromo / 100);
 			return numPromo || 0;
-		} catch (e) {
+		} catch {
 			return 0;
 		}
 	};

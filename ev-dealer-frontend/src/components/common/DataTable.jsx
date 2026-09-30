@@ -21,8 +21,7 @@ import {
   FormControlLabel,
   Stack,
   Button,
-  Avatar,
-  useTheme
+  Avatar
 } from '@mui/material';
 import {
   Search as SearchIcon,
@@ -47,13 +46,12 @@ const DataTable = ({
   onSelectionChange,
   className = ''
 }) => {
-  const theme = useTheme();
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(10);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedRows, setSelectedRows] = useState([]);
   const [anchorEl, setAnchorEl] = useState(null);
-  const [selectedRow, setSelectedRow] = useState(null);
+  const [, setSelectedRow] = useState(null);
 
   // Filter data based on search term
   const filteredData = data.filter(row =>
