@@ -3,7 +3,7 @@
  * Features: Image gallery, specifications, color variants, 3D model, animations
  */
 
-import { useState, useEffect, lazy, Suspense } from 'react'
+import { useState, useEffect, useCallback, lazy, Suspense } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
   Box,
@@ -180,12 +180,13 @@ const VehicleDetail = () => {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [deleting, setDeleting] = useState(false)
 
-  // Load vehicle data
-  useEffect(() => {
-    loadVehicle()
-  }, [id])
-
-  const loadVehicle = async () => {
+  // useCallback on [id] makes the effect dependency honest: the loader's
+  // identity changes exactly when `id` does, so the effect below re-fetches on
+  // navigation between /vehicles/1 and /vehicles/2 and stays stable otherwise.
+  // Declared ABOVE the effect on purpose — a dependency array is evaluated
+  // during render, so naming a const declared further down throws
+  // `ReferenceError: Cannot access 'loadVehicle' before initialization`.
+  const loadVehicle = useCallback(async () => {
     try {
       setLoading(true)
       setError(null)
@@ -197,7 +198,12 @@ const VehicleDetail = () => {
     } finally {
       setLoading(false)
     }
-  }
+  }, [id])
+
+  // Load vehicle data
+  useEffect(() => {
+    loadVehicle()
+  }, [loadVehicle])
 
   const confirmDelete = async () => {
     try {

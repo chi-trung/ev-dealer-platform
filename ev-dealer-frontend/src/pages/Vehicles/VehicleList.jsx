@@ -3,7 +3,7 @@
  * Features: Search, Filter, Pagination, CRUD actions
  */
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Box,
@@ -80,18 +80,18 @@ const VehicleList = () => {
   const [vehicleTypes, setVehicleTypes] = useState([])
   const [dealers, setDealers] = useState([])
 
-  // Load initial data
-  useEffect(() => {
-    loadVehicles()
-    loadFilterOptions()
-  }, [])
-
-  // Reload when filters change
-  useEffect(() => {
-    loadVehicles()
-  }, [pagination.page, pagination.limit, searchTerm, filters])
-
-  const loadVehicles = async () => {
+  // Declared ABOVE the effects on purpose: a dependency array is evaluated during
+  // render, so naming a const declared further down throws `ReferenceError:
+  // Cannot access 'loadVehicles' before initialization`.
+  //
+  // The four values that shape the request (page, limit, searchTerm, filters)
+  // ARE the dependencies. That is deliberate and it is what removes the
+  // duplicate mount fetch this file used to make: the old code had a second
+  // effect with `[]` calling the same loader, so mount ran two
+  // `GET /vehicles` requests — a race between two identical responses, each
+  // writing `pagination.total`, with the loser's value able to overwrite the
+  // winner's. One effect, one fetch.
+  const loadVehicles = useCallback(async () => {
     try {
       setLoading(true)
       setError(null)
@@ -123,7 +123,7 @@ const VehicleList = () => {
     } finally {
       setLoading(false)
     }
-  }
+  }, [pagination.page, pagination.limit, searchTerm, filters])
 
   const loadFilterOptions = async () => {
     try {
@@ -137,6 +137,20 @@ const VehicleList = () => {
       console.error('Error loading filter options:', err)
     }
   }
+
+  // Filter dropdown options never depend on the query above, so they load once
+  // on mount — separate from the vehicle fetch so adding a filter option never
+  // re-arms the vehicle request.
+  useEffect(() => {
+    loadFilterOptions()
+  }, [])
+
+  // Reload when pagination, search or filters change. This effect previously
+  // ran alongside a second mount effect that also called loadVehicles(), so the
+  // page issued two identical GET /vehicles on every mount.
+  useEffect(() => {
+    loadVehicles()
+  }, [loadVehicles])
 
   const handleSearch = (event) => {
     setSearchTerm(event.target.value)

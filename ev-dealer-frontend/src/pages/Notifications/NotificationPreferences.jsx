@@ -9,7 +9,7 @@
  *   round-trip their stored values untouched)
  */
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Box,
@@ -83,12 +83,17 @@ const NotificationPreferences = () => {
   const isDevPlaceholder = () => localStorage.getItem('token') === 'dev-token-123'
   const devPlaceholder = isDevPlaceholder()
 
-  // Load preferences on mount
-  useEffect(() => {
-    loadPreferences()
-  }, [])
-
-  const loadPreferences = async () => {
+  // useCallback keeps the loader's identity stable as long as devPlaceholder
+  // does not change, so the mount effect below stays a mount effect: a new
+  // identity on every render would re-fetch preferences after every keystroke.
+  //
+  // Declared ABOVE the effect on purpose. The dependency array is evaluated
+  // during render, before any hook body runs, so naming a const declared
+  // further down throws `ReferenceError: Cannot access 'loadPreferences'
+  // before initialization` — measured with a throwaway render test, not
+  // assumed. The original code got away with `[]` because it never named the
+  // function in the array.
+  const loadPreferences = useCallback(async () => {
     try {
       setLoading(true)
       setError(null)
@@ -106,7 +111,12 @@ const NotificationPreferences = () => {
     } finally {
       setLoading(false)
     }
-  }
+  }, [devPlaceholder])
+
+  // Load preferences on mount
+  useEffect(() => {
+    loadPreferences()
+  }, [loadPreferences])
 
   const handleChannelChange = (channel) => (event) => {
     setPreferences(prev => ({
