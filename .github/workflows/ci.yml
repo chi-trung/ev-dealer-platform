@@ -193,6 +193,24 @@ jobs:
           fi
       - name: Install dependencies
         run: npm ci
+      - name: Lint
+        # `eslint .` exits non-zero on any ERROR, and 0 on warnings alone
+        # (verified: 8 react-hooks/exhaustive-deps warnings -> exit 0, one
+        # react-refresh error -> exit 1). That split is deliberate: the
+        # 8 exhaustive-deps warnings are known and deferred, so gating on
+        # warnings would block every PR until they are addressed, and the
+        # gate would be turned off in practice instead.
+        #
+        # This step is the one that should have existed already. #160 had to
+        # fix 44 lint errors across 19 files and #161 had to fix 2 more, all
+        # of which were reachable through a green CI: the runner built, tested
+        # and bundled the app without ever asking eslint anything, and
+        # `npm run build` does not fail on unused or dead code — an undefined
+        # import fails, an unused one does not.
+        #
+        # Placed before Test so a lint error fails the job in seconds rather
+        # than after the suite and the vite bundle.
+        run: npm run lint
       - name: Test
         # Vitest (the frontend's first test runner — added with the
         # /admin/users role-gate fix in #154). Placed before Build so a red
