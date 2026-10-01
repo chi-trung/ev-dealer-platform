@@ -2,7 +2,7 @@
 
 ## Tổng quan Implementation
 
-Đã hoàn thành việc implement 5 loại báo cáo theo yêu cầu, sử dụng dữ liệu thực từ các services và tích hợp Apache NiFi để đồng bộ dữ liệu.
+Đã hoàn thành việc implement 5 loại báo cáo theo yêu cầu, sử dụng dữ liệu thực từ các services. Đồng bộ dữ liệu chạy bằng `DataSynchronizationService` (HTTP pull) — repo **không có NiFi**; `nifi-flow.json` được nhắc ở đây trước đây **không tồn tại** trên disk.
 
 ## Các thành phần đã tạo
 
@@ -31,13 +31,14 @@
 - **SalesService**: `GET /api/Orders` và `GET /api/payments` — ReportingService gửi kèm query params `fromDate`/`toDate`/`dealerId`/`orderId` khi gọi, nhưng controller hiện chưa nhận filter (signature không có tham số, trả toàn bộ dữ liệu)
 - **APIGatewayService**: Route rewrite `localhost:5208` → `reportingservice:80` (khai báo trong docker-compose.yml)
 
-### 5. Apache NiFi Integration
-- `nifi-flow.json`: Template flow cho NiFi
-- `NIFI_INTEGRATION.md`: Hướng dẫn chi tiết về cấu hình và sử dụng
+### 5. Data Sync (không phải NiFi)
+- `Services/DataSynchronizationService.cs`: HTTP pull từ SalesService/VehicleService vào SalesSummaries/InventorySummaries
+- `POST /api/reports/synchronize-data`: trigger đồng bộ
+- `NIFI_INTEGRATION.md`: chỉ là thiết kế tham khảo nếu sau này build NiFi thật
 
 ### 6. Documentation
 - `REPORTING_REQUIREMENTS.md`: Chi tiết về các báo cáo và cách sử dụng
-- `NIFI_INTEGRATION.md`: Hướng dẫn tích hợp Apache NiFi
+- `NIFI_INTEGRATION.md`: Thiết kế NiFi (chưa deploy — tham khảo)
 - `README_IMPLEMENTATION.md`: File này - tóm tắt implementation
 
 ## Cấu trúc dữ liệu
@@ -68,7 +69,7 @@ Response to Client
 Hoặc:
 
 SalesService/VehicleService
-    ↓ (Apache NiFi sync - scheduled)
+    ↓ (DataSynchronizationService - HTTP pull, scheduled/trigger)
 ReportingService Database (SalesSummaries, InventorySummaries)
     ↓ (Query from database)
 Report Generation
@@ -104,8 +105,8 @@ curl "http://localhost:5208/api/reports/inventory-trends"
 curl "http://localhost:5208/api/reports/demand-forecast"
 ```
 
-### 3. Cấu hình Apache NiFi (Optional)
-Xem file `NIFI_INTEGRATION.md` để biết cách cấu hình NiFi flows để tự động sync dữ liệu.
+### 3. Đồng bộ dữ liệu
+Chạy `POST /api/reports/synchronize-data` (xem `DataSynchronizationService.cs`). NiFi chưa được deploy — `NIFI_INTEGRATION.md` chỉ là thiết kế.
 
 ## Lưu ý quan trọng
 
@@ -141,7 +142,7 @@ Xem file `NIFI_INTEGRATION.md` để biết cách cấu hình NiFi flows để t
 - [x] Implement report services
 - [x] Tạo endpoints
 - [x] Update API Gateway
-- [x] Tạo NiFi configuration
+- [x] Tạo DataSynchronizationService (không dùng NiFi)
 - [x] Tạo documentation
 - [ ] Unit tests
 - [ ] Integration tests
@@ -161,7 +162,7 @@ Xem file `NIFI_INTEGRATION.md` để biết cách cấu hình NiFi flows để t
 
 Nếu có vấn đề, xem:
 - `REPORTING_REQUIREMENTS.md`: Chi tiết về các báo cáo
-- `NIFI_INTEGRATION.md`: Hướng dẫn NiFi
+- `NIFI_INTEGRATION.md`: Thiết kế NiFi (tham khảo)
 - Logs trong `ReportingService` để debug
 
 

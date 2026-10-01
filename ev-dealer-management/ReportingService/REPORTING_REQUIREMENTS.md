@@ -2,7 +2,7 @@
 
 ## Tổng quan
 
-ReportingService đã được mở rộng để hỗ trợ 5 loại báo cáo chính sử dụng dữ liệu thực từ các services khác trong hệ thống, được đồng bộ thông qua Apache NiFi.
+ReportingService đã được mở rộng để hỗ trợ 5 loại báo cáo chính sử dụng dữ liệu thực từ các services khác trong hệ thống, được đồng bộ bởi `DataSynchronizationService` (HTTP pull — không có NiFi trong repo, xem `NIFI_INTEGRATION.md`).
 
 ## Các Báo Cáo Đã Implement
 
@@ -295,14 +295,14 @@ GET /api/reports/demand-forecast?from=2024-01-01&to=2025-01-31
 
 ---
 
-## Apache NiFi Integration
+## Data Sync (DataSynchronizationService)
 
-Dữ liệu được đồng bộ tự động từ các services vào ReportingService thông qua Apache NiFi flows:
+Dữ liệu được đồng bộ tự động từ các services vào ReportingService bằng `Services/DataSynchronizationService.cs` (HTTP pull qua `HttpClient`, không dùng NiFi):
 
 1. **Sales Data Sync**: Đồng bộ Orders từ SalesService → SalesSummaries trong ReportingService
 2. **Inventory Data Sync**: Đồng bộ Vehicles từ VehicleService → InventorySummaries trong ReportingService
 
-Xem chi tiết trong file `NIFI_INTEGRATION.md`
+Trigger qua `POST /api/reports/synchronize-data`. `NIFI_INTEGRATION.md` chỉ là thiết kế tham khảo cho tương lai.
 
 ---
 
@@ -339,7 +339,7 @@ curl "http://localhost:5036/api/reports/sales-by-dealer?dealerId=1&period=month"
 ## Lưu ý
 
 1. **Dữ liệu thực**: Tất cả báo cáo sử dụng dữ liệu thực từ các services, không phải mock data
-2. **Đồng bộ dữ liệu**: Dữ liệu được sync qua Apache NiFi, có thể có độ trễ nhỏ
+2. **Đồng bộ dữ liệu**: Dữ liệu được sync qua `DataSynchronizationService` (HTTP pull), có thể có độ trễ nhỏ
 3. **Performance**: Các báo cáo phức tạp có thể mất vài giây để tính toán
 4. **Error Handling**: Nếu service nguồn không khả dụng, báo cáo sẽ trả về dữ liệu rỗng hoặc lỗi
 

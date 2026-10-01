@@ -512,9 +512,9 @@ foreach ($service in $services) {
 1. Open RabbitMQ Management UI: http://localhost:15672
 2. Login: `guest` / `guest`
 3. Check queues:
-   - `sales.completed` - Order completion emails
-   - `vehicle.reserved` - Vehicle reservation SMS
-   - `testdrive.scheduled` - Test drive confirmations
+   - `sales.completed` - Order completion push (FCM)
+   - `vehicle.reserved` - Vehicle reservation push (FCM)
+   - `testdrive.scheduled` - Test drive confirmation push (FCM)
 
 ### Service Logs
 

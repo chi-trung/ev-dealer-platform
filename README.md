@@ -52,8 +52,8 @@ EV Dealer Management System is a full-stack application designed to manage elect
      │                                           │
      ↓                                           ↓
 ┌──────────┐                              ┌──────────────┐
-│ SQLite   │                              │ RabbitMQ     │
-│ per-svc  │                              │ :5672, 15672 │
+│ Postgres │                              │ RabbitMQ     │
+│ shared   │                              │ :5672, 15672 │
 └──────────┘                              └──────┬───────┘
                                                  │
                                                  ↓
@@ -199,7 +199,7 @@ NotificationService, 5003 SalesService, frontend 5173):
 - **Framework**: .NET 8.0
 - **API Gateway**: Ocelot
 - **Message Broker**: RabbitMQ
-- **Database**: SQLite (EF Core)
+- **Database**: PostgreSQL 16 (EF Core, shared `evm_core`; SQLite chỉ còn là fallback khi `DB_PROVIDER` không set)
 - **Push Notifications**: Firebase Cloud Messaging (FirebaseAdmin)
 - **Email**: SMTP via MailKit (UserService)
 
@@ -379,7 +379,7 @@ See [TESTING_GUIDE.md](./TESTING_GUIDE.md#common-issues--solutions)
 - [x] Test Drive Scheduling
 - [x] CustomerService Notifications
 - [x] Docker Compose Deployment
-- [ ] API Gateway Authentication
+- [x] API Gateway Authentication
 
 ### Phase 3:  Planned
 - [ ] Real-time Dashboard
@@ -391,4 +391,4 @@ See [TESTING_GUIDE.md](./TESTING_GUIDE.md#common-issues--solutions)
 
 **Version**: 1.0.0  
 **Last Updated**: September 14, 2026  
-**Status**:  Production Ready (Core Features)
+**Status**:  In Progress (roadmap ở trên; chưa deploy production)
