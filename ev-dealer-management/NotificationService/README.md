@@ -188,8 +188,9 @@ Serilog: console có màu + file `Logs/notification-service-YYYYMMDD.log`
 
 - `.\test-fcm.ps1` — push trực tiếp tới một device token (endpoint `test-fcm`).
 - `.\TestProducer.ps1` — publish event giả vào RabbitMQ để test consumer.
-- `.\QuickTest.ps1` — script tổ hợp cũ (kiểm tra lại endpoint nó gọi trước khi
-  dùng; một số phần chưa được sweep trong đợt docs này).
+- `.\QuickTest.ps1` — smoke test health + 5 endpoint FCM thật
+  (`test-fcm`, `subscribe-topic`, `unsubscribe-topic`, `send-to-topic`,
+  `send-multicast`) trên port 5051; exit code ≠ 0 nếu có endpoint FAIL.
 - Unit tests thật: `DealerSystem.Tests/NotificationService.Tests/`
   (device-token registry, consumers, preferences...).
 - Hướng dẫn đầu-cuối: `TESTING_GUIDE.md` ở gốc repo.

@@ -2,7 +2,7 @@
 # Usage: .\import_vehicles.ps1
 
 param(
-    [string]$ApiUrl = "http://localhost:5224",
+    [string]$ApiUrl = "http://localhost:5068",
     [string]$DataFile = "sample_import_data.json"
 )
 

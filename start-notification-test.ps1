@@ -8,12 +8,20 @@ Write-Host "========================================" -ForegroundColor Cyan
 # Check if RabbitMQ is running
 Write-Host "`n[1/5] Checking RabbitMQ..." -ForegroundColor Yellow
 $rabbitMQ = docker ps --filter "name=rabbitmq" --format "{{.Names}}"
-if ($rabbitMQ -eq "rabbitmq") {
+if ($rabbitMQ) {
+    # docker-compose đặt tên container là evm_rabbitmq — filter "name=rabbitmq"
+    # match cả hai, nên chỉ cần kiểm tra có output (trước đây -eq "rabbitmq"
+    # luôn fail với evm_rabbitmq và kéo theo docker run container thứ hai).
     Write-Host "  ✅ RabbitMQ is already running" -ForegroundColor Green
 } else {
     Write-Host "  ⚠️  RabbitMQ not running. Starting..." -ForegroundColor Yellow
     try {
-        docker start rabbitmq 2>&1 | Out-Null
+        # Thử container của docker-compose trước (evm_rabbitmq, có thể đang stopped
+        # nên không xuất hiện trong docker ps), sau đó mới tới tên standalone.
+        docker start evm_rabbitmq 2>&1 | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            docker start rabbitmq 2>&1 | Out-Null
+        }
         if ($LASTEXITCODE -ne 0) {
             Write-Host "  ℹ️  Creating new RabbitMQ container..." -ForegroundColor Blue
             docker run -d --name rabbitmq -p 5672:5672 -p 15672:15672 rabbitmq:management

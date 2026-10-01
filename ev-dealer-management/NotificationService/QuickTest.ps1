@@ -1,53 +1,77 @@
-# Quick Test Script for NotificationService
-# Test tất cả API endpoints nhanh chóng
+# Quick smoke test for NotificationService — gọi thẳng các endpoint thật.
+# Endpoint list verified from Controllers/NotificationController.cs (2026-10-01):
+#   GET  /health
+#   POST /api/notification/test-fcm
+#   POST /api/notification/subscribe-topic
+#   POST /api/notification/unsubscribe-topic
+#   POST /api/notification/send-to-topic
+#   POST /api/notification/send-multicast
+#
+# Kết quả từng endpoint:
+#   PASS       — HTTP 2xx
+#   REACHABLE  — HTTP 4xx (khác 404): endpoint tồn tại nhưng bị từ chối
+#                (với device token placeholder thì FCM từ chối là bình thường)
+#   FAIL       — HTTP 404 / 5xx / lỗi kết nối: endpoint sai hoặc service chết
+# Exit code: 0 nếu không có FAIL, 1 nếu có FAIL.
 
 param(
-    [Parameter(Mandatory=$false)]
-    [string]$Email = "test@gmail.com",
-    
-    [Parameter(Mandatory=$false)]
-    [string]$Phone = "+84901234567",
-    
-    [Parameter(Mandatory=$false)]
-    [string]$BaseUrl = "http://localhost:5005"
+    [Parameter(Mandatory = $false)]
+    [string]$BaseUrl = "http://localhost:5051",
+
+    [Parameter(Mandatory = $false)]
+    [string]$DeviceToken = "placeholder_device_token",
+
+    [Parameter(Mandatory = $false)]
+    [string]$Topic = "quicktest-topic"
 )
 
 $ErrorActionPreference = "Continue"
 
-function Test-Endpoint {
+function Invoke-EndpointTest {
     param(
         [string]$Name,
         [string]$Method,
         [string]$Uri,
         [object]$Body = $null
     )
-    
+
     Write-Host "`n--- Testing: $Name ---" -ForegroundColor Yellow
     Write-Host "URI: $Uri" -ForegroundColor Gray
-    
+
+    $params = @{ Uri = $Uri; Method = $Method }
+    if ($Body) {
+        $jsonBody = $Body | ConvertTo-Json -Depth 5
+        Write-Host "Body: $jsonBody" -ForegroundColor DarkGray
+        $params.Body = $jsonBody
+        $params.ContentType = "application/json"
+    }
+
     try {
-        $params = @{
-            Uri = $Uri
-            Method = $Method
-        }
-        
-        if ($Body) {
-            $jsonBody = $Body | ConvertTo-Json
-            Write-Host "Body: $jsonBody" -ForegroundColor DarkGray
-            $params.Add("Body", $jsonBody)
-            $params.Add("ContentType", "application/json")
-        }
-        
         $response = Invoke-RestMethod @params
-        Write-Host "✓ SUCCESS" -ForegroundColor Green
-        Write-Host "Response:" -ForegroundColor Cyan
-        $response | ConvertTo-Json | Write-Host -ForegroundColor White
-        return $true
+        Write-Host "PASS — HTTP success" -ForegroundColor Green
+        $response | ConvertTo-Json -Depth 5 | Write-Host -ForegroundColor White
+        return 'PASS'
     }
     catch {
-        Write-Host "✗ FAILED" -ForegroundColor Red
-        Write-Host "Error: $($_.Exception.Message)" -ForegroundColor Red
-        return $false
+        $statusCode = $null
+        try { $statusCode = [int]$_.Exception.Response.StatusCode } catch { }
+
+        if ($null -eq $statusCode) {
+            Write-Host "FAIL — không kết nối được: $($_.Exception.Message)" -ForegroundColor Red
+            return 'FAIL'
+        }
+        if ($statusCode -eq 404) {
+            Write-Host "FAIL — HTTP 404: endpoint không tồn tại" -ForegroundColor Red
+            return 'FAIL'
+        }
+        if ($statusCode -ge 400 -and $statusCode -lt 500) {
+            Write-Host "REACHABLE — HTTP $statusCode (endpoint sống; token placeholder bị FCM từ chối là bình thường)" -ForegroundColor Yellow
+            $errBody = $_.ErrorDetails.Message
+            if ($errBody) { Write-Host "Response: $errBody" -ForegroundColor DarkGray }
+            return 'REACHABLE'
+        }
+        Write-Host "FAIL — HTTP $statusCode" -ForegroundColor Red
+        return 'FAIL'
     }
 }
 
@@ -60,119 +84,98 @@ Write-Host @"
 
 "@ -ForegroundColor Cyan
 
-Write-Host "Base URL: $BaseUrl" -ForegroundColor Gray
-Write-Host "Test Email: $Email" -ForegroundColor Gray
-Write-Host "Test Phone: $Phone`n" -ForegroundColor Gray
-
-# Counter
-$testCount = 0
-$passCount = 0
-
-# Test 1: Health Check
-$testCount++
-if (Test-Endpoint -Name "Health Check" -Method "GET" -Uri "$BaseUrl/health") {
-    $passCount++
+Write-Host "Base URL:    $BaseUrl" -ForegroundColor Gray
+if ($DeviceToken -like "placeholder*") {
+    Write-Host "DeviceToken: $DeviceToken (placeholder — FCM endpoints sẽ ra REACHABLE, không PASS; truyền -DeviceToken <token thật> để PASS)" -ForegroundColor Yellow
+} else {
+    Write-Host "DeviceToken: (đã truyền token thật)" -ForegroundColor Gray
 }
+Write-Host "Topic:       $Topic`n" -ForegroundColor Gray
 
-# Test 2: Simple Email
-$testCount++
-$emailBody = @{
-    to = $Email
-    subject = "Quick Test - Simple Email"
-    htmlContent = "<h1>Hello from NotificationService!</h1><p>This is a quick test email.</p>"
-}
-if (Test-Endpoint -Name "Send Simple Email" -Method "POST" -Uri "$BaseUrl/api/notification/test-email" -Body $emailBody) {
-    $passCount++
+$results = @()
+
+$results += [pscustomobject]@{
+    Name   = "GET /health"
+    Result = Invoke-EndpointTest -Name "Health Check" -Method "GET" -Uri "$BaseUrl/health"
 }
 
-# Test 3: Order Confirmation
-$testCount++
-$orderBody = @{
-    customerEmail = $Email
-    customerName = "Quick Test User"
-    vehicleModel = "Tesla Model 3 Long Range"
-    totalPrice = 45000.00
-    orderId = "QT-$(Get-Random -Minimum 1000 -Maximum 9999)"
-}
-if (Test-Endpoint -Name "Send Order Confirmation" -Method "POST" -Uri "$BaseUrl/api/notification/order-confirmation" -Body $orderBody) {
-    $passCount++
+$results += [pscustomobject]@{
+    Name   = "POST test-fcm"
+    Result = Invoke-EndpointTest -Name "POST test-fcm" -Method "POST" -Uri "$BaseUrl/api/notification/test-fcm" -Body @{
+        deviceToken = $DeviceToken
+        title       = "Quick Test"
+        body        = "Hello from QuickTest.ps1"
+    }
 }
 
-# Test 4: Test Drive Confirmation
-$testCount++
-$testDriveBody = @{
-    customerEmail = $Email
-    customerName = "Quick Test User"
-    vehicleModel = "Tesla Model Y Performance"
-    scheduledDate = (Get-Date).AddDays(7).ToString("yyyy-MM-ddTHH:mm:ss")
-}
-if (Test-Endpoint -Name "Send Test Drive Confirmation" -Method "POST" -Uri "$BaseUrl/api/notification/test-drive-confirmation" -Body $testDriveBody) {
-    $passCount++
+$results += [pscustomobject]@{
+    Name   = "POST subscribe-topic"
+    Result = Invoke-EndpointTest -Name "POST subscribe-topic" -Method "POST" -Uri "$BaseUrl/api/notification/subscribe-topic" -Body @{
+        deviceToken = $DeviceToken
+        topic       = $Topic
+    }
 }
 
-# Test 5: Simple SMS
-$testCount++
-$smsBody = @{
-    phoneNumber = $Phone
-    message = "Quick test SMS from NotificationService"
-}
-if (Test-Endpoint -Name "Send Simple SMS" -Method "POST" -Uri "$BaseUrl/api/notification/test-sms" -Body $smsBody) {
-    $passCount++
+$results += [pscustomobject]@{
+    Name   = "POST unsubscribe-topic"
+    Result = Invoke-EndpointTest -Name "POST unsubscribe-topic" -Method "POST" -Uri "$BaseUrl/api/notification/unsubscribe-topic" -Body @{
+        deviceToken = $DeviceToken
+        topic       = $Topic
+    }
 }
 
-# Test 6: Reservation Confirmation
-$testCount++
-$reservationBody = @{
-    customerPhone = $Phone
-    customerName = "Quick Test User"
-    vehicleModel = "Tesla Model S Plaid"
-    colorName = "Pearl White Multi-Coat"
+$results += [pscustomobject]@{
+    Name   = "POST send-to-topic"
+    Result = Invoke-EndpointTest -Name "POST send-to-topic" -Method "POST" -Uri "$BaseUrl/api/notification/send-to-topic" -Body @{
+        topic = $Topic
+        title = "Quick Test"
+        body  = "Hello from QuickTest.ps1"
+    }
 }
-if (Test-Endpoint -Name "Send Reservation Confirmation" -Method "POST" -Uri "$BaseUrl/api/notification/reservation-confirmation" -Body $reservationBody) {
-    $passCount++
+
+$results += [pscustomobject]@{
+    Name   = "POST send-multicast"
+    Result = Invoke-EndpointTest -Name "POST send-multicast" -Method "POST" -Uri "$BaseUrl/api/notification/send-multicast" -Body @{
+        deviceTokens = @($DeviceToken)
+        title        = "Quick Test"
+        body         = "Hello from QuickTest.ps1"
+    }
 }
 
 # Summary
+$passCount = @($results | Where-Object { $_.Result -eq 'PASS' }).Count
+$reachableCount = @($results | Where-Object { $_.Result -eq 'REACHABLE' }).Count
+$failCount = @($results | Where-Object { $_.Result -eq 'FAIL' }).Count
+
 Write-Host "`n`n╔═══════════════════════════════════════════════════╗" -ForegroundColor Cyan
 Write-Host "║                  TEST SUMMARY                     ║" -ForegroundColor Cyan
 Write-Host "╚═══════════════════════════════════════════════════╝" -ForegroundColor Cyan
 
-$passRate = [math]::Round(($passCount / $testCount) * 100, 2)
+$results | Format-Table -Property Name, Result -AutoSize | Out-String | Write-Host
 
-Write-Host "`nTotal Tests: $testCount" -ForegroundColor White
-Write-Host "Passed: $passCount" -ForegroundColor Green
-Write-Host "Failed: $($testCount - $passCount)" -ForegroundColor Red
-Write-Host "Pass Rate: $passRate%" -ForegroundColor $(if ($passRate -eq 100) { "Green" } elseif ($passRate -ge 50) { "Yellow" } else { "Red" })
+Write-Host "PASS: $passCount  |  REACHABLE: $reachableCount  |  FAIL: $failCount" -ForegroundColor $(if ($failCount -eq 0) { "Green" } else { "Red" })
 
-if ($passCount -eq $testCount) {
-    Write-Host "`n✓ ALL TESTS PASSED! 🎉" -ForegroundColor Green
-} else {
-    Write-Host "`n⚠ SOME TESTS FAILED" -ForegroundColor Yellow
+if ($failCount -gt 0) {
+    Write-Host "`nCÓ ENDPOINT BỊ FAIL (404/5xx/lỗi kết nối) — kiểm tra service có chạy không." -ForegroundColor Red
+    exit 1
 }
-
-Write-Host "`nNext Steps:" -ForegroundColor Cyan
-Write-Host "1. Check email inbox: $Email" -ForegroundColor White
-Write-Host "2. Check phone for SMS: $Phone" -ForegroundColor White
-Write-Host "3. Review logs: .\Logs\notification-service-*.log" -ForegroundColor White
-Write-Host "4. View Swagger UI: $BaseUrl/swagger" -ForegroundColor White
-
-Write-Host "`n" -ForegroundColor White
+Write-Host "`nKhông có FAIL — mọi endpoint đều phản hồi." -ForegroundColor Green
+if ($reachableCount -gt 0) {
+    Write-Host "(REACHABLE = endpoint sống nhưng bị 4xx — với token placeholder là bình thường.)" -ForegroundColor Yellow
+}
+exit 0
 
 # Usage
 <#
 .EXAMPLE
 .\QuickTest.ps1
-Run all tests with default email and phone
+Smoke test health + 5 FCM endpoint với token placeholder (FCM endpoints sẽ REACHABLE).
 
 .EXAMPLE
-.\QuickTest.ps1 -Email "myemail@gmail.com"
-Run tests with custom email
+.\QuickTest.ps1 -DeviceToken "real_device_token"
+Chạy với device token thật để FCM endpoints PASS.
 
 .EXAMPLE
-.\QuickTest.ps1 -Email "myemail@gmail.com" -Phone "+84987654321"
-Run tests with custom email and phone
-
-.EXAMPLE
-.\QuickTest.ps1 -BaseUrl "http://localhost:5005"
-Run tests against specific service URL
+.\QuickTest.ps1 -BaseUrl "http://localhost:5051" -Topic "my-topic"
+Chỉ định service URL và topic riêng.
 #>
