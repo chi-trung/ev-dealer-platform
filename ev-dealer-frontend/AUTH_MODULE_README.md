@@ -1,7 +1,7 @@
 # 🔐 Authentication Module - Implementation Guide
 
 **Người phụ trách:** Nguyen Chi Trung  
-**Deadline:** 27/10/2025
+**Deadline:** 27/10/2025 (đã hoàn thành — auth backend live qua API Gateway, xem Known Issues bên dưới)
 
 ---
 
@@ -256,8 +256,8 @@ Response: { success, message }  // used by the Settings page
 
 **Developer:** Nguyen Chi Trung  
 **Module:** Authentication  
-**Status:** ✅ Complete (Frontend)  
-**Last Updated:** 2025-10-20
+**Status:** ✅ Complete (frontend + backend integration done)  
+**Last Updated:** 2026-10-01
 
 ---
 
@@ -271,5 +271,5 @@ All authentication pages are **100% complete** with:
 - ✅ API integration ready
 - ✅ Responsive design
 
-**Ready for backend integration!** 🚀
+**Backend integration done** — UserService endpoints live behind the API Gateway (port 5036); frontend calls the real API, no mock layer.
 
