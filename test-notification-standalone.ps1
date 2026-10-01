@@ -18,7 +18,7 @@ Write-Host "`n[Step 2] Starting NotificationService..." -ForegroundColor Yellow
 Write-Host "  Starting on port 5051..." -ForegroundColor Gray
 
 $notificationJob = Start-Job -ScriptBlock {
-    Set-Location "D:\Nam_3\ev-dealer-management\ev-dealer-management\NotificationService"
+    Set-Location "$PSScriptRoot\ev-dealer-management\NotificationService"
     dotnet run 2>&1
 }
 

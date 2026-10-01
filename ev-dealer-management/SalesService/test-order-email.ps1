@@ -20,7 +20,7 @@ if ($rabbitmq) {
 
 # Check NotificationService
 try {
-    $notif = Invoke-RestMethod -Uri "http://localhost:5051/notifications/health" -TimeoutSec 3 -ErrorAction Stop
+    $notif = Invoke-RestMethod -Uri "http://localhost:5051/health" -TimeoutSec 3 -ErrorAction Stop
     Write-Host "   NotificationService is running (Port 5051)" -ForegroundColor Green
 } catch {
     Write-Host "   NotificationService is NOT running!" -ForegroundColor Red
@@ -36,7 +36,7 @@ try {
     Write-Host "   SalesService is NOT running!" -ForegroundColor Yellow
     Write-Host "   Starting SalesService..." -ForegroundColor Yellow
     
-    $salesPath = "D:\Nam_3\ev-dealer-management\ev-dealer-management\SalesService"
+    $salesPath = $PSScriptRoot
     Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$salesPath'; Write-Host 'SalesService' -ForegroundColor Cyan; dotnet run"
     
     Write-Host "   Waiting 10 seconds for SalesService to start..." -ForegroundColor Yellow
