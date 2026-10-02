@@ -116,5 +116,5 @@ try {
 }
 
 Write-Host "`nBạn có thể test các endpoints khác tại: http://localhost:5208/swagger" -ForegroundColor Yellow
-Write-Host "Xem hướng dẫn chi tiết trong file: QUICK_TEST_GUIDE.md`n" -ForegroundColor Yellow
+Write-Host "Xem hướng dẫn chi tiết trong file: TESTING.md`n" -ForegroundColor Yellow
 
