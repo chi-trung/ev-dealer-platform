@@ -144,11 +144,20 @@ jobs:
           # fails if the project is missing or has no tests.
           #
           # EVM_TEST_POSTGRES / EVM_TEST_RABBITMQ_HOST come from the job-level
-          # env above, so the 9 infrastructure tests run instead of skipping. A
+          # env above, so the 13 infrastructure tests run instead of skipping. A
           # regression that makes them SKIP again (a renamed variable, a removed
           # service block, or the warm half of this step being dropped) would
-          # show up as "skipped: 9" in the log — read the counts, not just the
-          # exit code. Expected: 314 passed, 0 failed, 0 skipped.
+          # show up as "skipped: 13" in the log — read the counts, not just the
+          # exit code.
+          #
+          # Counts below were MEASURED on a dev machine with no broker and no
+          # Postgres (Docker is not used on that machine):
+          #     335 passed, 0 failed, 13 skipped  (total 348)
+          # CI supplies both services, so the 13 run there and the expectation
+          # is 348 passed, 0 failed, 0 skipped — derived by arithmetic from the
+          # measured local run, not observed on a CI run yet. The previous
+          # "314 passed" figure had drifted from reality and the 9 skip count
+          # was likewise wrong; both were corrected against measured output.
           dotnet test DealerSystem.Tests/NotificationService.Tests/NotificationService.Tests.csproj --no-build
           TEST_STATUS=$?
 

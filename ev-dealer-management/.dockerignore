@@ -30,7 +30,6 @@ check-health.ps1
 start-all-services.ps1
 start-testdrive-services.ps1
 test-all-flows.ps1
-test-testdrive-flow.ps1
 report_test.csv
 users.db*
 .env
