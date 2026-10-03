@@ -1,19 +1,59 @@
 # Script Import Test Data cho ReportingService
-# Sử dụng: .\import-test-data.ps1
+# Sử dụng: .\import-test-data.ps1 [-BaseUrl <url>] [-Token <jwt>]
+# - Tất cả endpoint đều yêu cầu JWT: tự mint từ appsettings.json Jwt:Key,
+#   hoặc truyền -Token nếu service đang chạy với key khác (env Jwt__Key).
+# - dealerId/salespersonId/vehicleId là int (model binding từ GUID → 400).
 
-$baseUrl = "http://localhost:5208/api/reports"
+param(
+    [string]$BaseUrl = "http://localhost:5208/api/reports",
+    [string]$Token = ""
+)
 
 Write-Host "`n========================================" -ForegroundColor Cyan
 Write-Host "  IMPORT TEST DATA - ReportingService" -ForegroundColor Cyan
 Write-Host "========================================`n" -ForegroundColor Cyan
 
+# ===== LẤY TOKEN =====
+if (-not $Token) {
+    try {
+        $cfgPath = Join-Path $PSScriptRoot "appsettings.json"
+        $jwtKey = (Get-Content $cfgPath -Raw | ConvertFrom-Json).Jwt.Key
+        if (-not $jwtKey) { throw "Jwt.Key không có trong appsettings.json" }
+
+        function ConvertTo-Base64Url([byte[]]$Bytes) {
+            [Convert]::ToBase64String($Bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_')
+        }
+        $h = ConvertTo-Base64Url ([Text.Encoding]::UTF8.GetBytes('{"alg":"HS256","typ":"JWT"}'))
+        $now = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+        $payload = [ordered]@{ sub = "1"; iat = $now; exp = $now + 3600; iss = "evm.local"; aud = "evm.local" }
+        $p = ConvertTo-Base64Url ([Text.Encoding]::UTF8.GetBytes(($payload | ConvertTo-Json -Compress)))
+        $hmac = New-Object System.Security.Cryptography.HMACSHA256
+        $hmac.Key = [byte[]][Text.Encoding]::UTF8.GetBytes($jwtKey)
+        $sig = ConvertTo-Base64Url ($hmac.ComputeHash([Text.Encoding]::UTF8.GetBytes("$h.$p")))
+        $Token = "$h.$p.$sig"
+        Write-Host "✓ Đã mint JWT tự động (hết hạn sau 1 giờ, key từ appsettings.json)" -ForegroundColor Green
+    } catch {
+        Write-Host "✗ Không mint được token: $($_.Exception.Message)" -ForegroundColor Red
+        Write-Host "   Truyền token thủ công: .\import-test-data.ps1 -Token <jwt> (xem TESTING.md mục 2)" -ForegroundColor Yellow
+        exit 1
+    }
+}
+$auth = @{ Authorization = "Bearer $Token" }
+
 # Kiểm tra service có đang chạy không
 try {
-    $testResponse = Invoke-WebRequest -Uri "$baseUrl/sales-summary" -Method Get -TimeoutSec 2 -ErrorAction Stop
-    Write-Host "✓ Service đang chạy tại $baseUrl" -ForegroundColor Green
+    Invoke-WebRequest -Uri "$BaseUrl/sales-summary" -Method Get -Headers $auth -TimeoutSec 2 -ErrorAction Stop | Out-Null
+    Write-Host "✓ Service đang chạy tại $BaseUrl (JWT hợp lệ)" -ForegroundColor Green
 } catch {
-    Write-Host "✗ Lỗi: Service không chạy hoặc không thể kết nối!" -ForegroundColor Red
-    Write-Host "   Hãy chạy: cd ReportingService ; dotnet run   # SQLite là mặc định" -ForegroundColor Yellow
+    $code = 0
+    try { $code = [int]$_.Exception.Response.StatusCode } catch { }
+    if ($code -eq 401 -or $code -eq 403) {
+        Write-Host "✗ Lỗi: HTTP $code — JWT không hợp lệ/hết hạn." -ForegroundColor Red
+        Write-Host "   Nếu service chạy với env Jwt__Key khác appsettings.json, truyền -Token <jwt>." -ForegroundColor Yellow
+    } else {
+        Write-Host "✗ Lỗi: Service không chạy hoặc không thể kết nối!" -ForegroundColor Red
+        Write-Host "   Hãy chạy: `$env:ConnectionStrings__DefaultConnection='Data Source=reporting_dev.db'; dotnet run --no-launch-profile --urls http://localhost:5208" -ForegroundColor Yellow
+    }
     exit 1
 }
 
@@ -21,15 +61,15 @@ try {
 Write-Host "`n=== Importing Sales Summary Data ===" -ForegroundColor Green
 
 $salesData = @(
-    @{ date = "2025-01-05T00:00:00Z"; dealerId = "a1b2c3d4-e5f6-4a5b-8c9d-1e2f3a4b5c6d"; dealerName = "Dealer Hà Nội"; region = "Miền Bắc"; salespersonId = "11111111-2222-3333-4444-555555555551"; salespersonName = "Nguyễn Văn A"; totalOrders = 6; totalRevenue = 1800000000 },
-    @{ date = "2025-02-14T00:00:00Z"; dealerId = "a1b2c3d4-e5f6-4a5b-8c9d-1e2f3a4b5c6d"; dealerName = "Dealer Hà Nội"; region = "Miền Bắc"; salespersonId = "11111111-2222-3333-4444-555555555552"; salespersonName = "Trần Thị B"; totalOrders = 9; totalRevenue = 2700000000 },
-    @{ date = "2025-03-02T00:00:00Z"; dealerId = "a1b2c3d4-e5f6-4a5b-8c9d-1e2f3a4b5c6d"; dealerName = "Dealer Hà Nội"; region = "Miền Bắc"; salespersonId = "11111111-2222-3333-4444-555555555553"; salespersonName = "Lý Quốc C"; totalOrders = 8; totalRevenue = 2560000000 },
-    @{ date = "2025-01-12T00:00:00Z"; dealerId = "b2c3d4e5-f6a7-4b5c-9d0e-2f3a4b5c6d7e"; dealerName = "Dealer TP.HCM"; region = "Miền Nam"; salespersonId = "22222222-3333-4444-5555-666666666661"; salespersonName = "Lê Văn C"; totalOrders = 11; totalRevenue = 3520000000 },
-    @{ date = "2025-02-18T00:00:00Z"; dealerId = "b2c3d4e5-f6a7-4b5c-9d0e-2f3a4b5c6d7e"; dealerName = "Dealer TP.HCM"; region = "Miền Nam"; salespersonId = "22222222-3333-4444-5555-666666666662"; salespersonName = "Phạm Thị D"; totalOrders = 7; totalRevenue = 2240000000 },
-    @{ date = "2025-03-08T00:00:00Z"; dealerId = "b2c3d4e5-f6a7-4b5c-9d0e-2f3a4b5c6d7e"; dealerName = "Dealer TP.HCM"; region = "Miền Nam"; salespersonId = "22222222-3333-4444-5555-666666666663"; salespersonName = "Đỗ Minh E"; totalOrders = 9; totalRevenue = 2970000000 },
-    @{ date = "2025-01-20T00:00:00Z"; dealerId = "c3d4e5f6-a7b8-4c5d-0e1f-3a4b5c6d7e8f"; dealerName = "Dealer Đà Nẵng"; region = "Miền Trung"; salespersonId = "33333333-4444-5555-6666-777777777771"; salespersonName = "Hoàng Văn E"; totalOrders = 5; totalRevenue = 1400000000 },
-    @{ date = "2025-02-10T00:00:00Z"; dealerId = "c3d4e5f6-a7b8-4c5d-0e1f-3a4b5c6d7e8f"; dealerName = "Dealer Đà Nẵng"; region = "Miền Trung"; salespersonId = "33333333-4444-5555-6666-777777777772"; salespersonName = "Võ Thu F"; totalOrders = 6; totalRevenue = 1740000000 },
-    @{ date = "2025-03-05T00:00:00Z"; dealerId = "c3d4e5f6-a7b8-4c5d-0e1f-3a4b5c6d7e8f"; dealerName = "Dealer Đà Nẵng"; region = "Miền Trung"; salespersonId = "33333333-4444-5555-6666-777777777773"; salespersonName = "Nguyễn Hà G"; totalOrders = 4; totalRevenue = 1160000000 }
+    @{ date = "2025-01-05T00:00:00Z"; dealerId = 1; dealerName = "Dealer Hà Nội"; region = "Miền Bắc"; salespersonId = 11; salespersonName = "Nguyễn Văn A"; totalOrders = 6; totalRevenue = 1800000000 },
+    @{ date = "2025-02-14T00:00:00Z"; dealerId = 1; dealerName = "Dealer Hà Nội"; region = "Miền Bắc"; salespersonId = 11; salespersonName = "Nguyễn Văn A"; totalOrders = 9; totalRevenue = 2700000000 },
+    @{ date = "2025-03-02T00:00:00Z"; dealerId = 1; dealerName = "Dealer Hà Nội"; region = "Miền Bắc"; salespersonId = 12; salespersonName = "Trần Thị B"; totalOrders = 8; totalRevenue = 2560000000 },
+    @{ date = "2025-01-12T00:00:00Z"; dealerId = 3; dealerName = "Dealer TP.HCM"; region = "Miền Nam"; salespersonId = 31; salespersonName = "Lê Văn C"; totalOrders = 11; totalRevenue = 3520000000 },
+    @{ date = "2025-02-18T00:00:00Z"; dealerId = 3; dealerName = "Dealer TP.HCM"; region = "Miền Nam"; salespersonId = 31; salespersonName = "Lê Văn C"; totalOrders = 7; totalRevenue = 2240000000 },
+    @{ date = "2025-03-08T00:00:00Z"; dealerId = 3; dealerName = "Dealer TP.HCM"; region = "Miền Nam"; salespersonId = 32; salespersonName = "Phạm Thị D"; totalOrders = 9; totalRevenue = 2970000000 },
+    @{ date = "2025-01-20T00:00:00Z"; dealerId = 2; dealerName = "Dealer Đà Nẵng"; region = "Miền Trung"; salespersonId = 21; salespersonName = "Hoàng Văn E"; totalOrders = 5; totalRevenue = 1400000000 },
+    @{ date = "2025-02-10T00:00:00Z"; dealerId = 2; dealerName = "Dealer Đà Nẵng"; region = "Miền Trung"; salespersonId = 21; salespersonName = "Hoàng Văn E"; totalOrders = 6; totalRevenue = 1740000000 },
+    @{ date = "2025-03-05T00:00:00Z"; dealerId = 2; dealerName = "Dealer Đà Nẵng"; region = "Miền Trung"; salespersonId = 22; salespersonName = "Võ Thu F"; totalOrders = 4; totalRevenue = 1160000000 }
 )
 
 $salesSuccess = 0
@@ -37,7 +77,7 @@ $salesFailed = 0
 
 foreach ($item in $salesData) {
     try {
-        $response = Invoke-RestMethod -Uri "$baseUrl/sales-summary" -Method Post `
+        $response = Invoke-RestMethod -Uri "$BaseUrl/sales-summary" -Method Post -Headers $auth `
             -Body ($item | ConvertTo-Json) -ContentType "application/json" -ErrorAction Stop
         if ($response.success) {
             $salesSuccess++
@@ -58,12 +98,12 @@ Write-Host "`nSales Summary: $salesSuccess thành công, $salesFailed lỗi" -Fo
 Write-Host "`n=== Importing Inventory Summary Data ===" -ForegroundColor Green
 
 $inventoryData = @(
-    @{ vehicleId = "v1111111-1111-1111-1111-111111111111"; vehicleName = "Tesla Model 3"; dealerId = "a1b2c3d4-e5f6-4a5b-8c9d-1e2f3a4b5c6d"; dealerName = "Dealer Hà Nội"; region = "Miền Bắc"; stockCount = 18 },
-    @{ vehicleId = "v9991111-1111-1111-1111-111111111111"; vehicleName = "VinFast VF9"; dealerId = "a1b2c3d4-e5f6-4a5b-8c9d-1e2f3a4b5c6d"; dealerName = "Dealer Hà Nội"; region = "Miền Bắc"; stockCount = 12 },
-    @{ vehicleId = "v3333333-3333-3333-3333-333333333333"; vehicleName = "Audi e-tron"; dealerId = "b2c3d4e5-f6a7-4b5c-9d0e-2f3a4b5c6d7e"; dealerName = "Dealer TP.HCM"; region = "Miền Nam"; stockCount = 14 },
-    @{ vehicleId = "v4444444-4444-4444-4444-444444444444"; vehicleName = "Mercedes EQE"; dealerId = "b2c3d4e5-f6a7-4b5c-9d0e-2f3a4b5c6d7e"; dealerName = "Dealer TP.HCM"; region = "Miền Nam"; stockCount = 9 },
-    @{ vehicleId = "v5555555-5555-5555-5555-555555555555"; vehicleName = "Porsche Taycan"; dealerId = "c3d4e5f6-a7b8-4c5d-0e1f-3a4b5c6d7e8f"; dealerName = "Dealer Đà Nẵng"; region = "Miền Trung"; stockCount = 7 },
-    @{ vehicleId = "v5559999-5555-5555-5555-555555555555"; vehicleName = "Hyundai Ioniq 5"; dealerId = "c3d4e5f6-a7b8-4c5d-0e1f-3a4b5c6d7e8f"; dealerName = "Dealer Đà Nẵng"; region = "Miền Trung"; stockCount = 11 }
+    @{ vehicleId = 1; vehicleName = "Tesla Model 3"; dealerId = 1; dealerName = "Dealer Hà Nội"; region = "Miền Bắc"; stockCount = 18 },
+    @{ vehicleId = 2; vehicleName = "VinFast VF9"; dealerId = 1; dealerName = "Dealer Hà Nội"; region = "Miền Bắc"; stockCount = 12 },
+    @{ vehicleId = 3; vehicleName = "Audi e-tron"; dealerId = 3; dealerName = "Dealer TP.HCM"; region = "Miền Nam"; stockCount = 14 },
+    @{ vehicleId = 4; vehicleName = "Mercedes EQE"; dealerId = 3; dealerName = "Dealer TP.HCM"; region = "Miền Nam"; stockCount = 9 },
+    @{ vehicleId = 5; vehicleName = "Porsche Taycan"; dealerId = 2; dealerName = "Dealer Đà Nẵng"; region = "Miền Trung"; stockCount = 7 },
+    @{ vehicleId = 6; vehicleName = "Hyundai Ioniq 5"; dealerId = 2; dealerName = "Dealer Đà Nẵng"; region = "Miền Trung"; stockCount = 11 }
 )
 
 $inventorySuccess = 0
@@ -71,7 +111,7 @@ $inventoryFailed = 0
 
 foreach ($item in $inventoryData) {
     try {
-        $response = Invoke-RestMethod -Uri "$baseUrl/inventory-summary" -Method Post `
+        $response = Invoke-RestMethod -Uri "$BaseUrl/inventory-summary" -Method Post -Headers $auth `
             -Body ($item | ConvertTo-Json) -ContentType "application/json" -ErrorAction Stop
         if ($response.success) {
             $inventorySuccess++
@@ -99,22 +139,21 @@ Write-Host "Lỗi: $($salesFailed + $inventoryFailed) records" -ForegroundColor 
 Write-Host "`n=== Kiểm tra dữ liệu đã import ===" -ForegroundColor Yellow
 
 try {
-    $salesCheck = Invoke-RestMethod -Uri "$baseUrl/sales-summary" -Method Get
+    $salesCheck = Invoke-RestMethod -Uri "$BaseUrl/sales-summary" -Method Get -Headers $auth
     Write-Host "✓ Sales Summary: $($salesCheck.count) records" -ForegroundColor Green
-    
-    $inventoryCheck = Invoke-RestMethod -Uri "$baseUrl/inventory-summary" -Method Get
+
+    $inventoryCheck = Invoke-RestMethod -Uri "$BaseUrl/inventory-summary" -Method Get -Headers $auth
     Write-Host "✓ Inventory Summary: $($inventoryCheck.count) records" -ForegroundColor Green
-    
-    $summaryCheck = Invoke-RestMethod -Uri "http://localhost:5208/api/reports/summary" -Method Get
+
+    $summaryCheck = Invoke-RestMethod -Uri "$BaseUrl/summary" -Method Get -Headers $auth
     Write-Host "✓ Summary Metrics:" -ForegroundColor Green
     Write-Host "  - Total Sales: $($summaryCheck.metrics.totalSales)" -ForegroundColor Cyan
     Write-Host "  - Total Revenue: $($summaryCheck.metrics.totalRevenue)" -ForegroundColor Cyan
     Write-Host "  - Active Dealers: $($summaryCheck.metrics.activeDealers)/$($summaryCheck.metrics.totalDealers)" -ForegroundColor Cyan
-    
+
 } catch {
     Write-Host "✗ Không thể kiểm tra dữ liệu: $($_.Exception.Message)" -ForegroundColor Red
 }
 
 Write-Host "`nBạn có thể test các endpoints khác tại: http://localhost:5208/swagger" -ForegroundColor Yellow
 Write-Host "Xem hướng dẫn chi tiết trong file: TESTING.md`n" -ForegroundColor Yellow
-
