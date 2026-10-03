@@ -29,6 +29,12 @@ namespace NotificationService.Services
         // that is down for good does not fill the log with connection errors.
         private const int MaxBackoffSeconds = 30;
 
+        // How long ExecuteAsync waits for one connect attempt before giving up
+        // on it and looping. Must exceed RabbitMQ:ConnectionTimeoutSeconds
+        // (default 10s) so the normal failure path is the consumer's own
+        // timeout, not this one; the gap is slack, not a second mechanism.
+        private const int ConnectionGraceSeconds = 15;
+
         private readonly IMessageConsumer _messageConsumer;
         private readonly ILogger<RabbitMQConsumerHostedService> _logger;
 
@@ -48,7 +54,32 @@ namespace NotificationService.Services
                 double delaySeconds = 0;
                 try
                 {
-                    _messageConsumer.StartConsuming();
+                    // StartConsuming -> InitializeRabbitMQ -> CreateConnection()
+                    // is synchronous in RabbitMQ.Client 6.8.1. Called directly
+                    // here it would block the thread the host awaits in
+                    // StartAsync, which is why the port never bound when the
+                    // broker was absent: the host had not reached app.Run() yet.
+                    // Run it off-thread and stop waiting after ConnectionGrace so
+                    // a hung connect cannot hold startup open; the orphaned task
+                    // is abandoned, not awaited, and the backoff loop below is
+                    // what actually re-establishes the connection.
+                    var connect = Task.Run(_messageConsumer.StartConsuming, stoppingToken);
+                    var grace = TimeSpan.FromSeconds(ConnectionGraceSeconds);
+                    if (await Task.WhenAny(connect, Task.Delay(grace, stoppingToken)) != connect)
+                    {
+                        _logger.LogWarning(
+                            "RabbitMQ connect did not complete within {Grace}s; retrying without waiting for it.",
+                            ConnectionGraceSeconds);
+                        attempt++;
+                        delaySeconds = Math.Min(MaxBackoffSeconds, Math.Pow(2, Math.Min(attempt, 5)));
+                        await Task.Delay(TimeSpan.FromSeconds(delaySeconds), stoppingToken);
+                        continue;
+                    }
+
+                    // Propagate a failure from the connect task into the catch
+                    // below rather than swallowing it, so backoff still applies.
+                    await connect;
+
                     // StartConsuming is fire-and-forget (EventingBasicConsumer
                     // dispatches on its own threads), so a successful call does
                     // not mean the queues stay healthy - a broker that dies
