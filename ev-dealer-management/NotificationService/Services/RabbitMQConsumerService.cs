@@ -73,11 +73,21 @@ namespace NotificationService.Services
         {
             _configuration = configuration;
             _serviceProvider = serviceProvider;
-            InitializeRabbitMQ();
         }
 
         private string QueueName(string key, string fallback) =>
             _configuration[$"RabbitMQ:Queues:{key}"] ?? fallback;
+
+        /// <summary>
+        /// Bound on the synchronous CreateConnection() call. Config value is in
+        /// seconds; a malformed or non-positive value falls back to 10s rather
+        /// than throwing, because a bad timeout must not be able to stop the
+        /// service from booting at all.
+        /// </summary>
+        private TimeSpan ConnectionTimeout() =>
+            int.TryParse(_configuration["RabbitMQ:ConnectionTimeoutSeconds"], out var seconds) && seconds > 0
+                ? TimeSpan.FromSeconds(seconds)
+                : TimeSpan.FromSeconds(10);
 
         private void InitializeRabbitMQ()
         {
@@ -90,7 +100,15 @@ namespace NotificationService.Services
                         HostName = _configuration["RabbitMQ:HostName"],
                         Port = int.Parse(_configuration["RabbitMQ:Port"] ?? "5672"),
                         UserName = _configuration["RabbitMQ:UserName"],
-                        Password = _configuration["RabbitMQ:Password"]
+                        Password = _configuration["RabbitMQ:Password"],
+                        // RabbitMQ.Client 6.8.1 has no async connect, so
+                        // CreateConnection() below blocks the calling thread. The
+                        // library default is 30s; this is the only lever that
+                        // bounds how long a boot can be held hostage by a broker
+                        // that is not there yet, so it is kept short and
+                        // overridable. The hosted service retries with backoff,
+                        // which is where waiting belongs.
+                        RequestedConnectionTimeout = ConnectionTimeout()
                     };
 
                     _connection = factory.CreateConnection();
