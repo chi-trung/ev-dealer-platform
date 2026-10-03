@@ -154,10 +154,13 @@ jobs:
           # Postgres (Docker is not used on that machine):
           #     335 passed, 0 failed, 13 skipped  (total 348)
           # CI supplies both services, so the 13 run there and the expectation
-          # is 348 passed, 0 failed, 0 skipped — derived by arithmetic from the
-          # measured local run, not observed on a CI run yet. The previous
-          # "314 passed" figure had drifted from reality and the 9 skip count
-          # was likewise wrong; both were corrected against measured output.
+          # is 348 passed, 0 failed, 0 skipped. That was first arithmetic, then
+          # confirmed: run 37112876876 reported "Failed: 0, Passed: 348,
+          # Skipped: 0", so the 13 infra tests genuinely execute rather than
+          # skip. A drop in Passed or a non-zero Skipped here means one of those
+          # 13 went back to skipping. The previous "314 passed" figure had
+          # drifted from reality and the 9 skip count was likewise wrong; both
+          # were corrected against measured output.
           dotnet test DealerSystem.Tests/NotificationService.Tests/NotificationService.Tests.csproj --no-build
           TEST_STATUS=$?
 
