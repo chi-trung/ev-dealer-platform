@@ -80,6 +80,19 @@ namespace NotificationService.Services
                     // below rather than swallowing it, so backoff still applies.
                     await connect;
 
+                    // StartConsuming reports a failed connect by logging and
+                    // returning, so `await connect` completing does NOT mean
+                    // the broker is reachable. Without this check the catch
+                    // below never ran, delaySeconds stayed 0, and the loop
+                    // reconnected every few seconds forever with the backoff
+                    // schedule computed but never used - measured at 79 stack
+                    // traces in 5 minutes with zero attempts logged.
+                    if (!_messageConsumer.IsConnected)
+                    {
+                        throw new InvalidOperationException(
+                            "RabbitMQ connection is not open after StartConsuming.");
+                    }
+
                     // StartConsuming is fire-and-forget (EventingBasicConsumer
                     // dispatches on its own threads), so a successful call does
                     // not mean the queues stay healthy - a broker that dies
@@ -97,6 +110,12 @@ namespace NotificationService.Services
                     }
 
                     _logger.LogWarning("RabbitMQ connection dropped; re-initializing consumers.");
+                    // Resetting here is safe only because of the IsConnected
+                    // check above: this line is now reachable ONLY after a
+                    // connection was actually established and then lost, never
+                    // after a failed connect. That is what lets the reset be a
+                    // genuine fresh start while failures keep counting up
+                    // through the catch below.
                     attempt = 0;
                 }
                 catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
