@@ -178,15 +178,21 @@ try {
     $statusCode = 0
     try { $statusCode = [int]$_.Exception.Response.StatusCode } catch { }
     if ($statusCode -eq 503) {
-        # Khong co override nay /health tra 503 "Database is unreachable"
-        # (appsettings khai DefaultConnection Postgres-format, provider lai sqlite)
+        # 503 o day den tu AddDatabaseCheck<ReportingDbContext> (Program.cs:57,
+        # issue #135): /health probe DB that service actually opened, NOT a
+        # missing env override. Ban phai override ConnectionStrings__Default
+        # Connection chi khi appsettings.json khong con khai string hop le —
+        # hien no la "Data Source=reporting.db" (SQLite), va DbProviderSelector
+        # (Common/Data/DbProviderSelector.cs:97) defaults DB_PROVIDER=sqlite, so
+        # `cd ReportingService; dotnet run` la du. Do la dung ngay bay gio, 503
+        # nghia la DB that da mo bi khong reach.
         Write-Host " ❌ Unhealthy (HTTP 503)" -ForegroundColor Red
-        Write-Host "      Detail: GET http://localhost:5208/health — thieu SQLite override thi DB down" -ForegroundColor Gray
+        Write-Host "      Detail: GET http://localhost:5208/health — xem entries, kiem tra DB file cua ReportingService" -ForegroundColor Gray
     } elseif ($statusCode -gt 0) {
         Write-Host " ❌ HTTP $statusCode" -ForegroundColor Red
     } else {
         Write-Host " ❌ Not responding" -ForegroundColor Red
-        Write-Host "      Start: cd ReportingService; `$env:ConnectionStrings__DefaultConnection='Data Source=reporting_dev.db'; dotnet run" -ForegroundColor Yellow
+        Write-Host "      Start: cd ReportingService; dotnet run" -ForegroundColor Yellow
     }
     $allHealthy = $false
 }
@@ -262,7 +268,15 @@ foreach ($portInfo in $ports) {
     $port = $portInfo.Port
     $service = $portInfo.Service
 
-    $listening = netstat -ano | Select-String ":$port " | Select-Object -First 1
+    # Match the LOCAL address column only, and only a LISTENING row.
+    # `Select-String ":$port "` matched the port ANYWHERE on the line, so an
+    # ESTABLISHED connection whose REMOTE port happened to equal $port (e.g.
+    # a browser holding :15672) printed "Listening" for a port nothing was
+    # listening on. Regex: ":" + digits, then only space/slashes up to the end
+    # of the local-address field, then whitespace + LISTENING.
+    $listening = netstat -ano |
+        Select-String "^\s*TCP\s+\S*:$port(\s+0\.0\.0\.0:0|\s+\[::\]:0)?\s+LISTENING\s" |
+        Select-Object -First 1
 
     Write-Host "  - $port ($service):" -NoNewline
     if ($listening) {
